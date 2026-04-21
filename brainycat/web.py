@@ -676,3 +676,48 @@ async def extract_pdf_covers(_a: Any = Depends(require_admin)) -> dict[str, Any]
             await db.execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, r["id"])
             extracted += 1
     return {"extracted": extracted}
+
+
+# ── Fingerprints & Content Duplicates ────────────────────────────────────
+@app.post("/api/v1/fingerprints/compute")
+async def compute_fps(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.fingerprints import compute_all_fingerprints
+
+    return await compute_all_fingerprints(batch_size=50)
+
+
+@app.post("/api/v1/fingerprints/find-duplicates")
+async def find_fp_dupes(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.fingerprints import find_duplicates_by_content
+
+    return await find_duplicates_by_content(batch_size=100)
+
+
+@app.get("/api/v1/fingerprints/matches")
+async def get_fp_matches(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.fingerprints import get_duplicate_matches
+
+    return await get_duplicate_matches()
+
+
+@app.post("/api/v1/fingerprints/matches/{match_id}/{action}")
+async def resolve_fp_match(match_id: str, action: str, _u: Any = Depends(get_current_user)) -> dict[str, bool]:
+    from brainycat.fingerprints import resolve_match
+
+    return await resolve_match(match_id, action)
+
+
+@app.get("/api/v1/fingerprints/status")
+async def fp_status(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    total = await db.fetch_one("SELECT count(*) as n FROM book_fingerprints")
+    pending_fp = await db.fetch_one("""
+        SELECT count(*) as n FROM books b JOIN book_files bf ON bf.book_id = b.id
+        LEFT JOIN book_fingerprints fp ON fp.book_id = b.id
+        WHERE fp.book_id IS NULL AND bf.format IN ('epub','pdf')
+    """)
+    pending_matches = await db.fetch_one("SELECT count(*) as n FROM duplicate_matches WHERE status = 'pending'")
+    return {
+        "fingerprinted": total["n"] if total else 0,
+        "pending_fingerprint": pending_fp["n"] if pending_fp else 0,
+        "pending_matches": pending_matches["n"] if pending_matches else 0,
+    }

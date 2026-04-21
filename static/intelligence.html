@@ -1,148 +1,74 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BrainyCat — Intelligence</title>
 <style>
-:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6;--warn:#f59e0b;--success:#22c55e;--danger:#ef4444}
+:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6;--success:#22c55e;--warn:#f59e0b;--danger:#ef4444}
 *{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:var(--bg);color:var(--text)}
 header{background:var(--surface);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border);flex-wrap:wrap}
 header a{color:var(--muted);text-decoration:none}header h2{flex:1}
-header button{padding:.4rem .8rem;border-radius:6px;border:none;cursor:pointer;font-size:.85rem;color:#fff}
 nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(--muted);text-decoration:none}
-.container{max-width:1000px;margin:0 auto;padding:1.5rem}
-.section{margin-bottom:2rem}.section h3{margin-bottom:.8rem;color:var(--accent);display:flex;align-items:center;gap:.5rem}
-.count{background:var(--accent);color:#fff;font-size:.7rem;padding:.1rem .5rem;border-radius:10px}
-.batch-bar{display:none;background:var(--surface);padding:.6rem 1rem;border-radius:8px;margin-bottom:1rem;align-items:center;gap:.8rem;position:sticky;top:0;z-index:5;border:1px solid var(--accent)}
-.batch-bar.active{display:flex}
-.batch-bar span{flex:1;font-size:.85rem}
-.card{background:var(--surface);border-radius:8px;padding:.8rem 1rem;margin-bottom:.5rem;position:relative}
-.card .row{display:flex;align-items:flex-start;gap:.6rem}
-.card input[type=checkbox]{margin-top:.3rem;accent-color:var(--accent)}
-.card .body{flex:1}
-.card .title{font-weight:600;font-size:.9rem}.card .detail{font-size:.82rem;color:var(--muted);margin-top:.2rem;line-height:1.5}
-.card .actions{margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap}
-.card .actions button{padding:.3rem .6rem;border-radius:5px;border:none;cursor:pointer;font-size:.78rem;color:#fff}
-.btn-a{background:var(--success)}.btn-r{background:var(--danger)}.btn-e{background:var(--accent)}.btn-w{background:var(--warn)}
-.conf{position:absolute;top:.6rem;right:.8rem;font-size:.72rem;padding:.15rem .45rem;border-radius:4px;font-weight:600}
-.ch{background:#166534;color:#86efac}.cm{background:#854d0e;color:#fbbf24}.cl{background:#991b1b;color:#fca5a5}
-.empty{color:var(--muted);font-style:italic;padding:.5rem 0}
-.edit-input{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.25rem .4rem;border-radius:4px;font-size:.82rem;width:180px}
-.tag{display:inline-block;font-size:.7rem;padding:.1rem .35rem;border-radius:3px;margin-right:.2rem;background:var(--border);color:var(--muted)}
-.tag.fmt{background:#164e63;color:#67e8f9}
-.done{color:var(--success);padding:.5rem;font-size:.85rem}
+.container{max-width:900px;margin:0 auto;padding:1.5rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem}
+.icard{background:var(--surface);border-radius:10px;padding:1.2rem;cursor:pointer;transition:transform .1s;border:1px solid var(--border)}
+.icard:hover{transform:translateY(-2px);border-color:var(--accent)}
+.icard h3{font-size:1rem;margin-bottom:.4rem;display:flex;align-items:center;gap:.5rem}
+.icard .count{background:var(--accent);color:#fff;font-size:.7rem;padding:.1rem .5rem;border-radius:10px}
+.icard .count.warn{background:var(--warn)}.icard .count.danger{background:var(--danger)}
+.icard p{font-size:.82rem;color:var(--muted);line-height:1.5}
+.icard .meta{font-size:.72rem;color:var(--border);margin-top:.5rem}
+.actions{margin-top:1.5rem;display:flex;gap:.5rem;flex-wrap:wrap}
+.actions button{padding:.5rem 1rem;border-radius:6px;border:none;cursor:pointer;font-size:.85rem;color:#fff}
 </style></head><body>
-<header>
-<a href="index.html">← Library</a><h2>🧠 Library Intelligence</h2>
-<button style="background:var(--accent)" onclick="optimizeCovers(this)">📐 Optimize Covers</button>
-<button style="background:var(--success)" onclick="generateCovers(this)">🎨 Generate Covers</button>
+<header><a href="index.html">← Library</a><h2>🧠 Library Intelligence</h2>
 <nav><a href="catalog.html">📖 Catalog</a><a href="incoming.html">📥 Incoming</a><a href="intelligence.html">🧠 Intel</a><a href="stats.html">📊 Stats</a><a href="recommendations.html">💡 For You</a></nav>
 </header>
 <div class="container">
-<div class="batch-bar" id="batch-bar"><input type="checkbox" id="select-all" onchange="toggleAll(this.checked)"><span id="batch-count">0 selected</span><button class="btn-a" onclick="applyBatch()">✓ Apply Selected</button><button class="btn-r" onclick="clearSelection()">✕ Clear</button></div>
-<div class="section" id="dupes"><h3>🔄 Duplicates & Format Variants</h3><div class="empty">Loading...</div></div>
-<div class="section" id="authors"><h3>👤 Author Cleanup</h3><div class="empty">Loading...</div></div>
-<div class="section" id="series"><h3>📚 Series Detection</h3><div class="empty">Loading...</div></div>
-<div class="section" id="quality"><h3>🔍 Quality Issues</h3><div class="empty">Loading...</div></div>
+<div class="cards" id="cards">Loading...</div>
+<div class="actions">
+<button style="background:var(--accent)" onclick="runAction('/covers/optimize',this)">📐 Optimize Covers</button>
+<button style="background:var(--success)" onclick="runAction('/covers/generate-missing',this)">🎨 Generate Covers</button>
+<button style="background:var(--accent)" onclick="runAction('/covers/extract-pdf',this)">📄 PDF Covers</button>
+<button style="background:var(--warn)" onclick="runAction('/fingerprints/compute',this)">🔍 Compute Fingerprints</button>
+<button style="background:var(--warn)" onclick="runAction('/fingerprints/find-duplicates',this)">🔎 Find Content Dupes</button>
+</div>
 </div>
 <script src="api.js"></script>
 <script>
-let selected = new Map(); // id -> action object
-function cc(c){return c>=75?'ch':c>=50?'cm':'cl'}
-function updateBatchBar(){
-    const bar=document.getElementById('batch-bar');
-    const n=selected.size;
-    document.getElementById('batch-count').textContent=n+' selected';
-    bar.classList.toggle('active',n>0);
-}
-function toggleAll(checked){
-    document.querySelectorAll('.sel-cb').forEach(cb=>{cb.checked=checked;onCheck(cb)});
-}
-function onCheck(cb){
-    if(cb.checked)selected.set(cb.dataset.id,JSON.parse(cb.dataset.action));
-    else selected.delete(cb.dataset.id);
-    updateBatchBar();
-}
-function clearSelection(){selected.clear();document.querySelectorAll('.sel-cb').forEach(cb=>cb.checked=false);updateBatchBar();}
-async function applyBatch(){
-    const actions=[...selected.values()];
-    const r=await BC.post('/intelligence/batch',{actions});
-    alert('Applied '+r.applied+' actions'+(r.errors?' ('+r.errors+' errors)':''));
-    selected.clear();load();
-}
-
 async function load(){
-    const [quality,series,dupes,authors]=await Promise.all([
-        BC.get('/intelligence/quality'),BC.get('/intelligence/series-gaps'),
-        BC.get('/intelligence/duplicates'),BC.get('/intelligence/author-suggestions')]);
-
-    // Duplicates
-    const de=document.getElementById('dupes');
-    if(dupes.length){
-        const showCb=dupes.length>=5;
-        de.innerHTML=`<h3>🔄 Duplicates & Format Variants <span class="count">${dupes.length}</span></h3>`+
-        dupes.slice(0,50).map((d,i)=>{
-            const action=d.action==='link'?{type:'link_duplicate',book_a_id:d.book_a,book_b_id:d.book_b,link_type:'edition'}:{type:'link_duplicate',book_a_id:d.book_a,book_b_id:d.book_b,link_type:'edition'};
-            return `<div class="card"><span class="conf ${cc(d.score)}">${d.score}%</span><div class="row">
-            ${showCb?`<input type="checkbox" class="sel-cb" data-id="dup-${i}" data-action='${JSON.stringify(action)}' onchange="onCheck(this)">`:''}
-            <div class="body">
-            <div class="title">${d.title_a} ${d.formats_a.map(f=>`<span class="tag fmt">${f}</span>`).join('')}</div>
-            <div class="title" style="margin-top:.2rem">↔ ${d.title_b} ${d.formats_b.map(f=>`<span class="tag fmt">${f}</span>`).join('')}</div>
-            <div class="detail">${d.signals.join(' · ')}${d.is_format_variant?' · <strong>Format variant</strong>':''}</div>
-            <div class="actions">
-                <button class="btn-a" onclick="linkDup('${d.book_a}','${d.book_b}','edition',this)">🔗 Link as editions</button>
-                <button class="btn-e" onclick="linkDup('${d.book_a}','${d.book_b}','ebook_audiobook',this)">🔗 Link ebook↔audio</button>
-                <button class="btn-r" onclick="this.closest('.card').remove()">✕</button>
-            </div></div></div></div>`}).join('');
-    }else de.innerHTML='<h3>🔄 Duplicates</h3><div class="empty">No duplicates found ✓</div>';
-
-    // Authors
-    const ae=document.getElementById('authors');
-    if(authors.length){
-        const showCb=authors.length>=5;
-        ae.innerHTML=`<h3>👤 Author Cleanup <span class="count">${authors.length}</span></h3>`+
-        authors.slice(0,50).map((a,i)=>{
-            const action={type:'merge_authors',keep_id:a.author_a.id,merge_id:a.author_b.id};
-            return `<div class="card"><span class="conf ${cc(a.confidence)}">${a.confidence}%</span><div class="row">
-            ${showCb?`<input type="checkbox" class="sel-cb" data-id="auth-${i}" data-action='${JSON.stringify(action)}' onchange="onCheck(this)">`:''}
-            <div class="body">
-            <div class="title">${a.author_a.name} (${a.author_a.books}) ↔ ${a.author_b.name} (${a.author_b.books})</div>
-            <div class="detail">${a.reason}</div>
-            <div class="actions">
-                <button class="btn-a" onclick="mergeA('${a.author_a.id}','${a.author_b.id}',this)">✓ Keep "${a.author_a.name}"</button>
-                <button class="btn-a" onclick="mergeA('${a.author_b.id}','${a.author_a.id}',this)">✓ Keep "${a.author_b.name}"</button>
-                <button class="btn-r" onclick="this.closest('.card').remove()">✕</button>
-            </div></div></div></div>`}).join('');
-    }else ae.innerHTML='<h3>👤 Author Cleanup</h3><div class="empty">No issues ✓</div>';
-
-    // Series
-    const se=document.getElementById('series');
-    if(series.length){
-        const showCb=series.length>=5;
-        se.innerHTML=`<h3>📚 Series Detection <span class="count">${series.length}</span></h3>`+
-        series.slice(0,50).map((s,i)=>{
-            const bids=(s.books||[]).map(b=>b.id);
-            const action={type:'create_series',series_name:s.series,book_ids:bids};
-            const books=s.books||[];
-            return `<div class="card"><span class="conf ${cc(s.confidence)}">${s.confidence}%</span><div class="row">
-            ${showCb?`<input type="checkbox" class="sel-cb" data-id="ser-${i}" data-action='${JSON.stringify(action)}' onchange="onCheck(this)">`:''}
-            <div class="body">
-            <div class="title"><input class="edit-input" value="${s.series}" id="sn-${i}"> ${s.author?'<span style="color:var(--muted)">by '+s.author+'</span>':''}</div>
-            <div class="detail">${books.map(b=>'• '+b.title).join('<br>')}</div>
-            <div class="actions">
-                <button class="btn-a" onclick="acceptSeries(document.getElementById('sn-${i}').value,${JSON.stringify(bids)},this)">✓ Create</button>
-                <button class="btn-r" onclick="this.closest('.card').remove()">✕</button>
-            </div></div></div></div>`}).join('');
-    }else se.innerHTML='<h3>📚 Series</h3><div class="empty">No patterns found</div>';
-
-    // Quality
-    const qe=document.getElementById('quality');
-    qe.innerHTML='<h3>🔍 Quality'+(quality.length?` <span class="count">${quality.length}</span>`:'')+
-    '</h3>'+(quality.length?quality.map(q=>`<div class="card"><div class="title">${q.title}</div><div class="detail">${q.issues.map(i=>`<span class="tag">${i}</span>`).join('')}</div></div>`).join(''):'<div class="empty">All good ✓</div>');
+    const [authors, series, quality, dupes, fpStatus] = await Promise.all([
+        BC.get('/intelligence/author-suggestions'),
+        BC.get('/intelligence/series-gaps'),
+        BC.get('/intelligence/quality'),
+        BC.get('/intelligence/duplicates'),
+        BC.get('/fingerprints/status'),
+    ]);
+    document.getElementById('cards').innerHTML = `
+        <div class="icard" onclick="location='intel-authors.html'">
+            <h3>👤 Author Cleanup ${authors.length?`<span class="count warn">${authors.length}</span>`:''}</h3>
+            <p>Merge duplicate authors: "First Last" ↔ "Last, First", abbreviations, typos</p>
+            <div class="meta">${authors.length} suggestions pending</div>
+        </div>
+        <div class="icard" onclick="location='intel-series.html'">
+            <h3>📚 Series Detection ${series.length?`<span class="count">${series.length}</span>`:''}</h3>
+            <p>Auto-detect book series by shared author and title patterns</p>
+            <div class="meta">${series.length} suggestions pending</div>
+        </div>
+        <div class="icard" onclick="location='intel-dupes.html'">
+            <h3>🔄 Title Duplicates ${dupes.length?`<span class="count warn">${dupes.length}</span>`:''}</h3>
+            <p>Books with similar titles, same author, similar file size</p>
+            <div class="meta">${dupes.length} pairs detected</div>
+        </div>
+        <div class="icard" onclick="location='intel-content-dupes.html'">
+            <h3>📝 Content Duplicates ${fpStatus.pending_matches?`<span class="count danger">${fpStatus.pending_matches}</span>`:''}</h3>
+            <p>Deep comparison: 16×2KB text samples from book midpoints, 2% tolerance</p>
+            <div class="meta">${fpStatus.fingerprinted} fingerprinted · ${fpStatus.pending_fingerprint} pending · ${fpStatus.pending_matches} matches</div>
+        </div>
+        <div class="icard" onclick="location='intel-quality.html'">
+            <h3>🔍 Quality Issues ${quality.length?`<span class="count">${quality.length}</span>`:''}</h3>
+            <p>Low bitrate audio, missing chapters, tiny files</p>
+            <div class="meta">${quality.length} issues</div>
+        </div>
+    `;
 }
-
-async function mergeA(keep,merge,btn){btn.disabled=true;btn.textContent='⏳';const r=await BC.post('/intelligence/merge-authors',{keep_id:keep,merge_id:merge});btn.closest('.card').innerHTML=`<div class="done">✅ Merged → ${r.kept}</div>`;setTimeout(()=>btn.closest('.card')?.remove(),2000);}
-async function acceptSeries(name,ids,btn){btn.disabled=true;btn.textContent='⏳';await BC.post('/intelligence/apply-series',{series_name:name,book_ids:ids});btn.closest('.card').innerHTML=`<div class="done">✅ Created "${name}"</div>`;setTimeout(()=>btn.closest('.card')?.remove(),2000);}
-async function linkDup(a,b,type,btn){btn.disabled=true;btn.textContent='⏳';await BC.post('/intelligence/link-duplicate',{book_a_id:a,book_b_id:b,link_type:type});btn.closest('.card').innerHTML=`<div class="done">✅ Linked</div>`;setTimeout(()=>btn.closest('.card')?.remove(),2000);}
-async function optimizeCovers(btn){btn.disabled=true;btn.textContent='⏳ Optimizing...';const r=await BC.post('/covers/optimize');btn.textContent=`✅ ${r.optimized} covers, -${r.saved_mb}MB`;setTimeout(()=>{btn.textContent='📐 Optimize Covers';btn.disabled=false},4000);}
-async function generateCovers(btn){btn.disabled=true;btn.textContent='⏳ Generating...';const r=await BC.post('/covers/generate-missing');btn.textContent=`✅ ${r.generated} generated`;setTimeout(()=>{btn.textContent='🎨 Generate Covers';btn.disabled=false},4000);}
-
+async function runAction(path,btn){btn.disabled=true;const t=btn.textContent;btn.textContent='⏳...';const r=await BC.post(path);btn.textContent='✅ '+JSON.stringify(r).slice(0,40);setTimeout(()=>{btn.textContent=t;btn.disabled=false;load();},3000);}
 load();
 </script></body></html>

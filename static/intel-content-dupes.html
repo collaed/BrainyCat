@@ -1,0 +1,72 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrainyCat — Content Duplicates</title>
+<style>
+:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6;--success:#22c55e;--warn:#f59e0b;--danger:#ef4444}
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:var(--bg);color:var(--text)}
+header{background:var(--surface);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border)}
+header a{color:var(--muted);text-decoration:none}header h2{flex:1}
+header button{padding:.4rem .8rem;border-radius:6px;border:none;cursor:pointer;font-size:.85rem;color:#fff}
+.container{max-width:900px;margin:0 auto;padding:1.5rem}
+.status{background:var(--surface);border-radius:8px;padding:1rem;margin-bottom:1rem;font-size:.85rem;color:var(--muted)}
+.card{background:var(--surface);border-radius:8px;padding:1rem;margin-bottom:.6rem;position:relative}
+.card .titles{display:grid;grid-template-columns:1fr auto 1fr;gap:.5rem;align-items:center;margin-bottom:.4rem}
+.card .titles .t{font-weight:600;font-size:.9rem}.card .titles .vs{color:var(--muted);font-size:.8rem}
+.card .meta{font-size:.8rem;color:var(--muted)}
+.card .bar{height:4px;background:var(--border);border-radius:2px;margin:.4rem 0;overflow:hidden}
+.card .bar .fill{height:100%;border-radius:2px;transition:width .3s}
+.card .actions{display:flex;gap:.4rem;margin-top:.5rem}
+.card .actions button{padding:.3rem .6rem;border-radius:5px;border:none;cursor:pointer;font-size:.78rem;color:#fff}
+.ba{background:var(--success)}.bd{background:var(--border);color:var(--muted)}.bl{background:var(--accent)}
+.empty{color:var(--muted);font-style:italic;padding:2rem;text-align:center}
+</style></head><body>
+<header>
+<a href="intelligence.html">← Intelligence</a><h2>📝 Content Duplicates</h2>
+<button style="background:var(--warn)" onclick="compute(this)">🔍 Compute Fingerprints</button>
+<button style="background:var(--accent)" onclick="findDupes(this)">🔎 Find Duplicates</button>
+</header>
+<div class="container">
+<div class="status" id="status">Loading...</div>
+<div id="matches"></div>
+</div>
+<script src="api.js"></script>
+<script>
+async function load(){
+    const [status, matches] = await Promise.all([BC.get('/fingerprints/status'), BC.get('/fingerprints/matches')]);
+    document.getElementById('status').innerHTML = `
+        <strong>${status.fingerprinted}</strong> books fingerprinted ·
+        <strong>${status.pending_fingerprint}</strong> pending ·
+        <strong>${status.pending_matches}</strong> content matches found
+        <br><span style="font-size:.75rem">Background process computes fingerprints and compares every 30s</span>
+    `;
+    const el = document.getElementById('matches');
+    if (!matches.length) { el.innerHTML = '<div class="empty">No content duplicates found yet. Click "Compute Fingerprints" then "Find Duplicates".</div>'; return; }
+    el.innerHTML = matches.map(m => {
+        const color = m.overlap_pct >= 70 ? 'var(--danger)' : m.overlap_pct >= 50 ? 'var(--warn)' : 'var(--accent)';
+        return `<div class="card">
+            <div class="titles">
+                <span class="t">${m.title_a}</span>
+                <span class="vs">↔</span>
+                <span class="t">${m.title_b}</span>
+            </div>
+            <div class="bar"><div class="fill" style="width:${m.overlap_pct}%;background:${color}"></div></div>
+            <div class="meta">
+                ${m.overlap_pct}% content overlap · ${m.matching_samples}/${m.total_samples} samples match ·
+                ${(m.authors_a||[]).join(', ')} / ${(m.authors_b||[]).join(', ')}
+            </div>
+            <div class="actions">
+                <button class="ba" onclick="resolve('${m.id}','confirmed',this)">✓ Confirm Duplicate</button>
+                <button class="bl" onclick="resolve('${m.id}','linked',this)">🔗 Link as Editions</button>
+                <button class="bd" onclick="resolve('${m.id}','dismissed',this)">✕ Not a Duplicate</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+async function resolve(id, action, btn) {
+    btn.disabled = true; btn.textContent = '⏳';
+    await BC.post('/fingerprints/matches/' + id + '/' + action);
+    btn.closest('.card').remove();
+}
+async function compute(btn) { btn.disabled=true;btn.textContent='⏳';const r=await BC.post('/fingerprints/compute');btn.textContent='✅ '+r.computed+' done';setTimeout(()=>{btn.textContent='🔍 Compute';btn.disabled=false;load();},2000); }
+async function findDupes(btn) { btn.disabled=true;btn.textContent='⏳';const r=await BC.post('/fingerprints/find-duplicates');btn.textContent='✅ '+r.new_matches+' found';setTimeout(()=>{btn.textContent='🔎 Find';btn.disabled=false;load();},2000); }
+load();
+</script></body></html>
