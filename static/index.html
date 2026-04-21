@@ -193,7 +193,7 @@ async function openBook(id){
             ${hasEpub?`<button class="btn-p" onclick="translateBook('${id}')">🌐 Translate</button>`:''}
             ${hasPdf?`<button class="btn-p" onclick="ocrBook('${id}')">📝 OCR</button>`:''}
             ${hasAudio?`<button class="btn-p" onclick="diagnoseAudio('${id}')">🔧 Diagnose</button>`:''}
-            <button class="btn-p" onclick="editBook('')">✏️ Edit</button>
+            <button class="btn-p" onclick="editBook('${id}')">✏️ Edit</button>
             <button style="background:var(--danger,#ef4444)" onclick="deleteBook('${id}')">🗑️ Delete</button>
         </div>`;
     document.getElementById('modal').classList.add('active');
