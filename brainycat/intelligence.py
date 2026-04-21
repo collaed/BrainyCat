@@ -69,6 +69,20 @@ async def series_suggestions() -> list[dict[str, Any]]:
         books = [_json.loads(b) if isinstance(b, str) else b for b in ab["books"]]
         if len(books) < 2:
             continue
+        # Skip garbage author names
+        author_name = ab["author"]
+        if (
+            len(author_name) < 4
+            or "/" in author_name
+            or "\\" in author_name
+            or author_name.lower() in {"unknown", "n/a", "user", "admin"}
+            or not any(c.isupper() for c in author_name)  # no capitals = not a real name
+            or any(
+                w in author_name.lower() for w in ["download", "onedrive", "dropbox", "targetstream", "technologies", "documents"]
+            )  # path fragments
+            or (author_name.isalnum() and len(author_name) < 10)  # short single-word = username
+        ):
+            continue
 
         # Common significant words in titles
         from collections import Counter
@@ -97,7 +111,7 @@ async def series_suggestions() -> list[dict[str, Any]]:
 
         if common:
             confidence = min(90, 40 + len(common) * 15 + (10 if len(books) >= 3 else 0))
-            series_name = ab["author"] + " — " + " ".join(common[:3]).title()
+            series_name = " ".join(common[:3]).title()
             suggestions.append(
                 {
                     "type": "create_series",
