@@ -78,6 +78,7 @@ nav a{color:var(--muted);text-decoration:none;padding:.3rem .5rem;font-size:.8re
 <button class="primary" onclick="uploadDirectory()">📁 Folder</button>
 <button onclick="extractPdfCovers(this)" style="font-size:.75rem">📄→🖼️</button>
 <input type="file" id="file-input" hidden accept=".epub,.pdf,.mobi,.mp3,.m4b,.m4a,.flac,.opus,.ogg" multiple>
+<button id="batch-del-btn" style="display:none;background:#ef4444;border:none;color:#fff;padding:.35rem .6rem;border-radius:6px;font-size:.8rem;cursor:pointer" onclick="batchDelete()">🗑️ Delete Selected (<span id="sel-count">0</span>)</button>
 <span id="book-count" style="color:var(--muted);font-size:.8rem;margin-left:auto"></span>
 </div>
 <div id="drop-zone">Drop files here to upload</div>
@@ -105,7 +106,7 @@ async function loadBooks(append=false){
     if(!append){page=0;allBooks=[];hasMore=true;}
     const fmt=document.getElementById('filter-format').value;
     const q=searchInput.value;
-    const params=new URLSearchParams({sort:sortField,order:sortOrder,limit:String(PAGE_SIZE),offset:String(page*PAGE_SIZE)});
+    const lim=q?500:PAGE_SIZE; const params=new URLSearchParams({sort:sortField,order:sortOrder,limit:String(lim),offset:String(page*lim)});
     if(q)params.set('q',q);if(fmt)params.set('format',fmt);
     try{
         const data=await BC.get('/books?'+params);
@@ -148,9 +149,10 @@ function renderList(){
         <span class="size" onclick="sortBy('quality_score')">Quality</span>
     </div>`;
     const rows=allBooks.map(b=>`
-        <div class="row" onclick="openBook('${b.id}')">
-            <img src="${API}/books/${b.id}/cover" loading="lazy" onerror="this.style.visibility='hidden'">
-            <span class="title" title="${b.title}">${b.title}</span>
+        <div class="row">
+            <input type="checkbox" class="book-cb" data-id="${b.id}" onchange="updateSelection()" onclick="event.stopPropagation()" style="accent-color:var(--accent)">
+            <img onclick="openBook('${b.id}')" src="${API}/books/${b.id}/cover" loading="lazy" onerror="this.style.visibility='hidden'">
+            <span class="title" title="${b.title}" onclick="openBook('${b.id}')" style="cursor:pointer">${b.title}</span>
             <span class="author">${(b.authors||[]).join(', ')||'—'}</span>
             <span class="series-col">${b.series_index>1?'#'+b.series_index:''}</span>
             <span class="formats">${(b.formats||[]).map(f=>`<span class="badge ${f}">${f}</span>`).join('')}</span>
@@ -206,6 +208,27 @@ async function convertTTS(id){showJobStatus('Starting TTS...',0);try{const r=awa
 async function translateBook(id){const lang=prompt('Target language (en, fr, de, es, it):');if(!lang)return;showJobStatus('Translating...',0);try{const r=await BC.post(`/books/${id}/translate?target_lang=${lang}&backend=argos`);if(r.job_id)await pollJob(r.job_id);else showJobStatus('❌ '+JSON.stringify(r),0);}catch(e){showJobStatus('❌ '+e.message,0);}}
 async function ocrBook(id){showJobStatus('Starting OCR...',0);try{const r=await BC.post('/books/'+id+'/ocr');if(r.job_id)await pollJob(r.job_id);else showJobStatus('❌ '+JSON.stringify(r),0);}catch(e){showJobStatus('❌ '+e.message,0);}}
 async function diagnoseAudio(id){showJobStatus('Diagnosing...',50);try{const r=await BC.post('/books/'+id+'/audio/diagnose');showJobStatus(`Hiss:${r.hiss_score} Crackle:${r.crackle_score} Score:${r.overall_score} → ${r.recommended_profile}`,r.overall_score);}catch(e){showJobStatus('❌ '+e.message,0);}}
+
+let selectedBooks=new Set();
+function updateSelection(){
+    selectedBooks.clear();
+    document.querySelectorAll('.book-cb:checked').forEach(cb=>selectedBooks.add(cb.dataset.id));
+    const btn=document.getElementById('batch-del-btn');
+    const cnt=document.getElementById('sel-count');
+    btn.style.display=selectedBooks.size>0?'inline-block':'none';
+    cnt.textContent=selectedBooks.size;
+}
+async function batchDelete(){
+    if(!confirm('Delete '+selectedBooks.size+' books permanently?'))return;
+    const btn=document.getElementById('batch-del-btn');
+    btn.textContent='⏳ Deleting...';btn.disabled=true;
+    let done=0;
+    for(const id of selectedBooks){try{await BC.del('/books/'+id);done++;}catch{}}
+    btn.textContent='✅ '+done+' deleted';
+    selectedBooks.clear();
+    setTimeout(()=>{btn.style.display='none';btn.disabled=false;btn.innerHTML='🗑️ Delete Selected (<span id="sel-count">0</span>)';},2000);
+    loadBooks();
+}
 
 async function extractPdfCovers(btn){btn.disabled=true;btn.textContent='⏳';const r=await BC.post('/covers/extract-pdf');btn.textContent='✅ '+r.extracted;setTimeout(()=>{btn.textContent='📄→🖼️';btn.disabled=false;loadBooks();},3000);}
 
