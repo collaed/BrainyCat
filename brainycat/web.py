@@ -88,6 +88,30 @@ app.delete("/api/v1/books/{book_id}")(books.delete_book)
 app.get("/api/v1/books/{book_id}/cover")(books.serve_cover)
 app.get("/api/v1/books/{book_id}/file/{file_id}")(books.serve_file)
 
+
+# ── Author update
+class AuthorUpdate(BaseModel):
+    author: str
+
+
+@app.put("/api/v1/books/{book_id}/author")
+async def update_author(book_id: str, body: AuthorUpdate, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from uuid import UUID as _UUID
+
+    # Remove old author links
+    await db.execute("DELETE FROM books_authors WHERE book_id = $1", _UUID(book_id))
+    # Add new author
+    author_name = body.author.strip()
+    if author_name:
+        await db.execute("INSERT INTO authors (name) VALUES ($1) ON CONFLICT (name) DO NOTHING", author_name)
+        ar = await db.fetch_one("SELECT id FROM authors WHERE name = $1", author_name)
+        if ar:
+            await db.execute(
+                "INSERT INTO books_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", _UUID(book_id), ar["id"]
+            )
+    return {"ok": True}
+
+
 # ── Collections ───────────────────────────────────────────────────────────
 app.post("/api/v1/collections")(collections.create_collection)
 app.get("/api/v1/collections")(collections.list_collections)

@@ -241,6 +241,8 @@ async function editBook(id){
         <div style="display:grid;gap:.5rem;margin:.8rem 0">
         <label style="font-size:.8rem;color:var(--muted)">Title</label>
         <input id="ed-title" value="${b.title||''}" style="padding:.4rem;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.9rem">
+        <label style="font-size:.8rem;color:var(--muted)">Author</label>
+        <input id="ed-author" value="${(b.authors||[]).join(', ')}" style="padding:.4rem;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.9rem">
         <label style="font-size:.8rem;color:var(--muted)">ISBN</label>
         <input id="ed-isbn" value="${b.isbn||''}" style="padding:.4rem;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.9rem">
         <label style="font-size:.8rem;color:var(--muted)">Description</label>
@@ -250,10 +252,23 @@ async function editBook(id){
         </div>
         <div class="actions">
             <button class="btn-s" onclick="saveEdit('${id}')">💾 Save</button>
+            <button class="btn-p" onclick="regenCover('${id}')">🎨 Regen Cover</button>
             <button class="btn-p" onclick="openBook('${id}')">Cancel</button>
         </div>`;
 }
+async function regenCover(id){
+    const title=document.getElementById('ed-title').value;
+    const author=document.getElementById('ed-author').value;
+    // Delete old cover, generate new one
+    await BC.post('/books/'+id+'/download-cover');
+    setTimeout(()=>openBook(id),1000);
+}
 async function saveEdit(id){
+    // Save author separately
+    const authorVal=document.getElementById('ed-author')?.value;
+    if(authorVal!==undefined){
+        await api('/books/'+id+'/author',{method:'PUT',body:JSON.stringify({author:authorVal}),headers:{'Content-Type':'application/json'}});
+    }
     await BC.patch('/books/'+id,{
         title:document.getElementById('ed-title').value,
         isbn:document.getElementById('ed-isbn').value||null,

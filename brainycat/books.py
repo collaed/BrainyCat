@@ -161,7 +161,9 @@ async def list_books(
     idx = 1
 
     if q:
-        conditions.append(f"(b.title ILIKE '%' || ${idx} || '%' OR b.search_vector @@ plainto_tsquery('simple', unaccent(${idx})) OR similarity(b.title, ${idx}) > 0.3)")
+        conditions.append(
+            f"(b.title ILIKE '%' || ${idx} || '%' OR EXISTS (SELECT 1 FROM books_authors ba2 JOIN authors a2 ON a2.id = ba2.author_id WHERE ba2.book_id = b.id AND a2.name ILIKE '%' || ${idx} || '%') OR b.search_vector @@ plainto_tsquery('simple', unaccent(${idx})) OR similarity(b.title, ${idx}) > 0.3)"
+        )
         params.append(q)
         idx += 1
 
