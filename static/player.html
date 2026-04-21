@@ -1,0 +1,171 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrainyCat — Audio Player</title>
+<style>
+:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6}
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+header{background:var(--surface);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border)}
+header a{color:var(--muted);text-decoration:none}header h2{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.player-wrap{display:flex;flex-direction:column;align-items:center;padding:1.5rem 1rem}
+.cover{width:200px;height:200px;border-radius:12px;background:var(--surface);object-fit:cover;margin-bottom:1rem}
+.title{font-size:1.2rem;font-weight:700;margin-bottom:.2rem;text-align:center}.author{color:var(--muted);margin-bottom:.8rem;font-size:.9rem}
+.now-playing{font-size:.85rem;color:var(--accent);margin-bottom:.8rem;text-align:center}
+.controls{display:flex;align-items:center;gap:1rem;margin-bottom:.8rem}
+.controls button{background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer;padding:.4rem}
+.controls .play{font-size:1.8rem;background:var(--accent);border-radius:50%;width:52px;height:52px;display:flex;align-items:center;justify-content:center}
+.progress{width:100%;max-width:500px;margin-bottom:.3rem}
+.progress input[type=range]{width:100%;accent-color:var(--accent);height:6px}
+.time{display:flex;justify-content:space-between;width:100%;max-width:500px;font-size:.75rem;color:var(--muted);margin-bottom:.5rem}
+.speed{display:flex;gap:.3rem;align-items:center;font-size:.8rem;margin-bottom:.5rem}
+.speed button{padding:.2rem .5rem;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:.75rem}
+.speed button.active{background:var(--accent);border-color:var(--accent)}
+#status{font-size:.75rem;color:var(--muted);margin-bottom:.8rem}
+.chapters{width:100%;max-width:500px;border-top:1px solid var(--border);padding-top:.8rem}
+.chapters h3{font-size:.85rem;color:var(--muted);margin-bottom:.5rem}
+.ch-list{max-height:40vh;overflow-y:auto}
+.ch-item{display:flex;align-items:center;gap:.6rem;padding:.5rem .4rem;border-radius:6px;cursor:pointer;font-size:.85rem;border-bottom:1px solid var(--border)}
+.ch-item:hover{background:rgba(59,130,246,.1)}
+.ch-item.active{background:rgba(59,130,246,.15);color:var(--accent)}
+.ch-item .ch-num{color:var(--muted);font-size:.75rem;min-width:24px}
+.ch-item .ch-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ch-item .ch-dur{color:var(--muted);font-size:.75rem}
+</style></head><body>
+<header>
+<a href="index.html">← Library</a>
+<h2 id="header-title">Loading...</h2>
+<button id="sync-btn" style="display:none;padding:.3rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:.8rem" onclick="location='reader.html?id='+bookId">📖 Text</button>
+</header>
+<div class="player-wrap">
+<img class="cover" id="cover" src="" onerror="this.style.display='none'">
+<div class="title" id="book-title"></div>
+<div class="author" id="book-author"></div>
+<div class="now-playing" id="now-playing"></div>
+<div class="controls">
+<button onclick="prevChapter()">⏮</button>
+<button onclick="skip(-15)">-15s</button>
+<button class="play" id="play-btn" onclick="togglePlay()">▶</button>
+<button onclick="skip(15)">+15s</button>
+<button onclick="nextChapter()">⏭</button>
+</div>
+<div class="progress"><input type="range" id="seek" min="0" max="100" value="0" step="0.1" oninput="seekTo(this.value)"></div>
+<div class="time"><span id="current">0:00</span><span id="duration">0:00</span></div>
+<div class="speed">
+<button onclick="setSpeed(0.75,this)">0.75×</button>
+<button onclick="setSpeed(1,this)" class="active">1×</button>
+<button onclick="setSpeed(1.25,this)">1.25×</button>
+<button onclick="setSpeed(1.5,this)">1.5×</button>
+<button onclick="setSpeed(2,this)">2×</button>
+</div>
+<div id="status"></div>
+<div class="chapters" id="chapters-section" style="display:none">
+<h3>Chapters (<span id="ch-count">0</span>)</h3>
+<div class="ch-list" id="ch-list"></div>
+</div>
+</div>
+<audio id="audio" preload="auto"></audio>
+<script src="api.js"></script>
+<script>
+const bookId = new URLSearchParams(location.search).get('id');
+const audio = document.getElementById('audio');
+const statusEl = document.getElementById('status');
+let files = [], currentIdx = 0;
+
+function log(msg) { statusEl.textContent = msg; }
+function fmt(s) { if (!s || isNaN(s)) return '0:00'; const m = Math.floor(s/60), sec = Math.floor(s%60); return m + ':' + String(sec).padStart(2,'0'); }
+
+async function init() {
+    if (!bookId) return;
+    const data = await BC.get('/books/' + bookId);
+    document.getElementById('header-title').textContent = data.title;
+    document.getElementById('book-title').textContent = data.title;
+    document.getElementById('book-author').textContent = (data.authors||[]).join(', ');
+    document.getElementById('cover').src = API + '/books/' + bookId + '/cover';
+
+    files = (data.files || []).filter(f => ['mp3','m4b','m4a','flac','ogg','opus'].includes(f.format));
+    // Sort by filename for chapter order
+    files.sort((a, b) => (a.file_name || '').localeCompare(b.file_name || ''));
+
+    if (!files.length) { log('No audio files'); return; }
+    if ((data.formats||[]).includes('epub')) document.getElementById('sync-btn').style.display = '';
+
+    // Build chapter list
+    if (files.length >= 1) {
+        document.getElementById('chapters-section').style.display = '';
+        document.getElementById('ch-count').textContent = files.length;
+        document.getElementById('ch-list').innerHTML = files.map((f, i) => {
+            const name = f.file_name.replace(/\.\w+$/, '').replace(/^ch\d+\s*-?\s*/i, '');
+            const meta = typeof f.metadata === 'string' ? JSON.parse(f.metadata || '{}') : (f.metadata || {});
+            const title = meta.chapter_title || name || `Chapter ${i + 1}`;
+            const size = f.file_size ? (f.file_size / 1024 / 1024).toFixed(1) + ' MB' : '';
+            return `<div class="ch-item" id="ch-${i}" onclick="playFile(${i})">
+                <span class="ch-num">${i + 1}</span>
+                <span class="ch-title">${title}</span>
+                <span class="ch-dur">${size}</span>
+            </div>`;
+        }).join('');
+    }
+
+    // Set first file but don't play
+    setSource(0);
+
+    // Resume
+    const progress = await BC.get('/progress/' + bookId);
+    if (progress && progress.position_timestamp) {
+        audio.addEventListener('loadedmetadata', () => { audio.currentTime = progress.position_timestamp; }, {once: true});
+        log('Tap ▶ to resume');
+    } else {
+        log('Tap ▶ to start');
+    }
+}
+
+function setSource(idx) {
+    currentIdx = idx;
+    audio.src = API + '/books/' + bookId + '/file/' + files[idx].id;
+    audio.load();
+    // Highlight active chapter
+    document.querySelectorAll('.ch-item').forEach((el, i) => el.classList.toggle('active', i === idx));
+    const meta = typeof files[idx].metadata === 'string' ? JSON.parse(files[idx].metadata || '{}') : (files[idx].metadata || {});
+    document.getElementById('now-playing').textContent = meta.chapter_title || files[idx].file_name;
+    // Scroll active chapter into view
+    const activeEl = document.getElementById('ch-' + idx);
+    if (activeEl) activeEl.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
+function playFile(idx) {
+    setSource(idx);
+    audio.play().catch(e => log('Play error: ' + e.message));
+}
+function togglePlay() {
+    if (audio.paused) audio.play().catch(e => log(e.message));
+    else audio.pause();
+}
+function skip(s) { audio.currentTime = Math.max(0, audio.currentTime + s); }
+function seekTo(v) { if (audio.duration) audio.currentTime = (v / 100) * audio.duration; }
+function setSpeed(s, btn) { audio.playbackRate = s; document.querySelectorAll('.speed button').forEach(b => b.classList.remove('active')); if (btn) btn.classList.add('active'); }
+function prevChapter() { if (currentIdx > 0) playFile(currentIdx - 1); }
+function nextChapter() { if (currentIdx < files.length - 1) playFile(currentIdx + 1); }
+
+audio.addEventListener('timeupdate', () => {
+    document.getElementById('current').textContent = fmt(audio.currentTime);
+    if (audio.duration) document.getElementById('seek').value = (audio.currentTime / audio.duration) * 100;
+});
+audio.addEventListener('loadedmetadata', () => { document.getElementById('duration').textContent = fmt(audio.duration); log(''); });
+audio.addEventListener('play', () => { document.getElementById('play-btn').textContent = '⏸'; log(''); });
+audio.addEventListener('pause', () => document.getElementById('play-btn').textContent = '▶');
+audio.addEventListener('ended', () => { if (currentIdx < files.length - 1) playFile(currentIdx + 1); else log('Finished'); });
+audio.addEventListener('error', () => log('Audio error: ' + (audio.error?.message || 'unknown')));
+
+setInterval(() => {
+    if (!audio.paused && audio.duration)
+        BC.post('/progress/' + bookId, { position_timestamp: audio.currentTime, percentage: (audio.currentTime / audio.duration) * 100 });
+}, 10000);
+
+if ('mediaSession' in navigator) {
+    navigator.mediaSession.setActionHandler('play', () => audio.play());
+    navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+    navigator.mediaSession.setActionHandler('seekbackward', () => skip(-15));
+    navigator.mediaSession.setActionHandler('seekforward', () => skip(15));
+    navigator.mediaSession.setActionHandler('previoustrack', prevChapter);
+    navigator.mediaSession.setActionHandler('nexttrack', nextChapter);
+}
+init();
+</script></body></html>

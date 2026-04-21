@@ -1,0 +1,66 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrainyCat — Bilingual Reader</title>
+<style>
+:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6;--warn:#fbbf24}
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:var(--bg);color:var(--text)}
+header{background:var(--surface);padding:.6rem 1rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border)}
+header a{color:var(--muted);text-decoration:none}header h2{flex:1;font-size:1rem}
+.columns{display:grid;grid-template-columns:1fr 1fr;height:calc(100vh - 42px)}
+.col{overflow-y:auto;padding:1.5rem 2rem;line-height:1.8;font-size:1rem}
+.col-left{border-right:1px solid var(--border)}
+.col p{margin-bottom:1rem;padding:.3rem .5rem;border-radius:4px;cursor:pointer;transition:background .15s}
+.col p:hover{background:rgba(59,130,246,.1)}
+.col p.highlight{background:rgba(59,130,246,.2)}
+.col p.low-quality{border-left:3px solid var(--warn)}
+.word-popup{position:fixed;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:.8rem;font-size:.9rem;z-index:50;display:none;max-width:300px}
+</style></head><body>
+<header><a href="index.html">← Library</a><h2 id="title">Bilingual Reader</h2></header>
+<div class="columns">
+<div class="col col-left" id="original"></div>
+<div class="col col-right" id="translated"></div>
+</div>
+<div class="word-popup" id="popup"></div>
+<script src="api.js"></script>
+<script>
+const bookId = new URLSearchParams(location.search).get('id');
+const origCol = document.getElementById('original');
+const transCol = document.getElementById('translated');
+const popup = document.getElementById('popup');
+
+async function init() {
+    const data = await BC.get('/books/' + bookId);
+    document.getElementById('title').textContent = data.title + ' — Bilingual';
+
+    // Find translation link
+    const links = data.links || [];
+    const transLink = links.find(l => l.link_type === 'translation');
+    if (!transLink) { origCol.innerHTML = '<p>No translation available. Use the Translate feature first.</p>'; return; }
+
+    // Load both books' content via translation paragraph map
+    // For now, show placeholder — real implementation would fetch EPUB content
+    origCol.innerHTML = '<p style="color:var(--muted)">Original text paragraphs will appear here after translation is complete.</p>';
+    transCol.innerHTML = '<p style="color:var(--muted)">Translated text will appear here, aligned paragraph-by-paragraph.</p>';
+}
+
+// Synchronized scrolling
+origCol.addEventListener('scroll', () => { transCol.scrollTop = origCol.scrollTop; });
+transCol.addEventListener('scroll', () => { origCol.scrollTop = transCol.scrollTop; });
+
+// Word click for translation popup
+document.addEventListener('click', async e => {
+    popup.style.display = 'none';
+    if (e.target.tagName === 'SPAN' && e.target.dataset.word) {
+        const word = e.target.dataset.word;
+        popup.textContent = 'Translating...';
+        popup.style.display = 'block';
+        popup.style.left = e.clientX + 'px';
+        popup.style.top = (e.clientY + 20) + 'px';
+        try {
+            const r = await BC.post('/ai/ask/' + bookId, { question: 'Translate this word: ' + word });
+            popup.textContent = r.answer || word;
+        } catch { popup.textContent = word; }
+    }
+});
+
+init();
+</script></body></html>

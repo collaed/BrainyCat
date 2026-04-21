@@ -1,0 +1,59 @@
+[project]
+name = "brainycat"
+version = "0.1.0"
+description = "Self-hosted unified library for ebooks and audiobooks"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",       # pycodestyle
+    "F",             # pyflakes
+    "I",             # isort
+    "N",             # pep8-naming
+    "UP",            # pyupgrade
+    "B",             # flake8-bugbear
+    "A",             # flake8-builtins
+    "C4",            # flake8-comprehensions
+    "SIM",           # flake8-simplify
+    "TCH",           # flake8-type-checking
+    "RUF",           # ruff-specific
+    "PT",            # flake8-pytest-style
+    "RET",           # flake8-return
+    "T20",           # flake8-print
+    "ANN",           # flake8-annotations
+]
+ignore = [
+    "ANN401",        # dynamically typed expressions (typing.Any)
+    "B008",          # function call in default argument (FastAPI Depends pattern)
+    "E501",          # line too long (SQL strings, handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["brainycat"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["asyncpg.*", "ebooklib.*", "mutagen.*", "fitz.*", "noisereduce.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "--cov=brainycat --cov-report=term-missing --cov-fail-under=80"
+
+[tool.coverage.run]
+source = ["brainycat"]
+omit = ["tests/*"]

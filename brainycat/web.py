@@ -1,0 +1,574 @@
+"""FastAPI application — all routes for BrainyCat."""
+
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, Any
+
+from fastapi import Depends, FastAPI, Query, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from brainycat import (
+    auth,
+    books,
+    collections,
+    companion,
+    convert,
+    db,
+    intelligence,
+    metadata,
+    opds,
+    podcast,
+    recommendations,
+    restoration,
+    reviews,
+    scanner,
+    stats,
+    stt,
+    sync,
+    translation,
+    tts,
+)
+from brainycat.auth import get_current_user, require_admin
+from brainycat.jobs import get_job
+from brainycat.logging import setup_logging
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    setup_logging()
+    await db.get_pool()
+    await auth.seed_users()
+    yield
+    await db.close_pool()
+
+
+app = FastAPI(title="BrainyCat", version="0.1.0", lifespan=lifespan)
+
+
+@app.get("/")
+async def root() -> RedirectResponse:
+    """Redirect root to the static UI. Uses './' so browsers resolve relative to request path."""
+    return RedirectResponse(url="./static/index.html")
+
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# ── Health ────────────────────────────────────────────────────────────────
+@app.get("/api/v1/health")
+async def health() -> dict[str, Any]:
+    s = await db.health_check()
+    return {"status": "ok" if s.get("connected") else "degraded", "db": s}
+
+
+# ── Auth ──────────────────────────────────────────────────────────────────
+app.post("/api/v1/login")(auth.login)
+app.post("/api/v1/logout")(auth.logout)
+app.get("/api/v1/me")(auth.me)
+app.get("/api/v1/users")(auth.list_users)
+app.patch("/api/v1/users/{user_id}")(auth.update_user)
+app.patch("/api/v1/me/preferences")(auth.update_preferences)
+
+# ── Books CRUD ────────────────────────────────────────────────────────────
+app.post("/api/v1/books/upload")(books.upload_book)
+app.get("/api/v1/books")(books.list_books)
+app.get("/api/v1/books/{book_id}")(books.get_book)
+app.patch("/api/v1/books/{book_id}")(books.update_book)
+app.delete("/api/v1/books/{book_id}")(books.delete_book)
+app.get("/api/v1/books/{book_id}/cover")(books.serve_cover)
+app.get("/api/v1/books/{book_id}/file/{file_id}")(books.serve_file)
+
+# ── Collections ───────────────────────────────────────────────────────────
+app.post("/api/v1/collections")(collections.create_collection)
+app.get("/api/v1/collections")(collections.list_collections)
+app.post("/api/v1/collections/{collection_id}/books/{book_id}")(collections.add_book_to_collection)
+app.delete("/api/v1/collections/{collection_id}/books/{book_id}")(collections.remove_book_from_collection)
+app.post("/api/v1/books/{book_id}/link")(collections.link_books)
+
+
+# ── Metadata enrichment ──────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/enrich")
+async def enrich(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await metadata.enrich_book(book_id)
+
+
+# ── Incoming scanner ─────────────────────────────────────────────────────
+@app.get("/api/v1/incoming")
+async def list_incoming(status: str | None = Query(None), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    return await scanner.list_incoming(status)
+
+
+@app.post("/api/v1/incoming/scan")
+async def trigger_scan(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    return await scanner.scan_incoming()
+
+
+@app.post("/api/v1/incoming/{item_id}/confirm")
+async def confirm(item_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await scanner.confirm_incoming(item_id)
+
+
+@app.post("/api/v1/incoming/{item_id}/reject")
+async def reject(item_id: str, _u: Any = Depends(get_current_user)) -> dict[str, bool]:
+    return await scanner.reject_incoming(item_id)
+
+
+# ── Intelligence ─────────────────────────────────────────────────────────
+@app.get("/api/v1/intelligence/quality")
+async def intel_quality(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    return await intelligence.quality_report()
+
+
+@app.get("/api/v1/intelligence/series-gaps")
+async def intel_gaps(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    return await intelligence.series_suggestions()
+
+
+@app.get("/api/v1/intelligence/duplicates")
+async def intel_dupes(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    return await intelligence.find_duplicates()
+
+
+@app.get("/api/v1/intelligence/author-suggestions")
+async def intel_authors(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    return await intelligence.author_suggestions()
+
+
+class CreateSeriesBody(BaseModel):
+    series_name: str
+    book_ids: list[str]
+
+
+@app.post("/api/v1/intelligence/apply-series")
+async def intel_apply_series(body: CreateSeriesBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await intelligence.apply_create_series(body.series_name, body.book_ids)
+
+
+class MergeAuthorsBody(BaseModel):
+    keep_id: str
+    merge_id: str
+
+
+@app.post("/api/v1/intelligence/merge-authors")
+async def intel_merge(body: MergeAuthorsBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await intelligence.apply_merge_authors(body.keep_id, body.merge_id)
+
+
+# ── Progress, bookmarks, annotations ─────────────────────────────────────
+class ProgressUpdate(BaseModel):
+    position: str | None = None
+    position_timestamp: float | None = None
+    percentage: float = 0
+    is_finished: bool = False
+
+
+@app.put("/api/v1/progress/{book_id}")
+async def save_progress(book_id: str, body: ProgressUpdate, user: Any = Depends(get_current_user)) -> dict[str, bool]:
+    from uuid import UUID
+
+    await db.execute(
+        """INSERT INTO reading_progress (user_id, book_id, position, position_timestamp, percentage, is_finished, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,now())
+           ON CONFLICT (user_id, book_id) DO UPDATE SET position=$3, position_timestamp=$4, percentage=$5, is_finished=$6, updated_at=now()""",
+        user["id"],
+        UUID(book_id),
+        body.position,
+        body.position_timestamp,
+        body.percentage,
+        body.is_finished,
+    )
+    return {"ok": True}
+
+
+@app.get("/api/v1/progress/{book_id}")
+async def get_progress(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from uuid import UUID
+
+    row = await db.fetch_one(
+        "SELECT * FROM reading_progress WHERE user_id = $1 AND book_id = $2", user["id"], UUID(book_id)
+    )
+    return dict(row) if row else {}
+
+
+class BookmarkCreate(BaseModel):
+    position: str
+    title: str | None = None
+
+
+@app.post("/api/v1/bookmarks/{book_id}")
+async def add_bookmark(book_id: str, body: BookmarkCreate, user: Any = Depends(get_current_user)) -> dict[str, bool]:
+    from uuid import UUID
+
+    await db.execute(
+        "INSERT INTO bookmarks (user_id, book_id, position, title) VALUES ($1,$2,$3,$4)",
+        user["id"],
+        UUID(book_id),
+        body.position,
+        body.title,
+    )
+    return {"ok": True}
+
+
+@app.get("/api/v1/bookmarks/{book_id}")
+async def get_bookmarks(book_id: str, user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from uuid import UUID
+
+    rows = await db.fetch_all(
+        "SELECT * FROM bookmarks WHERE user_id = $1 AND book_id = $2 ORDER BY created_at", user["id"], UUID(book_id)
+    )
+    return [dict(r) for r in rows]
+
+
+class AnnotationCreate(BaseModel):
+    cfi_range: str
+    text_content: str | None = None
+    note: str | None = None
+    color: str = "#ffeb3b"
+
+
+@app.post("/api/v1/annotations/{book_id}")
+async def add_annotation(
+    book_id: str, body: AnnotationCreate, user: Any = Depends(get_current_user)
+) -> dict[str, bool]:
+    from uuid import UUID
+
+    await db.execute(
+        "INSERT INTO annotations (user_id, book_id, cfi_range, text_content, note, color) VALUES ($1,$2,$3,$4,$5,$6)",
+        user["id"],
+        UUID(book_id),
+        body.cfi_range,
+        body.text_content,
+        body.note,
+        body.color,
+    )
+    return {"ok": True}
+
+
+@app.get("/api/v1/annotations/{book_id}")
+async def get_annotations(book_id: str, user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from uuid import UUID
+
+    rows = await db.fetch_all(
+        "SELECT * FROM annotations WHERE user_id = $1 AND book_id = $2 ORDER BY created_at", user["id"], UUID(book_id)
+    )
+    return [dict(r) for r in rows]
+
+
+# ── Audio restoration ────────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/audio/diagnose")
+async def audio_diagnose(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from uuid import UUID
+
+    f = await db.fetch_one(
+        "SELECT id FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac') LIMIT 1", UUID(book_id)
+    )
+    if not f:
+        return {"error": "No audio file"}
+    return await restoration.diagnose(str(f["id"]))
+
+
+@app.post("/api/v1/books/{book_id}/audio/restore")
+async def audio_restore(
+    book_id: str, profile: str = Query("digital_light"), _u: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    from uuid import UUID
+
+    f = await db.fetch_one(
+        "SELECT id FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac') LIMIT 1", UUID(book_id)
+    )
+    if not f:
+        return {"error": "No audio file"}
+    return await restoration.restore(str(f["id"]), profile)
+
+
+@app.post("/api/v1/books/{book_id}/audio/preview")
+async def audio_preview(
+    book_id: str, profile: str = Query("digital_light"), _u: Any = Depends(get_current_user)
+) -> Any:
+    from uuid import UUID
+
+    f = await db.fetch_one(
+        "SELECT id FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac') LIMIT 1", UUID(book_id)
+    )
+    if not f:
+        return {"error": "No audio file"}
+    path = await restoration.preview(str(f["id"]), profile)
+    if path:
+        return FileResponse(path, media_type="audio/mpeg")
+    return {"error": "Preview failed"}
+
+
+# ── TTS / STT / Convert ─────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/convert/tts")
+async def convert_tts(
+    book_id: str, voice: str = Query("en_US-lessac-medium"), user: Any = Depends(get_current_user)
+) -> dict[str, str]:
+    job_id = await tts.convert_to_audiobook(book_id, voice, str(user["id"]))
+    return {"job_id": job_id}
+
+
+@app.post("/api/v1/books/{book_id}/convert/stt")
+async def convert_stt(
+    book_id: str, model: str = Query("small"), user: Any = Depends(get_current_user)
+) -> dict[str, str]:
+    job_id = await stt.transcribe_audiobook(book_id, model, str(user["id"]))
+    return {"job_id": job_id}
+
+
+@app.post("/api/v1/books/{book_id}/convert/{target_format}")
+async def convert_format(book_id: str, target_format: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await convert.convert_format(book_id, target_format)
+
+
+@app.get("/api/v1/tts/voices")
+async def tts_voices() -> list[dict[str, str]]:
+    return await tts.list_voices()
+
+
+@app.get("/api/v1/jobs/{job_id}")
+async def job_status(job_id: str) -> dict[str, Any]:
+    j = await get_job(job_id)
+    return j or {"error": "not found"}
+
+
+# ── Kindle / device delivery ─────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/send-to-kindle")
+async def kindle(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await convert.send_to_kindle(book_id, str(user["id"]))
+
+
+@app.post("/api/v1/books/{book_id}/send-to-device")
+async def device(book_id: str, email: str = Query(...), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await convert.send_to_device(book_id, email)
+
+
+# ── Catalog (Gutenberg + LibriVox) ───────────────────────────────────────
+@app.get("/api/v1/catalog/gutenberg/search")
+async def gutenberg_search(
+    q: str = Query(""), language: str = Query("en"), page: int = Query(1), _u: Any = Depends(get_current_user)
+) -> Any:
+    from brainycat.sources.gutendex import browse, search
+
+    if q:
+        return await search(title=q, language=language)
+    return await browse(language=language, page=page)
+
+
+@app.get("/api/v1/catalog/gutenberg/{gutenberg_id}")
+async def gutenberg_detail(gutenberg_id: int, _u: Any = Depends(get_current_user)) -> Any:
+    from brainycat.sources.gutendex import get_book
+
+    return await get_book(gutenberg_id)
+
+
+@app.post("/api/v1/catalog/gutenberg/{gutenberg_id}/import")
+async def gutenberg_import(gutenberg_id: int, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from uuid import UUID, uuid4
+
+    import httpx
+
+    from brainycat.sources.gutendex import get_book as gb
+    from brainycat.storage import book_dir
+
+    data = await gb(gutenberg_id)
+    if not data or not data.get("epub_url"):
+        return {"error": "No EPUB available"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(data["epub_url"])
+    if resp.status_code != 200:
+        return {"error": "Download failed"}
+    bid = str(uuid4())
+    d = book_dir(bid)
+    import os
+
+    path = os.path.join(d, f"{data['title'][:50]}.epub")
+    with open(path, "wb") as f:
+        f.write(resp.content)
+    await db.execute(
+        "INSERT INTO books (id, title, description) VALUES ($1,$2,$3)",
+        UUID(bid),
+        data["title"],
+        data.get("description"),
+    )
+    await db.execute(
+        "INSERT INTO book_files (book_id, format, file_path, file_name, file_size) VALUES ($1,'epub',$2,$3,$4)",
+        UUID(bid),
+        path,
+        os.path.basename(path),
+        len(resp.content),
+    )
+    for a in data.get("authors", []):
+        await db.execute("INSERT INTO authors (name) VALUES ($1) ON CONFLICT DO NOTHING", a)
+        ar = await db.fetch_one("SELECT id FROM authors WHERE name = $1", a)
+        if ar:
+            await db.execute(
+                "INSERT INTO books_authors (book_id, author_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+                UUID(bid),
+                ar["id"],
+            )
+    return {"book_id": bid, "title": data["title"]}
+
+
+@app.get("/api/v1/catalog/librivox/search")
+async def librivox_search(title: str = Query(""), author: str = Query(""), _u: Any = Depends(get_current_user)) -> Any:
+    from brainycat.sources.librivox import search
+
+    return await search(title=title or None, author=author or None)
+
+
+# ── Translation ──────────────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/translate")
+async def translate(
+    book_id: str, target_lang: str = Query(...), backend: str = Query("argos"), user: Any = Depends(get_current_user)
+) -> dict[str, str]:
+    job_id = await translation.translate_book(book_id, target_lang, backend, str(user["id"]))
+    return {"job_id": job_id}
+
+
+@app.get("/api/v1/translation/backends")
+async def translation_backends() -> list[dict[str, Any]]:
+    return await translation.list_backends()
+
+
+# ── Sync ─────────────────────────────────────────────────────────────────
+@app.get("/api/v1/sync/map/{book_id}")
+async def sync_map(book_id: str, _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    return await sync.get_sync_map(book_id)
+
+
+@app.get("/api/v1/sync/position/{book_id}")
+async def sync_position(
+    book_id: str, from_type: str = Query("text"), position: str = Query("0"), _u: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    return await sync.translate_position(book_id, from_type, position)
+
+
+# ── Recommendations ──────────────────────────────────────────────────────
+@app.get("/api/v1/recommendations/profile")
+async def reco_profile(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await recommendations.build_profile(str(user["id"]))
+
+
+@app.get("/api/v1/recommendations/{category}")
+async def reco_category(category: str, user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    return await recommendations.get_recommendations(str(user["id"]), category)
+
+
+# ── AI Companion ─────────────────────────────────────────────────────────
+@app.get("/api/v1/ai/recap/{book_id}")
+async def ai_recap(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, str]:
+    return await companion.recap(book_id, str(user["id"]))
+
+
+@app.post("/api/v1/ai/ask/{book_id}")
+async def ai_ask(book_id: str, question: str = Query(...), user: Any = Depends(get_current_user)) -> dict[str, str]:
+    return await companion.ask(book_id, str(user["id"]), question)
+
+
+@app.post("/api/v1/ai/auto-tag/{book_id}")
+async def ai_tag(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await companion.auto_tag(book_id)
+
+
+# ── Reviews ──────────────────────────────────────────────────────────────
+@app.get("/api/v1/books/{book_id}/reviews")
+async def book_reviews(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await reviews.get_reviews(book_id)
+
+
+# ── Stats & Notes ────────────────────────────────────────────────────────
+@app.get("/api/v1/stats/overview")
+async def stats_overview(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await stats.get_stats(str(user["id"]))
+
+
+@app.get("/api/v1/books/{book_id}/notes")
+async def get_note(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await stats.get_note(str(user["id"]), book_id) or {}
+
+
+class NoteBody(BaseModel):
+    content: str
+
+
+@app.post("/api/v1/books/{book_id}/notes")
+async def save_note(book_id: str, body: NoteBody, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await stats.save_note(str(user["id"]), book_id, body.content)
+
+
+@app.get("/api/v1/notes/export")
+async def export_notes(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    return await stats.export_notes(str(user["id"]))
+
+
+# ── OPDS ─────────────────────────────────────────────────────────────────
+@app.get("/api/v1/opds/catalog.xml")
+async def opds_catalog() -> Any:
+    return await opds.catalog()
+
+
+@app.get("/api/v1/opds/search")
+async def opds_search(q: str = Query("")) -> Any:
+    return await opds.search_opds(q)
+
+
+# ── Podcast feeds ────────────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/podcast-feed")
+async def create_podcast(
+    book_id: str, schedule: str = Query("daily"), user: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    return await podcast.create_feed(book_id, str(user["id"]), schedule)
+
+
+@app.get("/api/v1/feeds/{feed_id}/rss")
+async def podcast_rss(feed_id: str) -> Any:
+    return await podcast.get_rss(feed_id)
+
+
+# ── Import ───────────────────────────────────────────────────────────────
+@app.post("/api/v1/import/goodreads")
+async def import_gr(file: UploadFile, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.importers.calibre import import_goodreads
+
+    content = (await file.read()).decode()
+    return await import_goodreads(content)
+
+
+@app.post("/api/v1/import/audiobookshelf")
+async def import_abs(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.importers.calibre import import_audiobookshelf
+
+    return await import_audiobookshelf()
+
+
+# ── RSS feed ─────────────────────────────────────────────────────────────
+@app.get("/api/v1/feed/recent.xml")
+async def recent_feed() -> Any:
+    from fastapi.responses import Response
+
+    books_list = await db.fetch_all("SELECT id, title, updated_at FROM books ORDER BY created_at DESC LIMIT 20")
+    entries = "\n".join(
+        f"<entry><id>urn:brainycat:{r['id']}</id><title>{r['title']}</title><updated>{r['updated_at'].isoformat() if r['updated_at'] else ''}</updated></entry>"
+        for r in books_list
+    )
+    xml = f'<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><id>urn:brainycat:recent</id><title>BrainyCat — Recent</title>{entries}</feed>'
+    return Response(content=xml, media_type="application/atom+xml")
+
+
+# ── Covers ───────────────────────────────────────────────────────────────
+@app.post("/api/v1/covers/optimize")
+async def optimize_covers(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.covers import optimize_all_covers
+    return await optimize_all_covers()
+
+
+@app.post("/api/v1/covers/generate-missing")
+async def gen_covers(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.covers import generate_missing_covers
+    return await generate_missing_covers()

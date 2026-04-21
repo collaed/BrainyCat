@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrainyCat — Library</title>
+<style>
+:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6;--accent-hover:#2563eb;--success:#22c55e;--warn:#f59e0b}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+header{background:var(--surface);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border)}
+header h1{font-size:1.3rem;flex-shrink:0}header h1 span{margin-right:.3rem}
+.search-box{flex:1;max-width:500px}
+.search-box input{width:100%;padding:.5rem .8rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.95rem}
+nav{display:flex;gap:.5rem}
+nav a{color:var(--muted);text-decoration:none;padding:.4rem .8rem;border-radius:6px;font-size:.85rem}
+nav a:hover{background:var(--surface);color:var(--text)}
+.container{max-width:1400px;margin:0 auto;padding:1.5rem}
+.toolbar{display:flex;gap:.8rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center}
+.toolbar select,.toolbar button{padding:.4rem .8rem;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:.85rem;cursor:pointer}
+.toolbar button{background:var(--accent);border:none;color:#fff}.toolbar button:hover{background:var(--accent-hover)}
+#drop-zone{border:2px dashed var(--border);border-radius:12px;padding:2rem;text-align:center;color:var(--muted);margin-bottom:1rem;transition:border-color .2s}
+#drop-zone.dragover{border-color:var(--accent);color:var(--text)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:1rem}
+.card{background:var(--surface);border-radius:8px;overflow:hidden;cursor:pointer;transition:transform .15s}
+.card:hover{transform:translateY(-2px)}
+.card img{width:100%;aspect-ratio:2/3;object-fit:cover;background:var(--border)}
+.card .info{padding:.6rem}
+.card .title{font-size:.9rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .author{font-size:.8rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .badges{display:flex;gap:.3rem;margin-top:.3rem}
+.badge{font-size:.65rem;padding:.15rem .4rem;border-radius:4px;background:var(--border);color:var(--muted);text-transform:uppercase}
+.badge.epub{background:#164e63;color:#67e8f9}.badge.mp3,.badge.m4b{background:#713f12;color:#fbbf24}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:100}
+.modal-overlay.active{display:flex}
+.modal{background:var(--surface);border-radius:12px;padding:1.5rem;max-width:600px;width:90%;max-height:80vh;overflow-y:auto}
+.modal h2{margin-bottom:1rem}.modal .close{float:right;cursor:pointer;font-size:1.2rem;color:var(--muted)}
+.modal .actions{display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap}
+.modal .actions button{padding:.5rem 1rem;border-radius:6px;border:none;cursor:pointer;font-size:.85rem;color:#fff}
+.btn-primary{background:var(--accent)}.btn-success{background:var(--success)}.btn-warn{background:var(--warn)}
+.empty{text-align:center;padding:4rem;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+<h1><span>🐱</span> BrainyCat</h1>
+<div class="search-box"><input id="search" type="text" placeholder="Search books... (/ to focus)" autofocus></div>
+<nav>
+<a href="catalog.html">📖 Catalog</a>
+<a href="incoming.html">📥 Incoming</a>
+<a href="intelligence.html">🧠 Intelligence</a>
+<a href="stats.html">📊 Stats</a>
+<a href="recommendations.html">💡 For You</a>
+</nav>
+</header>
+<div class="container">
+<div class="toolbar">
+<select id="filter-format"><option value="">All formats</option><option>epub</option><option>pdf</option><option>mp3</option><option>m4b</option></select>
+<select id="sort"><option value="updated_at">Recent</option><option value="title">Title</option><option value="quality_score">Quality</option></select>
+<button onclick="document.getElementById('file-input').click()">⬆ Upload</button>
+<button onclick="uploadDirectory()">📁 Upload Folder</button>
+<input type="file" id="file-input" hidden accept=".epub,.pdf,.mobi,.mp3,.m4b,.m4a,.flac,.opus,.ogg" multiple>
+</div>
+<div id="drop-zone">Drop files here to upload</div>
+<div id="books" class="grid"></div>
+<div id="empty" class="empty" style="display:none">No books yet. Upload or import from the catalog!</div>
+</div>
+
+<div class="modal-overlay" id="modal"><div class="modal">
+<span class="close" onclick="closeModal()">✕</span>
+<div id="modal-content"></div>
+</div></div>
+
+<script src="api.js"></script>
+<script>
+let allBooks = [];
+const grid = document.getElementById('books');
+const searchInput = document.getElementById('search');
+const emptyEl = document.getElementById('empty');
+
+async function loadBooks() {
+    const fmt = document.getElementById('filter-format').value;
+    const sort = document.getElementById('sort').value;
+    const q = searchInput.value;
+    const params = new URLSearchParams({sort, order:'desc', limit:'100'});
+    if (q) params.set('q', q);
+    if (fmt) params.set('format', fmt);
+    try {
+        const data = await BC.get('/books?' + params);
+        allBooks = data.books || [];
+        console.log('Loaded', allBooks.length, 'books from', API + '/books?' + params);
+    } catch (err) {
+        console.error('loadBooks failed:', err);
+        allBooks = [];
+    }
+    render();
+}
+
+function render() {
+    if (!allBooks.length) { grid.innerHTML = ''; emptyEl.style.display = 'block'; return; }
+    emptyEl.style.display = 'none';
+    grid.innerHTML = allBooks.map(b => `
+        <div class="card" onclick="openBook('${b.id}')">
+            <img src="${API}/books/${b.id}/cover" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 300%22><rect fill=%22%23334155%22 width=%22200%22 height=%22300%22/><text x=%2250%25%22 y=%2250%25%22 fill=%22%2394a3b8%22 text-anchor=%22middle%22 font-size=%2240%22>📚</text></svg>'">
+            <div class="info">
+                <div class="title">${b.title}</div>
+                <div class="author">${(b.authors||[]).join(', ') || 'Unknown'}</div>
+                <div class="badges">${(b.formats||[]).map(f => `<span class="badge ${f}">${f}</span>`).join('')}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function openBook(id) {
+    const b = await BC.get('/books/' + id);
+    const hasEpub = (b.formats||[]).includes('epub');
+    const hasAudio = (b.formats||[]).some(f => ['mp3','m4b','m4a'].includes(f));
+    document.getElementById('modal-content').innerHTML = `
+        <h2>${b.title}</h2>
+        <p style="color:var(--muted);margin-bottom:.5rem">${(b.authors||[]).join(', ')}</p>
+        <p style="font-size:.9rem">${b.description || '<em>No description</em>'}</p>
+        <p style="margin-top:.5rem;font-size:.8rem;color:var(--muted)">Quality: ${b.quality_score}/100 · ISBN: ${b.isbn || '—'}</p>
+        <div id="job-status" style="display:none;margin-top:.8rem;padding:.6rem;background:var(--bg);border-radius:6px;font-size:.85rem">
+            <span id="job-msg">Working...</span>
+            <div style="margin-top:.4rem;height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+                <div id="job-bar" style="height:100%;background:var(--accent);width:0%;transition:width .3s"></div>
+            </div>
+        </div>
+        <div class="actions">
+            ${hasEpub ? `<button class="btn-primary" onclick="location='reader.html?id=${id}'">📖 Read</button>` : ''}
+            ${hasAudio ? `<button class="btn-primary" onclick="location='player.html?id=${id}'">🎧 Listen</button>` : ''}
+            ${hasEpub ? `<button class="btn-primary" onclick="location='bilingual.html?id=${id}'">🌐 Bilingual</button>` : ''}
+            <button class="btn-success" id="btn-enrich" onclick="enrich('${id}')">✨ Enrich</button>
+            <button class="btn-warn" onclick="sendKindle('${id}')">📱 Kindle</button>
+            ${hasEpub ? `<button class="btn-primary" onclick="convertTTS('${id}')">🔊 → Audio</button>` : ''}
+            ${hasEpub ? `<button class="btn-primary" onclick="translateBook('${id}')">🌐 Translate</button>` : ''}
+            ${hasAudio ? `<button class="btn-primary" onclick="diagnoseAudio('${id}')">🔧 Diagnose</button>` : ''}
+        </div>`;
+    document.getElementById('modal').classList.add('active');
+}
+
+function closeModal() { document.getElementById('modal').classList.remove('active'); }
+
+function showJobStatus(msg, pct) {
+    const el = document.getElementById('job-status');
+    if (el) { el.style.display = 'block'; document.getElementById('job-msg').textContent = msg; document.getElementById('job-bar').style.width = pct + '%'; }
+}
+
+async function pollJob(jobId) {
+    for (let i = 0; i < 300; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+            const j = await BC.get('/jobs/' + jobId);
+            if (!j || j.error === 'not found') break;
+            showJobStatus(`${j.job_type}: ${j.status} (${Math.round(j.progress || 0)}%)`, j.progress || 0);
+            if (j.status === 'complete') { showJobStatus('✅ Complete!', 100); loadBooks(); return j; }
+            if (j.status === 'failed') { showJobStatus('❌ Failed: ' + (j.error || '').slice(0, 100), 0); return j; }
+        } catch { break; }
+    }
+}
+
+async function enrich(id) {
+    const btn = document.getElementById('btn-enrich');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Enriching...'; }
+    try {
+        const r = await BC.post('/books/' + id + '/enrich');
+        if (btn) btn.textContent = r.enriched ? `✅ Quality: ${r.quality_score}` : '⚠️ No results';
+        loadBooks();
+        setTimeout(() => openBook(id), 1500);
+    } catch (err) {
+        if (btn) btn.textContent = '❌ Error';
+    }
+}
+
+async function sendKindle(id) { const r = await BC.post('/books/' + id + '/send-to-kindle'); alert(r.ok ? 'Sent to ' + r.sent_to : (r.error || 'Failed')); }
+
+async function convertTTS(id) {
+    showJobStatus('Starting TTS conversion...', 0);
+    try {
+        const r = await BC.post('/books/' + id + '/convert/tts');
+        if (r.job_id) { await pollJob(r.job_id); }
+        else { showJobStatus('❌ ' + JSON.stringify(r), 0); }
+    } catch (err) { showJobStatus('❌ ' + err.message, 0); }
+}
+
+async function diagnoseAudio(id) {
+    showJobStatus('Diagnosing audio...', 50);
+    try {
+        const r = await BC.post('/books/' + id + '/audio/diagnose');
+        showJobStatus(`Hiss: ${r.hiss_score}/100 · Crackle: ${r.crackle_score}/100 · Score: ${r.overall_score}/100 · Recommended: ${r.recommended_profile}`, r.overall_score);
+    } catch (err) { showJobStatus('❌ ' + err.message, 0); }
+}
+
+async function translateBook(id) {
+    const lang = prompt('Target language code (e.g., en, fr, de, es, it):');
+    if (!lang) return;
+    const backend = prompt('Backend (argos, llm, deepl, google, ollama):', 'argos');
+    if (!backend) return;
+    showJobStatus(`Translating to ${lang} via ${backend}...`, 0);
+    try {
+        const r = await BC.post(`/books/${id}/translate?target_lang=${lang}&backend=${backend}`);
+        if (r.job_id) { await pollJob(r.job_id); }
+        else { showJobStatus('❌ ' + JSON.stringify(r), 0); }
+    } catch (err) { showJobStatus('❌ ' + err.message, 0); }
+}
+
+// Upload
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', async e => {
+    e.preventDefault(); dropZone.classList.remove('dragover');
+    dropZone.textContent = 'Uploading...';
+    try {
+        for (const f of e.dataTransfer.files) {
+            const result = await BC.upload('/books/upload', f);
+            console.log('Upload result:', result);
+            dropZone.textContent = result.title ? ('Uploaded: ' + result.title) : JSON.stringify(result);
+        }
+    } catch (err) {
+        console.error('Upload error:', err);
+        dropZone.textContent = 'Upload failed: ' + err.message;
+    }
+    setTimeout(() => { dropZone.textContent = 'Drop files here to upload'; }, 3000);
+    loadBooks();
+});
+fileInput.addEventListener('change', async () => {
+    for (const f of fileInput.files) {
+        try { await BC.upload('/books/upload', f); } catch (err) { console.error('Upload error:', err); }
+    }
+    loadBooks();
+});
+
+// Directory upload — recursively walk a folder
+const ALLOWED_EXT = new Set(['.epub','.pdf','.mobi','.mp3','.m4b','.m4a','.flac','.opus','.ogg']);
+
+async function uploadDirectory() {
+    if ('showDirectoryPicker' in window) {
+        // Modern File System Access API
+        try {
+            const dirHandle = await window.showDirectoryPicker();
+            const files = await collectFiles(dirHandle);
+            await uploadFileList(files);
+        } catch (e) { if (e.name !== 'AbortError') console.error(e); }
+    } else {
+        // Fallback: hidden input with webkitdirectory
+        const input = document.createElement('input');
+        input.type = 'file'; input.webkitdirectory = true; input.multiple = true;
+        input.onchange = async () => { await uploadFileList(Array.from(input.files).filter(f => ALLOWED_EXT.has(f.name.slice(f.name.lastIndexOf('.')).toLowerCase()))); };
+        input.click();
+    }
+}
+
+async function collectFiles(dirHandle, path = '') {
+    const files = [];
+    for await (const entry of dirHandle.values()) {
+        if (entry.kind === 'file') {
+            const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
+            if (ALLOWED_EXT.has(ext)) {
+                const file = await entry.getFile();
+                files.push(file);
+            }
+        } else if (entry.kind === 'directory') {
+            files.push(...await collectFiles(entry, path + entry.name + '/'));
+        }
+    }
+    return files;
+}
+
+async function uploadFileList(files) {
+    if (!files.length) { dropZone.textContent = 'No supported files found'; setTimeout(() => { dropZone.textContent = 'Drop files here to upload'; }, 3000); return; }
+
+    // Client-side dupe detection: get existing titles
+    dropZone.textContent = 'Checking for duplicates...';
+    let existingTitles = new Set();
+    try {
+        const lib = await BC.get('/books?limit=9999');
+        (lib.books || []).forEach(b => {
+            existingTitles.add(b.title.toLowerCase().trim());
+            // Also match by filename stem
+            existingTitles.add(b.title.toLowerCase().replace(/[^a-z0-9]/g, ''));
+        });
+    } catch {}
+
+    // Filter out likely dupes client-side
+    const toUpload = [];
+    let skipped = 0;
+    for (const f of files) {
+        const stem = f.name.replace(/\.\w+$/, '').replace(/[-_]/g, ' ').trim().toLowerCase();
+        const normalized = stem.replace(/[^a-z0-9]/g, '');
+        if (existingTitles.has(stem) || existingTitles.has(normalized)) {
+            skipped++;
+        } else {
+            toUpload.push(f);
+            existingTitles.add(normalized); // prevent dupes within batch
+        }
+    }
+
+    if (skipped) dropZone.textContent = `Skipped ${skipped} duplicates. Uploading ${toUpload.length}...`;
+    else dropZone.textContent = `Uploading 0/${toUpload.length}...`;
+
+    if (!toUpload.length) {
+        dropZone.textContent = `All ${files.length} files already in library`;
+        setTimeout(() => { dropZone.textContent = 'Drop files here to upload'; }, 4000);
+        return;
+    }
+
+    let done = 0, errors = 0, dupes = 0;
+    for (const f of toUpload) {
+        try {
+            const result = await BC.upload('/books/upload', f);
+            if (result.warning === 'duplicate') dupes++;
+            else done++;
+        } catch { errors++; }
+        dropZone.textContent = `Uploading ${done + dupes + errors}/${toUpload.length}...` +
+            (dupes ? ` ${dupes} dupes` : '') + (errors ? ` ${errors} errors` : '');
+    }
+    const parts = [`✅ ${done} uploaded`];
+    if (skipped + dupes) parts.push(`${skipped + dupes} duplicates skipped`);
+    if (errors) parts.push(`${errors} errors`);
+    dropZone.textContent = parts.join(' · ');
+    setTimeout(() => { dropZone.textContent = 'Drop files here to upload'; }, 8000);
+    loadBooks();
+}
+
+// Search
+let searchTimer;
+searchInput.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadBooks, 300); });
+document.getElementById('filter-format').addEventListener('change', loadBooks);
+document.getElementById('sort').addEventListener('change', loadBooks);
+document.addEventListener('keydown', e => { if (e.key === '/' && document.activeElement !== searchInput) { e.preventDefault(); searchInput.focus(); } if (e.key === 'Escape') closeModal(); });
+
+loadBooks();
+</script>
+</body>
+</html>

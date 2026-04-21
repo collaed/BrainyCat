@@ -1,0 +1,226 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrainyCat — Reader</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}body{background:#1a1a2e;color:#e2e8f0;font-family:system-ui}
+#toolbar{background:#16213e;padding:.5rem 1rem;display:flex;gap:.8rem;align-items:center;border-bottom:1px solid #334155;z-index:20;position:relative}
+#toolbar a{color:#94a3b8;text-decoration:none}
+#toolbar .title{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.9rem}
+#toolbar button,#toolbar select{padding:.3rem .6rem;border-radius:4px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;cursor:pointer;font-size:.8rem}
+#viewer{height:calc(100vh - 45px);overflow:hidden}
+#toc{position:fixed;left:0;top:45px;width:280px;height:calc(100vh - 45px);background:#16213e;overflow-y:auto;transform:translateX(-100%);transition:transform .2s;z-index:10;padding:1rem;border-right:1px solid #334155}
+#toc.open{transform:translateX(0)}
+#toc h3{margin-bottom:.8rem;font-size:.9rem;color:#94a3b8}
+#toc a{display:block;padding:.4rem 0;color:#94a3b8;text-decoration:none;font-size:.85rem}#toc a:hover{color:#e2e8f0}
+
+.genre-margin{position:fixed;top:45px;width:6px;height:calc(100vh - 48px);z-index:15;opacity:0.6;transition:background-position 2s linear}
+.genre-margin.left{left:0;border-right:1px solid rgba(255,255,255,0.05)}
+.genre-margin.right{right:0;border-left:1px solid rgba(255,255,255,0.05)}
+.genre-margin .strip{width:100%;height:300%;position:absolute;top:0;transition:top 0.5s ease}
+.progress-bar{position:fixed;bottom:0;left:0;height:3px;background:#3b82f6;transition:width .3s;z-index:20}
+#status{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);background:#1e293b;color:#94a3b8;padding:.4rem .8rem;border-radius:6px;font-size:.8rem;z-index:20}
+</style></head><body>
+<div id="toolbar">
+<a href="index.html">← Library</a>
+<button onclick="toggleToc()">☰</button>
+<span class="title" id="book-title">Loading...</span>
+<select id="theme" onchange="setTheme(this.value)"><option value="dark">Dark</option><option value="light">Light</option><option value="sepia">Sepia</option></select>
+<button onclick="changeFontSize(-2)">A-</button>
+<button onclick="changeFontSize(2)">A+</button>
+<button onclick="prevPage()">◀</button>
+<button onclick="nextPage()">▶</button>
+<button id="sync-btn" style="display:none" onclick="switchToAudio()">🎧</button>
+</div>
+<div id="toc"><h3>Table of Contents</h3></div>
+
+<div class="genre-margin left"><div class="strip" id="margin-left"></div></div>
+<div class="genre-margin right"><div class="strip" id="margin-right"></div></div>
+<div id="viewer"></div>
+<div class="progress-bar" id="progress-bar"></div>
+<div id="status">Loading...</div>
+
+<script src="api.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const bookId = params.get('id');
+let book, rendition, fontSize = 18;
+const statusEl = document.getElementById('status');
+
+function log(msg) { statusEl.textContent = msg; console.log('[reader]', msg); }
+
+async function init() {
+    if (!bookId) { log('No book ID'); return; }
+    log('Loading book data...');
+
+    const data = await BC.get('/books/' + bookId);
+    document.getElementById('book-title').textContent = data.title || 'Unknown';
+
+    const epubFile = (data.files || []).find(f => f.format === 'epub');
+    // Set up genre margin strips
+    const genre = detectGenre(data.title, data.description, []);
+    setupMargins(genre);
+    document.getElementById('book-title').title = 'Genre: ' + genre;
+    if (!epubFile) { log('No EPUB file found'); return; }
+
+    // Check for audio version
+    if ((data.formats||[]).some(f => ['mp3','m4b','m4a'].includes(f))) {
+        document.getElementById('sync-btn').style.display = '';
+    }
+
+    log('Downloading EPUB (' + (epubFile.file_size / 1024).toFixed(0) + ' KB)...');
+
+    try {
+        const resp = await fetch(API + '/books/' + bookId + '/file/' + epubFile.id, {credentials: 'same-origin'});
+        if (!resp.ok) { log('Failed to fetch EPUB: HTTP ' + resp.status); return; }
+        const arrayBuffer = await resp.arrayBuffer();
+        log('Parsing EPUB...');
+
+        book = ePub(arrayBuffer);
+        rendition = book.renderTo('viewer', {
+            width: '100%',
+            height: '100%',
+            spread: 'none',
+            flow: 'paginated',
+        });
+
+        // Apply dark theme
+        rendition.themes.default({
+            body: { background: '#1a1a2e !important', color: '#e2e8f0 !important' },
+            'p, div, span, h1, h2, h3, h4, h5, h6, li, a': { color: '#e2e8f0 !important' },
+        });
+        rendition.themes.fontSize(fontSize + 'px');
+
+        // Load saved progress
+        const progress = await BC.get('/progress/' + bookId);
+        if (progress && progress.position) {
+            log('Resuming from saved position...');
+            await rendition.display(progress.position);
+        } else {
+            await rendition.display();
+        }
+        log('');
+
+        // Track progress on page turn
+        rendition.on('relocated', loc => {
+            const pct = loc.start.percentage ? (loc.start.percentage * 100) : 0;
+            document.getElementById('progress-bar').style.width = pct + '%';
+            scrollMargins(pct);
+            if (loc.start.cfi) {
+                BC.post('/progress/' + bookId, { position: loc.start.cfi, percentage: pct });
+            }
+            statusEl.textContent = Math.round(pct) + '%';
+        });
+
+        // TOC
+        const nav = await book.loaded.navigation;
+        if (nav && nav.toc) {
+            document.getElementById('toc').innerHTML = '<h3>Table of Contents</h3>' +
+                nav.toc.map(ch => `<a href="#" onclick="goTo('${ch.href}');return false">${ch.label.trim()}</a>`).join('');
+        }
+
+        // Keyboard navigation
+        rendition.on('keyup', handleKey);
+        document.addEventListener('keyup', handleKey);
+
+        // Click to turn pages
+        rendition.on('click', (e) => {
+            const w = rendition.manager?.container?.clientWidth || window.innerWidth;
+            if (e.clientX < w * 0.3) rendition.prev();
+            else if (e.clientX > w * 0.7) rendition.next();
+        });
+
+    } catch (e) {
+        log('Error: ' + e.message);
+        console.error(e);
+    }
+}
+
+function handleKey(e) {
+    if (e.key === 'ArrowRight' || e.key === ' ') nextPage();
+    else if (e.key === 'ArrowLeft') prevPage();
+}
+function nextPage() { if (rendition) rendition.next(); }
+function prevPage() { if (rendition) rendition.prev(); }
+function goTo(href) { if (rendition) { rendition.display(href); toggleToc(); } }
+function toggleToc() { document.getElementById('toc').classList.toggle('open'); }
+function changeFontSize(d) { fontSize = Math.max(12, Math.min(32, fontSize + d)); if (rendition) rendition.themes.fontSize(fontSize + 'px'); }
+function setTheme(t) {
+    const themes = {
+        dark: { body: { background: '#1a1a2e !important', color: '#e2e8f0 !important' }, 'p,div,span,h1,h2,h3,h4,h5,h6,li,a': { color: '#e2e8f0 !important' } },
+        light: { body: { background: '#ffffff !important', color: '#1a1a1a !important' }, 'p,div,span,h1,h2,h3,h4,h5,h6,li,a': { color: '#1a1a1a !important' } },
+        sepia: { body: { background: '#f4ecd8 !important', color: '#5b4636 !important' }, 'p,div,span,h1,h2,h3,h4,h5,h6,li,a': { color: '#5b4636 !important' } },
+    };
+    if (rendition && themes[t]) rendition.themes.default(themes[t]);
+    document.body.style.background = t === 'light' ? '#fff' : t === 'sepia' ? '#f4ecd8' : '#1a1a2e';
+}
+function switchToAudio() { location = 'player.html?id=' + bookId; }
+
+
+// Genre color coding for margins
+const GENRE_COLORS = {
+    // Fiction — vertical gradient feel
+    fiction:'#2563eb', romance:'#e11d48', thriller:'#0f172a', fantasy:'#7c3aed',
+    'sci-fi':'#0891b2', horror:'#450a0a', mystery:'#854d0e', literary:'#065f46',
+    erotica:'#9f1239',
+    // Non-fiction — different pattern
+    'non-fiction':'#dc2626', 'self-help':'#f59e0b', business:'#1d4ed8',
+    science:'#059669', history:'#92400e', philosophy:'#4338ca',
+    psychology:'#0d9488', technology:'#475569', cooking:'#ea580c', health:'#16a34a',
+};
+
+function detectGenre(title, desc, tags) {
+    const text = (title + ' ' + (desc||'') + ' ' + (tags||[]).join(' ')).toLowerCase();
+    const checks = [
+        ['erotica', ['erotica','bdsm','femdom','erotic','kink','dominant']],
+        ['romance', ['romance','love story','romantic']],
+        ['thriller', ['thriller','suspense','crime']],
+        ['fantasy', ['fantasy','magic','dragon','wizard']],
+        ['sci-fi', ['sci-fi','science fiction','space','robot']],
+        ['horror', ['horror','ghost','haunted']],
+        ['mystery', ['mystery','murder']],
+        ['self-help', ['self-help','self help','how to','guide','workbook']],
+        ['business', ['business','entrepreneur','startup','marketing']],
+        ['science', ['science','physics','biology','chemistry']],
+        ['history', ['history','historical','war','ancient']],
+        ['philosophy', ['philosophy','ethics']],
+        ['psychology', ['psychology','mental','cognitive','therapy','anxiety']],
+        ['technology', ['programming','software','computer','data science']],
+        ['health', ['health','fitness','diet','yoga','meditation']],
+    ];
+    for (const [genre, kws] of checks) {
+        if (kws.some(k => text.includes(k))) return genre;
+    }
+    return text.match(/novel|story|tales|fiction/) ? 'fiction' : 'non-fiction';
+}
+
+function setupMargins(genre) {
+    const color = GENRE_COLORS[genre] || GENRE_COLORS['fiction'];
+    const isNonFiction = ['non-fiction','self-help','business','science','history','philosophy','psychology','technology','cooking','health'].includes(genre);
+
+    // Create gradient: for fiction, vertical flowing stripe; for non-fiction, horizontal dashes
+    const leftEl = document.getElementById('margin-left');
+    const rightEl = document.getElementById('margin-right');
+
+    if (isNonFiction) {
+        // Horizontal dashes pattern
+        leftEl.style.background = `repeating-linear-gradient(0deg, ${color} 0px, ${color} 3px, transparent 3px, transparent 18px)`;
+        rightEl.style.background = `repeating-linear-gradient(0deg, ${color} 0px, ${color} 3px, transparent 3px, transparent 18px)`;
+    } else {
+        // Solid color strip with subtle gradient
+        leftEl.style.background = `linear-gradient(180deg, ${color}, ${color}dd, ${color}88, ${color}dd, ${color})`;
+        rightEl.style.background = `linear-gradient(180deg, ${color}88, ${color}dd, ${color}, ${color}dd, ${color}88)`;
+    }
+}
+
+function scrollMargins(pct) {
+    // Slowly scroll the margin strips as reading progresses
+    const offset = -(pct / 100) * 200; // 200% of strip height
+    const leftEl = document.getElementById('margin-left');
+    const rightEl = document.getElementById('margin-right');
+    if (leftEl) leftEl.style.top = offset + '%';
+    if (rightEl) rightEl.style.top = (offset * 0.7) + '%'; // slightly different speed for visual interest
+}
+
+init().catch(e => { log('Init error: ' + e.message); console.error(e); });
+</script></body></html>

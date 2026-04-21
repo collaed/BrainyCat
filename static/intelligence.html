@@ -1,0 +1,135 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrainyCat — Intelligence</title>
+<style>
+:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6;--warn:#f59e0b;--success:#22c55e;--danger:#ef4444}
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:var(--bg);color:var(--text)}
+header{background:var(--surface);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border);flex-wrap:wrap}
+header a{color:var(--muted);text-decoration:none}header h2{flex:1}
+nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(--muted);text-decoration:none}
+.container{max-width:1000px;margin:0 auto;padding:1.5rem}
+.section{margin-bottom:2rem}.section h3{margin-bottom:.8rem;color:var(--accent);display:flex;align-items:center;gap:.5rem}
+.count{background:var(--accent);color:#fff;font-size:.7rem;padding:.1rem .5rem;border-radius:10px}
+.card{background:var(--surface);border-radius:8px;padding:1rem;margin-bottom:.6rem;position:relative}
+.card .title{font-weight:600;margin-bottom:.3rem}.card .detail{font-size:.85rem;color:var(--muted);line-height:1.6}
+.card .actions{margin-top:.6rem;display:flex;gap:.4rem;flex-wrap:wrap}
+.card .actions button{padding:.35rem .7rem;border-radius:5px;border:none;cursor:pointer;font-size:.8rem;color:#fff}
+.btn-accept{background:var(--success)}.btn-reject{background:var(--danger)}.btn-edit{background:var(--accent)}
+.confidence{position:absolute;top:.8rem;right:1rem;font-size:.75rem;padding:.2rem .5rem;border-radius:4px;font-weight:600}
+.conf-high{background:#166534;color:#86efac}.conf-med{background:#854d0e;color:#fbbf24}.conf-low{background:#991b1b;color:#fca5a5}
+.empty{color:var(--muted);font-style:italic;padding:1rem 0}
+.book-list{margin:.4rem 0;padding-left:1.2rem;font-size:.85rem;color:var(--muted)}
+.book-list li{margin:.2rem 0}
+.edit-input{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.3rem .5rem;border-radius:4px;font-size:.85rem;width:200px}
+</style></head><body>
+<header>
+<a href="index.html">← Library</a><h2>🧠 Library Intelligence</h2>
+<nav><a href="catalog.html">📖 Catalog</a><a href="incoming.html">📥 Incoming</a><a href="intelligence.html">🧠 Intel</a><a href="stats.html">📊 Stats</a><a href="recommendations.html">💡 For You</a></nav>
+</header>
+<div class="container">
+<div class="section" id="covers"><h3>🖼️ Cover Management</h3><div style="display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn-accept" onclick="optimizeCovers(this)" style="padding:.5rem 1rem;border-radius:6px;border:none;background:var(--accent);color:#fff;cursor:pointer">📐 Optimize Large Covers</button><button class="btn-accept" onclick="generateCovers(this)" style="padding:.5rem 1rem;border-radius:6px;border:none;background:var(--success);color:#fff;cursor:pointer">🎨 Generate Missing Covers</button><span id="cover-status" style="color:var(--muted);font-size:.85rem;padding:.5rem"></span></div></div>
+<div class="section" id="authors"><h3>👤 Author Cleanup</h3><div class="empty">Loading...</div></div>
+<div class="section" id="series"><h3>📚 Series Detection</h3><div class="empty">Loading...</div></div>
+<div class="section" id="quality"><h3>🔍 Quality Issues</h3><div class="empty">Loading...</div></div>
+<div class="section" id="dupes"><h3>🔄 Duplicates</h3><div class="empty">Loading...</div></div>
+</div>
+<script src="api.js"></script>
+<script>
+function confClass(c) { return c >= 75 ? 'conf-high' : c >= 50 ? 'conf-med' : 'conf-low'; }
+
+async function load() {
+    const [quality, series, dupes, authors] = await Promise.all([
+        BC.get('/intelligence/quality'),
+        BC.get('/intelligence/series-gaps'),
+        BC.get('/intelligence/duplicates'),
+        BC.get('/intelligence/author-suggestions'),
+    ]);
+
+    // Authors
+    const authEl = document.getElementById('authors');
+    if (authors.length) {
+        authEl.innerHTML = `<h3>👤 Author Cleanup <span class="count">${authors.length}</span></h3>` +
+            authors.map((a, i) => `<div class="card">
+                <span class="confidence ${confClass(a.confidence)}">${a.confidence}%</span>
+                <div class="title">${a.author_a.name} ↔ ${a.author_b.name}</div>
+                <div class="detail">${a.reason} · ${a.author_a.books} + ${a.author_b.books} books</div>
+                <div class="actions">
+                    <button class="btn-accept" onclick="mergeAuthors('${a.author_a.id}','${a.author_b.id}', this)">✓ Keep "${a.author_a.name}"</button>
+                    <button class="btn-accept" onclick="mergeAuthors('${a.author_b.id}','${a.author_a.id}', this)">✓ Keep "${a.author_b.name}"</button>
+                    <button class="btn-reject" onclick="this.closest('.card').remove()">✕ Ignore</button>
+                </div>
+            </div>`).join('');
+    } else {
+        authEl.innerHTML = '<h3>👤 Author Cleanup</h3><div class="empty">No author issues detected ✓</div>';
+    }
+
+    // Series
+    const seriesEl = document.getElementById('series');
+    if (series.length) {
+        seriesEl.innerHTML = `<h3>📚 Series Detection <span class="count">${series.length}</span></h3>` +
+            series.map(s => {
+                const books = s.books || [];
+                const bookList = books.length ? '<ol class="book-list">' + books.map(b => `<li>${b.title}</li>`).join('') + '</ol>' : (s.titles || []).map(t => `<br>  • ${t}`).join('');
+                const bookIds = books.map(b => b.id);
+                return `<div class="card">
+                    <span class="confidence ${confClass(s.confidence)}">${s.confidence}%</span>
+                    <div class="title">${s.series}${s.author ? ' <span style="color:var(--muted);font-weight:normal">by ' + s.author + '</span>' : ''}</div>
+                    <div class="detail">
+                        ${s.type === 'series_gap' ? 'Missing: <strong>#' + s.missing.join(', #') + '</strong>' : s.message}
+                        ${bookList}
+                    </div>
+                    ${s.action === 'create_series' ? `<div class="actions">
+                        <input class="edit-input" id="sname-${s.confidence}" value="${s.series}" placeholder="Series name">
+                        <button class="btn-accept" onclick="acceptSeries(document.getElementById('sname-${s.confidence}').value, ${JSON.stringify(bookIds).replace(/"/g, "'")}, this)">✓ Create Series</button>
+                        <button class="btn-reject" onclick="this.closest('.card').remove()">✕ Ignore</button>
+                    </div>` : ''}
+                </div>`;
+            }).join('');
+    } else {
+        seriesEl.innerHTML = '<h3>📚 Series Detection</h3><div class="empty">No series patterns detected</div>';
+    }
+
+    // Quality
+    const qualityEl = document.getElementById('quality');
+    qualityEl.innerHTML = '<h3>🔍 Quality Issues' + (quality.length ? ` <span class="count">${quality.length}</span>` : '') + '</h3>' +
+        (quality.length ? quality.map(q => `<div class="card"><div class="title">${q.title}</div><div class="detail">${q.issues.map(i => `<span style="background:#854d0e;color:#fbbf24;font-size:.7rem;padding:.15rem .4rem;border-radius:4px;margin-right:.3rem">${i}</span>`).join('')}</div></div>`).join('') :
+        '<div class="empty">All books pass quality checks ✓</div>');
+
+    // Duplicates
+    const dupesEl = document.getElementById('dupes');
+    dupesEl.innerHTML = '<h3>🔄 Duplicates' + (dupes.length ? ` <span class="count">${dupes.length}</span>` : '') + '</h3>' +
+        (dupes.length ? dupes.map(d => `<div class="card"><div class="title">${d.title_a} ↔ ${d.title_b}</div><div class="detail">Similarity: <strong>${d.similarity}%</strong></div></div>`).join('') :
+        '<div class="empty">No duplicates found ✓</div>');
+}
+
+async function mergeAuthors(keepId, mergeId, btn) {
+    btn.disabled = true; btn.textContent = '⏳...';
+    const r = await BC.post('/intelligence/merge-authors', {keep_id: keepId, merge_id: mergeId});
+    btn.closest('.card').innerHTML = `<div class="detail" style="color:var(--success)">✅ Merged into "${r.kept}" (was "${r.merged}")</div>`;
+    setTimeout(load, 1500);
+}
+
+async function acceptSeries(name, bookIds, btn) {
+    // bookIds comes as array with single-quoted strings, fix them
+    const ids = typeof bookIds === 'string' ? JSON.parse(bookIds.replace(/'/g, '"')) : bookIds;
+    btn.disabled = true; btn.textContent = '⏳...';
+    const r = await BC.post('/intelligence/apply-series', {series_name: name, book_ids: ids});
+    btn.closest('.card').innerHTML = `<div class="detail" style="color:var(--success)">✅ Created series "${name}" with ${r.linked} books</div>`;
+    setTimeout(load, 1500);
+}
+
+async function optimizeCovers(btn) {
+    btn.disabled = true; btn.textContent = "⏳ Optimizing...";
+    const r = await BC.post("/covers/optimize");
+    document.getElementById("cover-status").textContent = "✅ " + r.optimized + " covers optimized, saved " + r.saved_mb + " MB";
+    btn.textContent = "📐 Optimize Large Covers"; btn.disabled = false;
+}
+async function generateCovers(btn) {
+    btn.disabled = true; btn.textContent = "⏳ Generating...";
+    const r = await BC.post("/covers/generate-missing");
+    document.getElementById("cover-status").textContent = "✅ " + r.generated + " covers generated";
+    btn.textContent = "🎨 Generate Missing Covers"; btn.disabled = false;
+    loadBooks && loadBooks();
+}
+
+load();
+</script></body></html>
