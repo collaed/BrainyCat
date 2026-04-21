@@ -1,16 +1,10 @@
 FROM python:3.12-slim
 
-# System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     sox \
     libsox-fmt-all \
     espeak-ng \
-    ocrmypdf \
-    tesseract-ocr \
-    tesseract-ocr-fra \
-    tesseract-ocr-deu \
-    tesseract-ocr-spa \
     fonts-dejavu-core \
     calibre \
     wget \

@@ -1,11 +1,13 @@
-"""OCR and PDF utilities — cover extraction, text OCR, rotation detection."""
+"""OCR via Intello service — no local tesseract needed."""
 
 from __future__ import annotations
 
-import asyncio
 import os
 from uuid import UUID
 
+import httpx
+
+from brainycat.config import settings
 from brainycat.db import fetch_one
 from brainycat.jobs import create_job, run_in_background, update_job
 
@@ -19,11 +21,10 @@ def extract_pdf_cover(pdf_path: str, output_path: str) -> bool:
         if len(doc) == 0:
             return False
         page = doc[0]
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for quality
-        # Scale down to cover size
+        pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
         if pix.width > 600:
             scale = 600 / pix.width
-            pix = page.get_pixmap(matrix=fitz.Matrix(scale * 2, scale * 2))
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale * 1.5, scale * 1.5))
         pix.save(output_path)
         doc.close()
         return os.path.isfile(output_path)
@@ -32,7 +33,7 @@ def extract_pdf_cover(pdf_path: str, output_path: str) -> bool:
 
 
 async def ocr_pdf(book_id: str, user_id: str | None = None) -> str:
-    """OCR a scanned PDF — makes it searchable. Returns job ID."""
+    """OCR a scanned PDF via Intello's OCR service. Returns job ID."""
     job_id = await create_job("ocr", book_id=book_id, user_id=user_id)
 
     async def _run() -> None:
@@ -41,34 +42,30 @@ async def ocr_pdf(book_id: str, user_id: str | None = None) -> str:
             await update_job(job_id, status="failed", error="No PDF file")
             return
 
-        src = file_row["file_path"]
-        dest = src.replace(".pdf", "_ocr.pdf")
-
         await update_job(job_id, progress=10)
 
-        proc = await asyncio.create_subprocess_exec(
-            "ocrmypdf",
-            "--rotate-pages",  # auto-detect rotated pages
-            "--deskew",  # fix skewed scans
-            "--clean",  # clean up scan artifacts
-            "--skip-text",  # skip pages that already have text
-            "-l",
-            "eng+fra+deu+spa",  # languages
-            src,
-            dest,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
+        # Send PDF to Intello OCR endpoint
+        try:
+            async with httpx.AsyncClient(timeout=300) as client:
+                with open(file_row["file_path"], "rb") as f:
+                    resp = await client.post(
+                        f"{settings.intello_url}/api/v1/ocr/pdf",
+                        files={"file": (os.path.basename(file_row["file_path"]), f, "application/pdf")},
+                        data={"language": "eng+fra+deu+spa", "searchable": "true"},
+                    )
 
-        await update_job(job_id, progress=90)
+                await update_job(job_id, progress=80)
 
-        if os.path.isfile(dest) and os.path.getsize(dest) > 0:
-            # Replace original with OCR'd version
-            os.replace(dest, src)
-            await update_job(job_id, progress=100)
-        else:
-            await update_job(job_id, status="failed", error=stderr.decode(errors="replace")[:300])
+                if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("application/pdf"):
+                    # Replace original with OCR'd version
+                    with open(file_row["file_path"], "wb") as out:
+                        out.write(resp.content)
+                    await update_job(job_id, progress=100)
+                else:
+                    error = resp.text[:300] if resp.status_code != 200 else "No PDF returned"
+                    await update_job(job_id, status="failed", error=error)
+        except Exception as e:
+            await update_job(job_id, status="failed", error=str(e)[:300])
 
     await run_in_background(job_id, _run())
     return job_id
