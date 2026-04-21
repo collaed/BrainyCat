@@ -360,17 +360,16 @@ async def apply_batch(actions: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _normalize(s: str) -> str:
-    """Normalize a string for comparison: lowercase, strip punctuation, collapse whitespace."""
+    """Normalize a string for comparison: lowercase, collapse whitespace, handle Last/First."""
     import re
 
     s = s.lower().strip()
-    s = re.sub(r"[^\w\s]", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    # Handle "Last, First" → "first last"
+    # Handle "Last, First" → "first last" BEFORE stripping punctuation
     if "," in s:
-        parts = [p.strip() for p in s.split(",")]
+        parts = [p.strip() for p in s.split(",") if p.strip()]
         s = " ".join(reversed(parts))
-    return s
+    s = re.sub(r"[^\w\s]", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def _jaccard(a: list[str], b: list[str]) -> float:

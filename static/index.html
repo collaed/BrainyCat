@@ -57,7 +57,7 @@ nav a{color:var(--muted);text-decoration:none;padding:.3rem .5rem;font-size:.8re
 <body>
 <header>
 <h1>🐱 BrainyCat</h1>
-<div class="search-box"><input id="search" type="text" placeholder="Search... (/ to focus)" autofocus></div>
+<div class="search-box"><input id="search" type="text" placeholder="Search title, author, ISBN..." autofocus></div>
 <nav>
 <a href="catalog.html">📖 Catalog</a>
 <a href="incoming.html">📥 Incoming</a>
@@ -69,6 +69,7 @@ nav a{color:var(--muted);text-decoration:none;padding:.3rem .5rem;font-size:.8re
 <div class="container">
 <div class="toolbar">
 <select id="filter-format"><option value="">All formats</option><option>epub</option><option>pdf</option><option>mobi</option><option>mp3</option><option>m4b</option></select>
+<input id="filter-author" placeholder="Author..." style="padding:.35rem .5rem;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:.8rem;width:120px" oninput="clearTimeout(st);st=setTimeout(()=>{page=0;allBooks=[];hasMore=true;loadBooks();},300)">
 <select id="sort"><option value="updated_at">Recent</option><option value="title">Title</option><option value="quality_score">Quality</option><option value="created_at">Added</option></select>
 <div class="view-toggle">
 <button id="btn-grid" class="active" onclick="setView('grid')">▦</button>
@@ -107,7 +108,7 @@ async function loadBooks(append=false){
     const fmt=document.getElementById('filter-format').value;
     const q=searchInput.value;
     const lim=q?500:PAGE_SIZE; const params=new URLSearchParams({sort:sortField,order:sortOrder,limit:String(lim),offset:String(page*lim)});
-    if(q)params.set('q',q);if(fmt)params.set('format',fmt);
+    if(q)params.set('q',q);if(fmt)params.set('format',fmt);const auth=document.getElementById('filter-author')?.value;if(auth)params.set('author',auth);
     try{
         const data=await BC.get('/books?'+params);
         const books=data.books||[];
