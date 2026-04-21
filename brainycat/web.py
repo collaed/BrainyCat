@@ -45,6 +45,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     setup_logging()
     await db.get_pool()
     await auth.seed_users()
+    from brainycat.scheduler import start_scheduler
+
+    await start_scheduler()
     yield
     await db.close_pool()
 
