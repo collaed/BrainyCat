@@ -112,10 +112,10 @@ async function loadBooks(append=false){
         const data=await BC.get('/books?'+params);
         const books=data.books||[];
         if(append)allBooks.push(...books);else allBooks=books;
-        hasMore=books.length===PAGE_SIZE;
+        hasMore=books.length>=lim;
         document.getElementById('book-count').textContent=data.total+' books';
         render();
-    }catch(e){console.error(e);}
+    }catch(e){console.error('loadBooks error:',e);document.getElementById('book-count').textContent='Error: '+e.message;}
     loading=false;
 }
 
