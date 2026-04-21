@@ -193,6 +193,7 @@ async function openBook(id){
             ${hasEpub?`<button class="btn-p" onclick="translateBook('${id}')">🌐 Translate</button>`:''}
             ${hasPdf?`<button class="btn-p" onclick="ocrBook('${id}')">📝 OCR</button>`:''}
             ${hasAudio?`<button class="btn-p" onclick="diagnoseAudio('${id}')">🔧 Diagnose</button>`:''}
+            <button class="btn-p" onclick="editBook('')">✏️ Edit</button>
             <button style="background:var(--danger,#ef4444)" onclick="deleteBook('${id}')">🗑️ Delete</button>
         </div>`;
     document.getElementById('modal').classList.add('active');
@@ -231,6 +232,35 @@ async function batchDelete(){
 }
 
 async function extractPdfCovers(btn){btn.disabled=true;btn.textContent='⏳';const r=await BC.post('/covers/extract-pdf');btn.textContent='✅ '+r.extracted;setTimeout(()=>{btn.textContent='📄→🖼️';btn.disabled=false;loadBooks();},3000);}
+
+async function editBook(id){
+    const b=await BC.get('/books/'+id);
+    document.getElementById('modal-content').innerHTML=`
+        <h2>Edit Metadata</h2>
+        <div style="display:grid;gap:.5rem;margin:.8rem 0">
+        <label style="font-size:.8rem;color:var(--muted)">Title</label>
+        <input id="ed-title" value="${b.title||''}" style="padding:.4rem;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.9rem">
+        <label style="font-size:.8rem;color:var(--muted)">ISBN</label>
+        <input id="ed-isbn" value="${b.isbn||''}" style="padding:.4rem;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.9rem">
+        <label style="font-size:.8rem;color:var(--muted)">Description</label>
+        <textarea id="ed-desc" rows="4" style="padding:.4rem;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.85rem">${b.description||''}</textarea>
+        <label style="font-size:.8rem;color:var(--muted)">Series Index</label>
+        <input id="ed-idx" type="number" step="0.1" value="${b.series_index||1}" style="padding:.4rem;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);width:80px">
+        </div>
+        <div class="actions">
+            <button class="btn-s" onclick="saveEdit('${id}')">💾 Save</button>
+            <button class="btn-p" onclick="openBook('${id}')">Cancel</button>
+        </div>`;
+}
+async function saveEdit(id){
+    await BC.patch('/books/'+id,{
+        title:document.getElementById('ed-title').value,
+        isbn:document.getElementById('ed-isbn').value||null,
+        description:document.getElementById('ed-desc').value||null,
+        series_index:parseFloat(document.getElementById('ed-idx').value)||1,
+    });
+    openBook(id);loadBooks();
+}
 
 async function deleteBook(id){if(!confirm('Delete this book and all its files?'))return;await BC.del('/books/'+id);closeModal();loadBooks();}
 

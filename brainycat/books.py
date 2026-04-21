@@ -161,7 +161,7 @@ async def list_books(
     idx = 1
 
     if q:
-        conditions.append(f"(b.search_vector @@ plainto_tsquery('simple', unaccent(${idx})) OR similarity(b.title, ${idx}) > 0.3)")
+        conditions.append(f"(b.title ILIKE '%' || ${idx} || '%' OR b.search_vector @@ plainto_tsquery('simple', unaccent(${idx})) OR similarity(b.title, ${idx}) > 0.3)")
         params.append(q)
         idx += 1
 
