@@ -151,7 +151,7 @@ async def list_books(
     author: str | None = Query(None),
     sort: str = Query("updated_at"),
     order: str = Query("desc"),
-    limit: int = Query(50, le=200),
+    limit: int = Query(50, le=2000),
     offset: int = Query(0),
     _user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:

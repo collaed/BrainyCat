@@ -1,15 +1,18 @@
 /* BrainyCat shared API utilities */
 
-// Auto-detect base path: go up from /static/api.js to the app root
 const _scriptSrc = document.currentScript?.src || '';
 const BASE = _scriptSrc ? new URL('..', _scriptSrc).pathname.replace(/\/$/, '') : '';
 const API = BASE + '/api/v1';
 
 async function api(path, opts = {}) {
-    const resp = await fetch(API + path, {
-        headers: { 'Content-Type': 'application/json', ...opts.headers },
-        ...opts,
-    });
+    const headers = {...(opts.headers || {})};
+    if (opts.body && typeof opts.body === 'string') headers['Content-Type'] = 'application/json';
+    const resp = await fetch(API + path, {...opts, headers});
+    if (!resp.ok) {
+        console.error('API error:', resp.status, API + path);
+        const text = await resp.text();
+        try { return JSON.parse(text); } catch { return {error: text, status: resp.status}; }
+    }
     if (resp.headers.get('content-type')?.includes('json')) return resp.json();
     return resp;
 }
