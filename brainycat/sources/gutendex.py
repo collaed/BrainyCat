@@ -10,13 +10,8 @@ API_URL = "https://gutendex.com/books"
 
 
 async def search(
-    title: str | None = None,
-    isbn: str | None = None,
-    language: str | None = None,
-    topic: str | None = None,
-    page: int = 1,
+    title: str | None = None, isbn: str | None = None, language: str | None = None, topic: str | None = None, page: int = 1
 ) -> dict[str, Any] | None:
-    """Search Gutendex catalog."""
     params: dict[str, Any] = {"page": page}
     if title:
         params["search"] = title
@@ -27,7 +22,7 @@ async def search(
     if not params.get("search") and not topic:
         return None
 
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
         resp = await client.get(API_URL, params=params)
         if resp.status_code != 200:
             return None
@@ -36,31 +31,21 @@ async def search(
     results = data.get("results", [])
     if not results:
         return None
-
-    # Return first result for enrichment, full list for catalog browsing
-    first = results[0]
-    return _parse_book(first)
+    return {"count": data.get("count", 0), "books": [_parse_book(b) for b in results]}
 
 
 async def browse(language: str = "en", topic: str | None = None, page: int = 1) -> dict[str, Any]:
-    """Browse Gutenberg catalog."""
     params: dict[str, Any] = {"languages": language, "page": page, "sort": "popular"}
     if topic:
         params["topic"] = topic
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
         resp = await client.get(API_URL, params=params)
         data = resp.json() if resp.status_code == 200 else {}
-    return {
-        "count": data.get("count", 0),
-        "books": [_parse_book(b) for b in data.get("results", [])],
-        "next": data.get("next"),
-        "previous": data.get("previous"),
-    }
+    return {"count": data.get("count", 0), "books": [_parse_book(b) for b in data.get("results", [])]}
 
 
 async def get_book(gutenberg_id: int) -> dict[str, Any] | None:
-    """Get a single Gutenberg book by ID."""
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
         resp = await client.get(f"{API_URL}/{gutenberg_id}")
         if resp.status_code != 200:
             return None
@@ -71,19 +56,15 @@ def _parse_book(data: dict[str, Any]) -> dict[str, Any]:
     authors = [a["name"] for a in data.get("authors", [])]
     formats = data.get("formats", {})
     epub_url = formats.get("application/epub+zip")
-    txt_url = next((v for k, v in formats.items() if "text/plain" in k), None)
     cover_url = formats.get("image/jpeg")
     return {
         "source": "gutenberg",
         "gutenberg_id": data.get("id"),
         "title": data.get("title"),
         "authors": authors,
-        "description": None,
-        "isbn": None,
         "language": next(iter(data.get("languages", [])), None),
         "genres": data.get("subjects", []),
         "cover_url": cover_url,
         "epub_url": epub_url,
-        "txt_url": txt_url,
         "download_count": data.get("download_count"),
     }

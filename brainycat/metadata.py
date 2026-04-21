@@ -7,7 +7,7 @@ from uuid import UUID
 
 from brainycat.db import execute, fetch_one
 from brainycat.logging import log
-from brainycat.sources import google_books, gutendex, open_library
+from brainycat.sources import google_books, gutendex, hardcover, loc, open_library
 
 
 async def enrich_book(book_id: str) -> dict[str, Any]:
@@ -21,7 +21,7 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
 
     # Query sources in parallel-ish
     results = []
-    for source_fn in [google_books.search, open_library.search, gutendex.search]:
+    for source_fn in [google_books.search, open_library.search, loc.search, hardcover.search, gutendex.search]:
         try:
             r = await source_fn(title=title, isbn=isbn)
             if r:

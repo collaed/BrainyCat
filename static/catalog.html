@@ -1,49 +1,68 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BrainyCat — Public Domain Catalog</title>
 <style>
-:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6}
+:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6;--success:#22c55e}
 *{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:var(--bg);color:var(--text)}
-header{background:var(--surface);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border)}
+header{background:var(--surface);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border);flex-wrap:wrap}
 header a{color:var(--muted);text-decoration:none}header h2{flex:1}
-.container{max-width:1200px;margin:0 auto;padding:1.5rem}
-.tabs{display:flex;gap:1rem;margin-bottom:1rem}
-.tabs button{padding:.5rem 1rem;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer}
+nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(--muted);text-decoration:none}
+.container{max-width:1000px;margin:0 auto;padding:1.5rem}
+.tabs{display:flex;gap:.5rem;margin-bottom:1rem}
+.tabs button{padding:.5rem 1rem;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:.9rem}
 .tabs button.active{background:var(--accent);border-color:var(--accent)}
 .search-row{display:flex;gap:.5rem;margin-bottom:1rem}
-.search-row input{flex:1;padding:.5rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)}
+.search-row input{flex:1;padding:.5rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.9rem}
 .search-row button{padding:.5rem 1rem;border-radius:6px;border:none;background:var(--accent);color:#fff;cursor:pointer}
-.results{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:1rem}
-.item{background:var(--surface);border-radius:8px;padding:1rem}
-.item h3{font-size:1rem;margin-bottom:.3rem}.item .meta{font-size:.85rem;color:var(--muted);margin-bottom:.5rem}
-.item button{padding:.4rem .8rem;border-radius:6px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:.85rem;margin-right:.3rem}
+.results{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:.8rem}
+.item{background:var(--surface);border-radius:8px;padding:1rem;display:flex;gap:.8rem}
+.item img{width:60px;height:90px;object-fit:cover;border-radius:4px;background:var(--border);flex-shrink:0}
+.item .info{flex:1;min-width:0}
+.item h3{font-size:.9rem;margin-bottom:.2rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .meta{font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
+.item button{padding:.3rem .6rem;border-radius:5px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:.8rem;margin-right:.3rem}
+.item button.done{background:var(--success)}
+.empty{color:var(--muted);text-align:center;padding:2rem}
+#status{font-size:.8rem;color:var(--muted);margin-bottom:.5rem}
 </style></head><body>
-<header><a href="index.html">← Library</a><h2>📖 Public Domain Catalog</h2><nav style="display:flex;gap:.5rem"><a href="catalog.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">📖 Catalog</a><a href="incoming.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">📥 Incoming</a><a href="intelligence.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">🧠 Intel</a><a href="stats.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">📊 Stats</a><a href="recommendations.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">💡 For You</a></nav></header>
+<header><a href="index.html">← Library</a><h2>📖 Public Domain Catalog</h2>
+<nav><a href="catalog.html">📖 Catalog</a><a href="incoming.html">📥 Incoming</a><a href="intelligence.html">🧠 Intel</a><a href="stats.html">📊 Stats</a><a href="recommendations.html">💡 For You</a></nav>
+</header>
 <div class="container">
-<div class="tabs"><button class="active" onclick="setTab('gutenberg')">Project Gutenberg</button><button onclick="setTab('librivox')">LibriVox Audiobooks</button></div>
-<div class="search-row"><input id="q" placeholder="Search by title or author..." onkeydown="if(event.key==='Enter')doSearch()"><button onclick="doSearch()">Search</button></div>
+<div class="tabs">
+<button class="active" onclick="setTab('gutenberg',this)">📚 Gutenberg (Ebooks)</button>
+<button onclick="setTab('librivox',this)">🎧 LibriVox (Audiobooks)</button>
+</div>
+<div class="search-row">
+<input id="q" placeholder="Search 60,000+ public domain ebooks..." onkeydown="if(event.key==='Enter')doSearch()">
+<button onclick="doSearch()">Search</button>
+</div>
+<div id="status"></div>
 <div id="results" class="results"></div>
 </div>
 <script src="api.js"></script>
 <script>
-let tab = 'gutenberg';
-function setTab(t) { tab = t; document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().includes(t))); doSearch(); }
-
-async function doSearch() {
-    const q = document.getElementById('q').value;
-    const el = document.getElementById('results');
-    el.innerHTML = '<p style="color:var(--muted)">Searching...</p>';
-    if (tab === 'gutenberg') {
-        const data = await BC.get('/catalog/gutenberg/search?q=' + encodeURIComponent(q));
-        if (data?.books) {
-            el.innerHTML = data.books.map(b => `<div class="item"><h3>${b.title}</h3><div class="meta">${(b.authors||[]).join(', ')} · ${b.language||''} · ${b.download_count||0} downloads</div><button onclick="importGutenberg(${b.gutenberg_id})">📥 Import</button></div>`).join('');
-        } else if (data?.title) {
-            el.innerHTML = `<div class="item"><h3>${data.title}</h3><div class="meta">${(data.authors||[]).join(', ')}</div><button onclick="importGutenberg(${data.gutenberg_id})">📥 Import</button></div>`;
-        } else el.innerHTML = '<p style="color:var(--muted)">No results</p>';
+let tab='gutenberg';
+function setTab(t,btn){tab=t;document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');document.getElementById('q').placeholder=t==='gutenberg'?'Search 60,000+ public domain ebooks...':'Search 15,000+ free audiobooks...';doSearch();}
+async function doSearch(){
+    const q=document.getElementById('q').value;const el=document.getElementById('results');const st=document.getElementById('status');
+    el.innerHTML='<div class="empty">Searching...</div>';
+    if(tab==='gutenberg'){
+        const data=await BC.get('/catalog/gutenberg/search?q='+encodeURIComponent(q||'dickens'));
+        const books=data?.books||[];st.textContent=(data?.count||books.length)+' results';
+        if(!books.length){el.innerHTML='<div class="empty">No results</div>';return;}
+        el.innerHTML=books.map(b=>`<div class="item">${b.cover_url?`<img src="${b.cover_url}" onerror="this.style.display='none'">`:''}
+            <div class="info"><h3>${b.title}</h3><div class="meta">${(b.authors||[]).join(', ')} · ${b.language||'en'} · ${b.download_count||0} downloads</div>
+            <button onclick="importGut(${b.gutenberg_id},this)">📥 Import</button></div></div>`).join('');
     } else {
-        const data = await BC.get('/catalog/librivox/search?title=' + encodeURIComponent(q));
-        el.innerHTML = (data?.books||[]).map(b => `<div class="item"><h3>${b.title}</h3><div class="meta">${(b.authors||[]).map(a=>a.name).join(', ')} · ${b.totaltime||''}</div><a href="${b.url_librivox}" target="_blank" style="color:var(--accent);font-size:.85rem">Listen on LibriVox</a></div>`).join('') || '<p style="color:var(--muted)">No results</p>';
+        const data=await BC.get('/catalog/librivox/search?title='+encodeURIComponent(q||'Adventures')+'&author='+encodeURIComponent(q||'Adventures'));
+        const books=data?.books||[];st.textContent=books.length+' results';
+        if(!books.length){el.innerHTML='<div class="empty">No results</div>';return;}
+        el.innerHTML=books.map(b=>`<div class="item"><div class="info"><h3>${b.title}</h3>
+            <div class="meta">${(b.authors||[]).map(a=>typeof a==='string'?a:a.name||'').join(', ')} · ${b.totaltime||''} · ${b.num_sections||'?'} ch</div>
+            <button onclick="importLV('${b.librivox_id}',this)">📥 Import ${b.num_sections||''} chapters</button></div></div>`).join('');
     }
 }
-async function importGutenberg(id) { const r = await BC.post('/catalog/gutenberg/' + id + '/import'); alert(r.title ? 'Imported: ' + r.title : r.error); }
+async function importGut(id,btn){btn.disabled=true;btn.textContent='⏳...';const r=await BC.post('/catalog/gutenberg/'+id+'/import');btn.textContent=r.title?'✅ '+r.title:'❌ '+(r.error||'');btn.classList.add('done');}
+async function importLV(id,btn){btn.disabled=true;btn.textContent='⏳ Downloading...';const r=await BC.post('/catalog/librivox/'+id+'/import');btn.textContent=r.book_id?'✅ '+r.chapters_downloaded+' chapters':'❌ '+(r.error||'');btn.classList.add('done');}
 doSearch();
 </script></body></html>

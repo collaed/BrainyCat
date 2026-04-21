@@ -721,3 +721,68 @@ async def fp_status(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
         "pending_fingerprint": pending_fp["n"] if pending_fp else 0,
         "pending_matches": pending_matches["n"] if pending_matches else 0,
     }
+
+
+# ── LibriVox import ──────────────────────────────────────────────────────
+@app.post("/api/v1/catalog/librivox/{librivox_id}/import")
+async def librivox_import(librivox_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Download a LibriVox audiobook (all chapters) into the library."""
+    from uuid import UUID as _UUID
+    from uuid import uuid4 as _uuid4
+
+    import httpx as _httpx
+
+    from brainycat.sources.librivox import get_book as _lb
+    from brainycat.sources.librivox import get_chapters as _lc
+    from brainycat.storage import book_dir as _bd
+
+    data = await _lb(librivox_id)
+    if not data:
+        return {"error": "Book not found on LibriVox"}
+
+    bid = str(_uuid4())
+    out_dir = _bd(bid)
+
+    # Create book record
+    await db.execute(
+        "INSERT INTO books (id, title, description) VALUES ($1, $2, $3)",
+        _UUID(bid),
+        data["title"],
+        data.get("description"),
+    )
+    for a in data.get("authors", []):
+        if a:
+            await db.execute("INSERT INTO authors (name) VALUES ($1) ON CONFLICT DO NOTHING", a)
+            ar = await db.fetch_one("SELECT id FROM authors WHERE name = $1", a)
+            if ar:
+                await db.execute(
+                    "INSERT INTO books_authors (book_id, author_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", _UUID(bid), ar["id"]
+                )
+
+    # Download chapters from RSS
+    chapters = await _lc(data["url_rss"]) if data.get("url_rss") else []
+    downloaded = 0
+
+    async with _httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+        for i, ch in enumerate(chapters):
+            try:
+                resp = await client.get(ch["url"])
+                if resp.status_code == 200:
+                    fname = f"{i + 1:02d} - {ch['title'][:40]}.mp3"
+                    fname = "".join(c for c in fname if c.isalnum() or c in " -_.").strip()
+                    fpath = os.path.join(out_dir, fname)
+                    with open(fpath, "wb") as f:
+                        f.write(resp.content)
+                    await db.execute(
+                        """INSERT INTO book_files (book_id, format, file_path, file_name, file_size, mime_type)
+                           VALUES ($1, 'mp3', $2, $3, $4, 'audio/mpeg')""",
+                        _UUID(bid),
+                        fpath,
+                        fname,
+                        len(resp.content),
+                    )
+                    downloaded += 1
+            except Exception:
+                continue
+
+    return {"book_id": bid, "title": data["title"], "chapters_downloaded": downloaded, "total_chapters": len(chapters)}
