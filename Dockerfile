@@ -6,12 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsox-fmt-all \
     espeak-ng \
     fonts-dejavu-core \
-    calibre \
     wget \
-    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Piper TTS
+# Piper TTS voice model
 RUN pip install --no-cache-dir piper-tts && \
     mkdir -p /opt/piper-voices && \
     wget -nv -O /opt/piper-voices/en_US-lessac-medium.onnx \

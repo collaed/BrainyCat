@@ -1,12 +1,35 @@
-"""faster-whisper — audiobook to ebook transcription."""
+"""STT — audiobook to ebook. Uses Intello's Groq Whisper, falls back to local faster-whisper."""
 
 from __future__ import annotations
 
 import os
 from uuid import UUID, uuid4
 
+import httpx
+
+from brainycat.config import settings
 from brainycat.db import execute, fetch_all, fetch_one
 from brainycat.jobs import create_job, run_in_background, update_job
+
+
+async def _stt_via_intello(audio_path: str, language: str = "") -> dict | None:
+    """Call Intello STT endpoint. Returns {text, provider} or None."""
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            with open(audio_path, "rb") as f:
+                data = {"language": language} if language else {}
+                resp = await client.post(
+                    f"{settings.intello_url}/api/v1/voice/transcribe",
+                    files={"file": (os.path.basename(audio_path), f, "audio/mpeg")},
+                    data=data,
+                )
+            if resp.status_code == 200:
+                result = resp.json()
+                if result.get("text"):
+                    return result
+    except Exception:
+        pass
+    return None
 
 
 async def transcribe_audiobook(book_id: str, model: str = "small", user_id: str | None = None) -> str:
@@ -19,44 +42,34 @@ async def transcribe_audiobook(book_id: str, model: str = "small", user_id: str 
             UUID(book_id),
         )
         if not files:
-            await update_job(job_id, status="failed", error="No audio files found")
-            return
-
-        try:
-            from faster_whisper import WhisperModel
-
-            whisper = WhisperModel(model, device="cpu", compute_type="int8")
-        except ImportError:
-            await update_job(job_id, status="failed", error="faster-whisper not installed")
+            await update_job(job_id, status="failed", error="No audio files")
             return
 
         chapters = []
-        all_segments = []
-
         for fi, f in enumerate(files):
             await update_job(job_id, progress=(fi / len(files)) * 90)
-            segments, _info = whisper.transcribe(f["file_path"], word_timestamps=True)
-            chapter_text = []
-            chapter_words = []
-            for seg in segments:
-                chapter_text.append(seg.text)
-                if seg.words:
-                    for w in seg.words:
-                        chapter_words.append({"word": w.word, "start": w.start, "end": w.end})
-            text = " ".join(chapter_text)
-            chapters.append({"title": f["file_name"], "text": text})
-            all_segments.append({"chapter": fi, "words": chapter_words})
 
-            # Store sync map
-            await execute(
-                """INSERT INTO sync_maps (book_id, text_file_id, audio_file_id, chapter_index, mappings)
-                   VALUES ($1, $1, $2, $3, $4)
-                   ON CONFLICT (book_id, text_file_id, audio_file_id, chapter_index) DO UPDATE SET mappings = $4""",
-                UUID(book_id),
-                f["id"],
-                fi,
-                chapter_words,
-            )
+            # Try Intello first (Groq Whisper — fast, free)
+            result = await _stt_via_intello(f["file_path"])
+
+            if not result:
+                # Local fallback
+                try:
+                    from faster_whisper import WhisperModel
+
+                    whisper = WhisperModel(model, device="cpu", compute_type="int8")
+                    segments, _info = whisper.transcribe(f["file_path"])
+                    text = " ".join(seg.text for seg in segments)
+                    result = {"text": text, "provider": "local_whisper"}
+                except ImportError:
+                    result = {"text": "", "provider": "none", "error": "No STT available"}
+
+            if result.get("text"):
+                chapters.append({"title": f["file_name"], "text": result["text"]})
+
+        if not chapters:
+            await update_job(job_id, status="failed", error="No text transcribed")
+            return
 
         # Generate EPUB
         from ebooklib import epub
@@ -94,7 +107,6 @@ async def transcribe_audiobook(book_id: str, model: str = "small", user_id: str 
             out_path,
             os.path.getsize(out_path),
         )
-        await update_job(job_id, progress=100, result={"file_id": str(new_id)})
 
     await run_in_background(job_id, _run())
     return job_id
