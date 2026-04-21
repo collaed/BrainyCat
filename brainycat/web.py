@@ -160,6 +160,26 @@ async def intel_merge(body: MergeAuthorsBody, _u: Any = Depends(get_current_user
     return await intelligence.apply_merge_authors(body.keep_id, body.merge_id)
 
 
+class LinkDuplicateBody(BaseModel):
+    book_a_id: str
+    book_b_id: str
+    link_type: str = "edition"
+
+
+@app.post("/api/v1/intelligence/link-duplicate")
+async def intel_link_dup(body: LinkDuplicateBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await intelligence.apply_link_duplicate(body.book_a_id, body.book_b_id, body.link_type)
+
+
+class BatchActionsBody(BaseModel):
+    actions: list[dict[str, Any]]
+
+
+@app.post("/api/v1/intelligence/batch")
+async def intel_batch(body: BatchActionsBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await intelligence.apply_batch(body.actions)
+
+
 # ── Progress, bookmarks, annotations ─────────────────────────────────────
 class ProgressUpdate(BaseModel):
     position: str | None = None
@@ -190,9 +210,7 @@ async def save_progress(book_id: str, body: ProgressUpdate, user: Any = Depends(
 async def get_progress(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     from uuid import UUID
 
-    row = await db.fetch_one(
-        "SELECT * FROM reading_progress WHERE user_id = $1 AND book_id = $2", user["id"], UUID(book_id)
-    )
+    row = await db.fetch_one("SELECT * FROM reading_progress WHERE user_id = $1 AND book_id = $2", user["id"], UUID(book_id))
     return dict(row) if row else {}
 
 
@@ -219,9 +237,7 @@ async def add_bookmark(book_id: str, body: BookmarkCreate, user: Any = Depends(g
 async def get_bookmarks(book_id: str, user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
     from uuid import UUID
 
-    rows = await db.fetch_all(
-        "SELECT * FROM bookmarks WHERE user_id = $1 AND book_id = $2 ORDER BY created_at", user["id"], UUID(book_id)
-    )
+    rows = await db.fetch_all("SELECT * FROM bookmarks WHERE user_id = $1 AND book_id = $2 ORDER BY created_at", user["id"], UUID(book_id))
     return [dict(r) for r in rows]
 
 
@@ -233,9 +249,7 @@ class AnnotationCreate(BaseModel):
 
 
 @app.post("/api/v1/annotations/{book_id}")
-async def add_annotation(
-    book_id: str, body: AnnotationCreate, user: Any = Depends(get_current_user)
-) -> dict[str, bool]:
+async def add_annotation(book_id: str, body: AnnotationCreate, user: Any = Depends(get_current_user)) -> dict[str, bool]:
     from uuid import UUID
 
     await db.execute(
@@ -265,37 +279,27 @@ async def get_annotations(book_id: str, user: Any = Depends(get_current_user)) -
 async def audio_diagnose(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
     from uuid import UUID
 
-    f = await db.fetch_one(
-        "SELECT id FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac') LIMIT 1", UUID(book_id)
-    )
+    f = await db.fetch_one("SELECT id FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac') LIMIT 1", UUID(book_id))
     if not f:
         return {"error": "No audio file"}
     return await restoration.diagnose(str(f["id"]))
 
 
 @app.post("/api/v1/books/{book_id}/audio/restore")
-async def audio_restore(
-    book_id: str, profile: str = Query("digital_light"), _u: Any = Depends(get_current_user)
-) -> dict[str, Any]:
+async def audio_restore(book_id: str, profile: str = Query("digital_light"), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
     from uuid import UUID
 
-    f = await db.fetch_one(
-        "SELECT id FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac') LIMIT 1", UUID(book_id)
-    )
+    f = await db.fetch_one("SELECT id FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac') LIMIT 1", UUID(book_id))
     if not f:
         return {"error": "No audio file"}
     return await restoration.restore(str(f["id"]), profile)
 
 
 @app.post("/api/v1/books/{book_id}/audio/preview")
-async def audio_preview(
-    book_id: str, profile: str = Query("digital_light"), _u: Any = Depends(get_current_user)
-) -> Any:
+async def audio_preview(book_id: str, profile: str = Query("digital_light"), _u: Any = Depends(get_current_user)) -> Any:
     from uuid import UUID
 
-    f = await db.fetch_one(
-        "SELECT id FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac') LIMIT 1", UUID(book_id)
-    )
+    f = await db.fetch_one("SELECT id FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac') LIMIT 1", UUID(book_id))
     if not f:
         return {"error": "No audio file"}
     path = await restoration.preview(str(f["id"]), profile)
@@ -306,17 +310,13 @@ async def audio_preview(
 
 # ── TTS / STT / Convert ─────────────────────────────────────────────────
 @app.post("/api/v1/books/{book_id}/convert/tts")
-async def convert_tts(
-    book_id: str, voice: str = Query("en_US-lessac-medium"), user: Any = Depends(get_current_user)
-) -> dict[str, str]:
+async def convert_tts(book_id: str, voice: str = Query("en_US-lessac-medium"), user: Any = Depends(get_current_user)) -> dict[str, str]:
     job_id = await tts.convert_to_audiobook(book_id, voice, str(user["id"]))
     return {"job_id": job_id}
 
 
 @app.post("/api/v1/books/{book_id}/convert/stt")
-async def convert_stt(
-    book_id: str, model: str = Query("small"), user: Any = Depends(get_current_user)
-) -> dict[str, str]:
+async def convert_stt(book_id: str, model: str = Query("small"), user: Any = Depends(get_current_user)) -> dict[str, str]:
     job_id = await stt.transcribe_audiobook(book_id, model, str(user["id"]))
     return {"job_id": job_id}
 
@@ -520,9 +520,7 @@ async def opds_search(q: str = Query("")) -> Any:
 
 # ── Podcast feeds ────────────────────────────────────────────────────────
 @app.post("/api/v1/books/{book_id}/podcast-feed")
-async def create_podcast(
-    book_id: str, schedule: str = Query("daily"), user: Any = Depends(get_current_user)
-) -> dict[str, Any]:
+async def create_podcast(book_id: str, schedule: str = Query("daily"), user: Any = Depends(get_current_user)) -> dict[str, Any]:
     return await podcast.create_feed(book_id, str(user["id"]), schedule)
 
 
@@ -565,10 +563,12 @@ async def recent_feed() -> Any:
 @app.post("/api/v1/covers/optimize")
 async def optimize_covers(_a: Any = Depends(require_admin)) -> dict[str, Any]:
     from brainycat.covers import optimize_all_covers
+
     return await optimize_all_covers()
 
 
 @app.post("/api/v1/covers/generate-missing")
 async def gen_covers(_a: Any = Depends(require_admin)) -> dict[str, Any]:
     from brainycat.covers import generate_missing_covers
+
     return await generate_missing_covers()

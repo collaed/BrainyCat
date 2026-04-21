@@ -5,131 +5,144 @@
 *{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:var(--bg);color:var(--text)}
 header{background:var(--surface);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border);flex-wrap:wrap}
 header a{color:var(--muted);text-decoration:none}header h2{flex:1}
+header button{padding:.4rem .8rem;border-radius:6px;border:none;cursor:pointer;font-size:.85rem;color:#fff}
 nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(--muted);text-decoration:none}
 .container{max-width:1000px;margin:0 auto;padding:1.5rem}
 .section{margin-bottom:2rem}.section h3{margin-bottom:.8rem;color:var(--accent);display:flex;align-items:center;gap:.5rem}
 .count{background:var(--accent);color:#fff;font-size:.7rem;padding:.1rem .5rem;border-radius:10px}
-.card{background:var(--surface);border-radius:8px;padding:1rem;margin-bottom:.6rem;position:relative}
-.card .title{font-weight:600;margin-bottom:.3rem}.card .detail{font-size:.85rem;color:var(--muted);line-height:1.6}
-.card .actions{margin-top:.6rem;display:flex;gap:.4rem;flex-wrap:wrap}
-.card .actions button{padding:.35rem .7rem;border-radius:5px;border:none;cursor:pointer;font-size:.8rem;color:#fff}
-.btn-accept{background:var(--success)}.btn-reject{background:var(--danger)}.btn-edit{background:var(--accent)}
-.confidence{position:absolute;top:.8rem;right:1rem;font-size:.75rem;padding:.2rem .5rem;border-radius:4px;font-weight:600}
-.conf-high{background:#166534;color:#86efac}.conf-med{background:#854d0e;color:#fbbf24}.conf-low{background:#991b1b;color:#fca5a5}
-.empty{color:var(--muted);font-style:italic;padding:1rem 0}
-.book-list{margin:.4rem 0;padding-left:1.2rem;font-size:.85rem;color:var(--muted)}
-.book-list li{margin:.2rem 0}
-.edit-input{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.3rem .5rem;border-radius:4px;font-size:.85rem;width:200px}
+.batch-bar{display:none;background:var(--surface);padding:.6rem 1rem;border-radius:8px;margin-bottom:1rem;align-items:center;gap:.8rem;position:sticky;top:0;z-index:5;border:1px solid var(--accent)}
+.batch-bar.active{display:flex}
+.batch-bar span{flex:1;font-size:.85rem}
+.card{background:var(--surface);border-radius:8px;padding:.8rem 1rem;margin-bottom:.5rem;position:relative}
+.card .row{display:flex;align-items:flex-start;gap:.6rem}
+.card input[type=checkbox]{margin-top:.3rem;accent-color:var(--accent)}
+.card .body{flex:1}
+.card .title{font-weight:600;font-size:.9rem}.card .detail{font-size:.82rem;color:var(--muted);margin-top:.2rem;line-height:1.5}
+.card .actions{margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap}
+.card .actions button{padding:.3rem .6rem;border-radius:5px;border:none;cursor:pointer;font-size:.78rem;color:#fff}
+.btn-a{background:var(--success)}.btn-r{background:var(--danger)}.btn-e{background:var(--accent)}.btn-w{background:var(--warn)}
+.conf{position:absolute;top:.6rem;right:.8rem;font-size:.72rem;padding:.15rem .45rem;border-radius:4px;font-weight:600}
+.ch{background:#166534;color:#86efac}.cm{background:#854d0e;color:#fbbf24}.cl{background:#991b1b;color:#fca5a5}
+.empty{color:var(--muted);font-style:italic;padding:.5rem 0}
+.edit-input{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.25rem .4rem;border-radius:4px;font-size:.82rem;width:180px}
+.tag{display:inline-block;font-size:.7rem;padding:.1rem .35rem;border-radius:3px;margin-right:.2rem;background:var(--border);color:var(--muted)}
+.tag.fmt{background:#164e63;color:#67e8f9}
+.done{color:var(--success);padding:.5rem;font-size:.85rem}
 </style></head><body>
 <header>
 <a href="index.html">← Library</a><h2>🧠 Library Intelligence</h2>
+<button style="background:var(--accent)" onclick="optimizeCovers(this)">📐 Optimize Covers</button>
+<button style="background:var(--success)" onclick="generateCovers(this)">🎨 Generate Covers</button>
 <nav><a href="catalog.html">📖 Catalog</a><a href="incoming.html">📥 Incoming</a><a href="intelligence.html">🧠 Intel</a><a href="stats.html">📊 Stats</a><a href="recommendations.html">💡 For You</a></nav>
 </header>
 <div class="container">
-<div class="section" id="covers"><h3>🖼️ Cover Management</h3><div style="display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn-accept" onclick="optimizeCovers(this)" style="padding:.5rem 1rem;border-radius:6px;border:none;background:var(--accent);color:#fff;cursor:pointer">📐 Optimize Large Covers</button><button class="btn-accept" onclick="generateCovers(this)" style="padding:.5rem 1rem;border-radius:6px;border:none;background:var(--success);color:#fff;cursor:pointer">🎨 Generate Missing Covers</button><span id="cover-status" style="color:var(--muted);font-size:.85rem;padding:.5rem"></span></div></div>
+<div class="batch-bar" id="batch-bar"><input type="checkbox" id="select-all" onchange="toggleAll(this.checked)"><span id="batch-count">0 selected</span><button class="btn-a" onclick="applyBatch()">✓ Apply Selected</button><button class="btn-r" onclick="clearSelection()">✕ Clear</button></div>
+<div class="section" id="dupes"><h3>🔄 Duplicates & Format Variants</h3><div class="empty">Loading...</div></div>
 <div class="section" id="authors"><h3>👤 Author Cleanup</h3><div class="empty">Loading...</div></div>
 <div class="section" id="series"><h3>📚 Series Detection</h3><div class="empty">Loading...</div></div>
 <div class="section" id="quality"><h3>🔍 Quality Issues</h3><div class="empty">Loading...</div></div>
-<div class="section" id="dupes"><h3>🔄 Duplicates</h3><div class="empty">Loading...</div></div>
 </div>
 <script src="api.js"></script>
 <script>
-function confClass(c) { return c >= 75 ? 'conf-high' : c >= 50 ? 'conf-med' : 'conf-low'; }
+let selected = new Map(); // id -> action object
+function cc(c){return c>=75?'ch':c>=50?'cm':'cl'}
+function updateBatchBar(){
+    const bar=document.getElementById('batch-bar');
+    const n=selected.size;
+    document.getElementById('batch-count').textContent=n+' selected';
+    bar.classList.toggle('active',n>0);
+}
+function toggleAll(checked){
+    document.querySelectorAll('.sel-cb').forEach(cb=>{cb.checked=checked;onCheck(cb)});
+}
+function onCheck(cb){
+    if(cb.checked)selected.set(cb.dataset.id,JSON.parse(cb.dataset.action));
+    else selected.delete(cb.dataset.id);
+    updateBatchBar();
+}
+function clearSelection(){selected.clear();document.querySelectorAll('.sel-cb').forEach(cb=>cb.checked=false);updateBatchBar();}
+async function applyBatch(){
+    const actions=[...selected.values()];
+    const r=await BC.post('/intelligence/batch',{actions});
+    alert('Applied '+r.applied+' actions'+(r.errors?' ('+r.errors+' errors)':''));
+    selected.clear();load();
+}
 
-async function load() {
-    const [quality, series, dupes, authors] = await Promise.all([
-        BC.get('/intelligence/quality'),
-        BC.get('/intelligence/series-gaps'),
-        BC.get('/intelligence/duplicates'),
-        BC.get('/intelligence/author-suggestions'),
-    ]);
-
-    // Authors
-    const authEl = document.getElementById('authors');
-    if (authors.length) {
-        authEl.innerHTML = `<h3>👤 Author Cleanup <span class="count">${authors.length}</span></h3>` +
-            authors.map((a, i) => `<div class="card">
-                <span class="confidence ${confClass(a.confidence)}">${a.confidence}%</span>
-                <div class="title">${a.author_a.name} ↔ ${a.author_b.name}</div>
-                <div class="detail">${a.reason} · ${a.author_a.books} + ${a.author_b.books} books</div>
-                <div class="actions">
-                    <button class="btn-accept" onclick="mergeAuthors('${a.author_a.id}','${a.author_b.id}', this)">✓ Keep "${a.author_a.name}"</button>
-                    <button class="btn-accept" onclick="mergeAuthors('${a.author_b.id}','${a.author_a.id}', this)">✓ Keep "${a.author_b.name}"</button>
-                    <button class="btn-reject" onclick="this.closest('.card').remove()">✕ Ignore</button>
-                </div>
-            </div>`).join('');
-    } else {
-        authEl.innerHTML = '<h3>👤 Author Cleanup</h3><div class="empty">No author issues detected ✓</div>';
-    }
-
-    // Series
-    const seriesEl = document.getElementById('series');
-    if (series.length) {
-        seriesEl.innerHTML = `<h3>📚 Series Detection <span class="count">${series.length}</span></h3>` +
-            series.map(s => {
-                const books = s.books || [];
-                const bookList = books.length ? '<ol class="book-list">' + books.map(b => `<li>${b.title}</li>`).join('') + '</ol>' : (s.titles || []).map(t => `<br>  • ${t}`).join('');
-                const bookIds = books.map(b => b.id);
-                return `<div class="card">
-                    <span class="confidence ${confClass(s.confidence)}">${s.confidence}%</span>
-                    <div class="title">${s.series}${s.author ? ' <span style="color:var(--muted);font-weight:normal">by ' + s.author + '</span>' : ''}</div>
-                    <div class="detail">
-                        ${s.type === 'series_gap' ? 'Missing: <strong>#' + s.missing.join(', #') + '</strong>' : s.message}
-                        ${bookList}
-                    </div>
-                    ${s.action === 'create_series' ? `<div class="actions">
-                        <input class="edit-input" id="sname-${s.confidence}" value="${s.series}" placeholder="Series name">
-                        <button class="btn-accept" onclick="acceptSeries(document.getElementById('sname-${s.confidence}').value, ${JSON.stringify(bookIds).replace(/"/g, "'")}, this)">✓ Create Series</button>
-                        <button class="btn-reject" onclick="this.closest('.card').remove()">✕ Ignore</button>
-                    </div>` : ''}
-                </div>`;
-            }).join('');
-    } else {
-        seriesEl.innerHTML = '<h3>📚 Series Detection</h3><div class="empty">No series patterns detected</div>';
-    }
-
-    // Quality
-    const qualityEl = document.getElementById('quality');
-    qualityEl.innerHTML = '<h3>🔍 Quality Issues' + (quality.length ? ` <span class="count">${quality.length}</span>` : '') + '</h3>' +
-        (quality.length ? quality.map(q => `<div class="card"><div class="title">${q.title}</div><div class="detail">${q.issues.map(i => `<span style="background:#854d0e;color:#fbbf24;font-size:.7rem;padding:.15rem .4rem;border-radius:4px;margin-right:.3rem">${i}</span>`).join('')}</div></div>`).join('') :
-        '<div class="empty">All books pass quality checks ✓</div>');
+async function load(){
+    const [quality,series,dupes,authors]=await Promise.all([
+        BC.get('/intelligence/quality'),BC.get('/intelligence/series-gaps'),
+        BC.get('/intelligence/duplicates'),BC.get('/intelligence/author-suggestions')]);
 
     // Duplicates
-    const dupesEl = document.getElementById('dupes');
-    dupesEl.innerHTML = '<h3>🔄 Duplicates' + (dupes.length ? ` <span class="count">${dupes.length}</span>` : '') + '</h3>' +
-        (dupes.length ? dupes.map(d => `<div class="card"><div class="title">${d.title_a} ↔ ${d.title_b}</div><div class="detail">Similarity: <strong>${d.similarity}%</strong></div></div>`).join('') :
-        '<div class="empty">No duplicates found ✓</div>');
+    const de=document.getElementById('dupes');
+    if(dupes.length){
+        const showCb=dupes.length>=5;
+        de.innerHTML=`<h3>🔄 Duplicates & Format Variants <span class="count">${dupes.length}</span></h3>`+
+        dupes.slice(0,50).map((d,i)=>{
+            const action=d.action==='link'?{type:'link_duplicate',book_a_id:d.book_a,book_b_id:d.book_b,link_type:'edition'}:{type:'link_duplicate',book_a_id:d.book_a,book_b_id:d.book_b,link_type:'edition'};
+            return `<div class="card"><span class="conf ${cc(d.score)}">${d.score}%</span><div class="row">
+            ${showCb?`<input type="checkbox" class="sel-cb" data-id="dup-${i}" data-action='${JSON.stringify(action)}' onchange="onCheck(this)">`:''}
+            <div class="body">
+            <div class="title">${d.title_a} ${d.formats_a.map(f=>`<span class="tag fmt">${f}</span>`).join('')}</div>
+            <div class="title" style="margin-top:.2rem">↔ ${d.title_b} ${d.formats_b.map(f=>`<span class="tag fmt">${f}</span>`).join('')}</div>
+            <div class="detail">${d.signals.join(' · ')}${d.is_format_variant?' · <strong>Format variant</strong>':''}</div>
+            <div class="actions">
+                <button class="btn-a" onclick="linkDup('${d.book_a}','${d.book_b}','edition',this)">🔗 Link as editions</button>
+                <button class="btn-e" onclick="linkDup('${d.book_a}','${d.book_b}','ebook_audiobook',this)">🔗 Link ebook↔audio</button>
+                <button class="btn-r" onclick="this.closest('.card').remove()">✕</button>
+            </div></div></div></div>`}).join('');
+    }else de.innerHTML='<h3>🔄 Duplicates</h3><div class="empty">No duplicates found ✓</div>';
+
+    // Authors
+    const ae=document.getElementById('authors');
+    if(authors.length){
+        const showCb=authors.length>=5;
+        ae.innerHTML=`<h3>👤 Author Cleanup <span class="count">${authors.length}</span></h3>`+
+        authors.slice(0,50).map((a,i)=>{
+            const action={type:'merge_authors',keep_id:a.author_a.id,merge_id:a.author_b.id};
+            return `<div class="card"><span class="conf ${cc(a.confidence)}">${a.confidence}%</span><div class="row">
+            ${showCb?`<input type="checkbox" class="sel-cb" data-id="auth-${i}" data-action='${JSON.stringify(action)}' onchange="onCheck(this)">`:''}
+            <div class="body">
+            <div class="title">${a.author_a.name} (${a.author_a.books}) ↔ ${a.author_b.name} (${a.author_b.books})</div>
+            <div class="detail">${a.reason}</div>
+            <div class="actions">
+                <button class="btn-a" onclick="mergeA('${a.author_a.id}','${a.author_b.id}',this)">✓ Keep "${a.author_a.name}"</button>
+                <button class="btn-a" onclick="mergeA('${a.author_b.id}','${a.author_a.id}',this)">✓ Keep "${a.author_b.name}"</button>
+                <button class="btn-r" onclick="this.closest('.card').remove()">✕</button>
+            </div></div></div></div>`}).join('');
+    }else ae.innerHTML='<h3>👤 Author Cleanup</h3><div class="empty">No issues ✓</div>';
+
+    // Series
+    const se=document.getElementById('series');
+    if(series.length){
+        const showCb=series.length>=5;
+        se.innerHTML=`<h3>📚 Series Detection <span class="count">${series.length}</span></h3>`+
+        series.slice(0,50).map((s,i)=>{
+            const bids=(s.books||[]).map(b=>b.id);
+            const action={type:'create_series',series_name:s.series,book_ids:bids};
+            const books=s.books||[];
+            return `<div class="card"><span class="conf ${cc(s.confidence)}">${s.confidence}%</span><div class="row">
+            ${showCb?`<input type="checkbox" class="sel-cb" data-id="ser-${i}" data-action='${JSON.stringify(action)}' onchange="onCheck(this)">`:''}
+            <div class="body">
+            <div class="title"><input class="edit-input" value="${s.series}" id="sn-${i}"> ${s.author?'<span style="color:var(--muted)">by '+s.author+'</span>':''}</div>
+            <div class="detail">${books.map(b=>'• '+b.title).join('<br>')}</div>
+            <div class="actions">
+                <button class="btn-a" onclick="acceptSeries(document.getElementById('sn-${i}').value,${JSON.stringify(bids)},this)">✓ Create</button>
+                <button class="btn-r" onclick="this.closest('.card').remove()">✕</button>
+            </div></div></div></div>`}).join('');
+    }else se.innerHTML='<h3>📚 Series</h3><div class="empty">No patterns found</div>';
+
+    // Quality
+    const qe=document.getElementById('quality');
+    qe.innerHTML='<h3>🔍 Quality'+(quality.length?` <span class="count">${quality.length}</span>`:'')+
+    '</h3>'+(quality.length?quality.map(q=>`<div class="card"><div class="title">${q.title}</div><div class="detail">${q.issues.map(i=>`<span class="tag">${i}</span>`).join('')}</div></div>`).join(''):'<div class="empty">All good ✓</div>');
 }
 
-async function mergeAuthors(keepId, mergeId, btn) {
-    btn.disabled = true; btn.textContent = '⏳...';
-    const r = await BC.post('/intelligence/merge-authors', {keep_id: keepId, merge_id: mergeId});
-    btn.closest('.card').innerHTML = `<div class="detail" style="color:var(--success)">✅ Merged into "${r.kept}" (was "${r.merged}")</div>`;
-    setTimeout(load, 1500);
-}
-
-async function acceptSeries(name, bookIds, btn) {
-    // bookIds comes as array with single-quoted strings, fix them
-    const ids = typeof bookIds === 'string' ? JSON.parse(bookIds.replace(/'/g, '"')) : bookIds;
-    btn.disabled = true; btn.textContent = '⏳...';
-    const r = await BC.post('/intelligence/apply-series', {series_name: name, book_ids: ids});
-    btn.closest('.card').innerHTML = `<div class="detail" style="color:var(--success)">✅ Created series "${name}" with ${r.linked} books</div>`;
-    setTimeout(load, 1500);
-}
-
-async function optimizeCovers(btn) {
-    btn.disabled = true; btn.textContent = "⏳ Optimizing...";
-    const r = await BC.post("/covers/optimize");
-    document.getElementById("cover-status").textContent = "✅ " + r.optimized + " covers optimized, saved " + r.saved_mb + " MB";
-    btn.textContent = "📐 Optimize Large Covers"; btn.disabled = false;
-}
-async function generateCovers(btn) {
-    btn.disabled = true; btn.textContent = "⏳ Generating...";
-    const r = await BC.post("/covers/generate-missing");
-    document.getElementById("cover-status").textContent = "✅ " + r.generated + " covers generated";
-    btn.textContent = "🎨 Generate Missing Covers"; btn.disabled = false;
-    loadBooks && loadBooks();
-}
+async function mergeA(keep,merge,btn){btn.disabled=true;btn.textContent='⏳';const r=await BC.post('/intelligence/merge-authors',{keep_id:keep,merge_id:merge});btn.closest('.card').innerHTML=`<div class="done">✅ Merged → ${r.kept}</div>`;setTimeout(()=>btn.closest('.card')?.remove(),2000);}
+async function acceptSeries(name,ids,btn){btn.disabled=true;btn.textContent='⏳';await BC.post('/intelligence/apply-series',{series_name:name,book_ids:ids});btn.closest('.card').innerHTML=`<div class="done">✅ Created "${name}"</div>`;setTimeout(()=>btn.closest('.card')?.remove(),2000);}
+async function linkDup(a,b,type,btn){btn.disabled=true;btn.textContent='⏳';await BC.post('/intelligence/link-duplicate',{book_a_id:a,book_b_id:b,link_type:type});btn.closest('.card').innerHTML=`<div class="done">✅ Linked</div>`;setTimeout(()=>btn.closest('.card')?.remove(),2000);}
+async function optimizeCovers(btn){btn.disabled=true;btn.textContent='⏳ Optimizing...';const r=await BC.post('/covers/optimize');btn.textContent=`✅ ${r.optimized} covers, -${r.saved_mb}MB`;setTimeout(()=>{btn.textContent='📐 Optimize Covers';btn.disabled=false},4000);}
+async function generateCovers(btn){btn.disabled=true;btn.textContent='⏳ Generating...';const r=await BC.post('/covers/generate-missing');btn.textContent=`✅ ${r.generated} generated`;setTimeout(()=>{btn.textContent='🎨 Generate Covers';btn.disabled=false},4000);}
 
 load();
 </script></body></html>
