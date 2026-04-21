@@ -116,6 +116,21 @@ async def find_duplicates() -> list[dict[str, Any]]:
             formats_b = set(b["formats"] or [])
             is_format_variant = formats_a != formats_b and score >= 40
 
+            # Filter out series entries: same author + titles differ by number/volume
+            if score >= 40 and "same_author" in signals:
+                import re
+
+                # Strip numbers and check if base titles are identical
+                base_a = re.sub(r"\d+|#\d+|vol\.?\s*\d+|book\s*\d+|part\s*\d+", "", title_a).strip()
+                base_b = re.sub(r"\d+|#\d+|vol\.?\s*\d+|book\s*\d+|part\s*\d+", "", title_b).strip()
+                if (
+                    base_a != base_b
+                    and _jaccard(base_a.split(), base_b.split()) < 0.8
+                    and "exact_title" not in signals
+                    and "same_isbn" not in signals
+                ):
+                    continue  # Likely a series, not duplicate
+
             if score >= 40:
                 seen.add(pair_key)
                 dupes.append(

@@ -28,7 +28,7 @@ async def _enrichment_loop() -> None:
                     await log.ainfo("auto_enriched", title=row["title"], score=result.get("quality_score"))
         except Exception as e:
             await log.awarning("enrichment_error", error=str(e))
-        await asyncio.sleep(10)
+        await asyncio.sleep(5)
 
 
 async def _fingerprint_loop() -> None:
