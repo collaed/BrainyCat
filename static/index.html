@@ -76,6 +76,7 @@ nav a{color:var(--muted);text-decoration:none;padding:.3rem .5rem;font-size:.8re
 </div>
 <button class="primary" onclick="document.getElementById('file-input').click()">⬆ Upload</button>
 <button class="primary" onclick="uploadDirectory()">📁 Folder</button>
+<button onclick="extractPdfCovers(this)" style="font-size:.75rem">📄→🖼️</button>
 <input type="file" id="file-input" hidden accept=".epub,.pdf,.mobi,.mp3,.m4b,.m4a,.flac,.opus,.ogg" multiple>
 <span id="book-count" style="color:var(--muted);font-size:.8rem;margin-left:auto"></span>
 </div>
@@ -190,6 +191,7 @@ async function openBook(id){
             ${hasEpub?`<button class="btn-p" onclick="translateBook('${id}')">🌐 Translate</button>`:''}
             ${hasPdf?`<button class="btn-p" onclick="ocrBook('${id}')">📝 OCR</button>`:''}
             ${hasAudio?`<button class="btn-p" onclick="diagnoseAudio('${id}')">🔧 Diagnose</button>`:''}
+            <button style="background:var(--danger,#ef4444)" onclick="deleteBook('${id}')">🗑️ Delete</button>
         </div>`;
     document.getElementById('modal').classList.add('active');
 }
@@ -204,6 +206,10 @@ async function convertTTS(id){showJobStatus('Starting TTS...',0);try{const r=awa
 async function translateBook(id){const lang=prompt('Target language (en, fr, de, es, it):');if(!lang)return;showJobStatus('Translating...',0);try{const r=await BC.post(`/books/${id}/translate?target_lang=${lang}&backend=argos`);if(r.job_id)await pollJob(r.job_id);else showJobStatus('❌ '+JSON.stringify(r),0);}catch(e){showJobStatus('❌ '+e.message,0);}}
 async function ocrBook(id){showJobStatus('Starting OCR...',0);try{const r=await BC.post('/books/'+id+'/ocr');if(r.job_id)await pollJob(r.job_id);else showJobStatus('❌ '+JSON.stringify(r),0);}catch(e){showJobStatus('❌ '+e.message,0);}}
 async function diagnoseAudio(id){showJobStatus('Diagnosing...',50);try{const r=await BC.post('/books/'+id+'/audio/diagnose');showJobStatus(`Hiss:${r.hiss_score} Crackle:${r.crackle_score} Score:${r.overall_score} → ${r.recommended_profile}`,r.overall_score);}catch(e){showJobStatus('❌ '+e.message,0);}}
+
+async function extractPdfCovers(btn){btn.disabled=true;btn.textContent='⏳';const r=await BC.post('/covers/extract-pdf');btn.textContent='✅ '+r.extracted;setTimeout(()=>{btn.textContent='📄→🖼️';btn.disabled=false;loadBooks();},3000);}
+
+async function deleteBook(id){if(!confirm('Delete this book and all its files?'))return;await BC.del('/books/'+id);closeModal();loadBooks();}
 
 // Upload
 const dropZone=document.getElementById('drop-zone');

@@ -71,6 +71,28 @@ async def transcribe_audiobook(book_id: str, model: str = "small", user_id: str 
             await update_job(job_id, status="failed", error="No text transcribed")
             return
 
+        # Split into chapters by detecting "chapter/chapitre/part/partie" keywords
+        if len(chapters) == 1:
+            import re
+
+            text = chapters[0]["text"]
+            # Split on chapter markers
+            parts = re.split(
+                r"(?i)(chapter\s+\d+|chapitre\s+\d+|part\s+\d+|partie\s+\d+|section\s+\d+)",
+                text,
+            )
+            if len(parts) > 2:
+                chapters = []
+                i = 1
+                while i < len(parts):
+                    title = parts[i].strip()
+                    body = parts[i + 1].strip() if i + 1 < len(parts) else ""
+                    if body:
+                        chapters.append({"title": title, "text": body})
+                    i += 2
+                if not chapters:
+                    chapters = [{"title": "Full Text", "text": text}]
+
         # Generate EPUB
         from ebooklib import epub
 

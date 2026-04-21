@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -617,3 +618,34 @@ async def download_cover(book_id: str, _u: Any = Depends(get_current_user)) -> d
                 await db.execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, _UUID(book_id))
                 return {"ok": True, "source": "google_books"}
     return {"ok": False, "reason": "no cover found"}
+
+
+# ── Content-based duplicates ─────────────────────────────────────────────
+@app.get("/api/v1/intelligence/content-duplicates")
+async def content_dupes(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.duplicates import find_content_duplicates
+
+    return await find_content_duplicates()
+
+
+# ── Batch PDF cover extraction ───────────────────────────────────────────
+@app.post("/api/v1/covers/extract-pdf")
+async def extract_pdf_covers(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Extract covers from PDFs that don't have one."""
+    from brainycat.ocr import extract_pdf_cover
+    from brainycat.storage import book_dir as _bdir
+
+    rows = await db.fetch_all("""
+        SELECT b.id, bf.file_path FROM books b
+        JOIN book_files bf ON bf.book_id = b.id
+        WHERE bf.format = 'pdf' AND (b.cover_path IS NULL OR b.cover_path = '')
+    """)
+    extracted = 0
+    for r in rows:
+        if not os.path.isfile(r["file_path"]):
+            continue
+        cover_path = os.path.join(_bdir(str(r["id"])), "cover.jpg")
+        if extract_pdf_cover(r["file_path"], cover_path):
+            await db.execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, r["id"])
+            extracted += 1
+    return {"extracted": extracted}
