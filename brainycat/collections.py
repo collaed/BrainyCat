@@ -46,9 +46,7 @@ async def list_collections(user: Any = Depends(get_current_user)) -> list[dict[s
     return [dict(r) for r in rows]
 
 
-async def add_book_to_collection(
-    collection_id: str, book_id: str, user: Any = Depends(get_current_user)
-) -> dict[str, bool]:
+async def add_book_to_collection(collection_id: str, book_id: str, user: Any = Depends(get_current_user)) -> dict[str, bool]:
     col = await fetch_one("SELECT id FROM collections WHERE id = $1 AND user_id = $2", UUID(collection_id), user["id"])
     if not col:
         raise HTTPException(status_code=404, detail="Collection not found")
@@ -64,12 +62,8 @@ async def add_book_to_collection(
     return {"ok": True}
 
 
-async def remove_book_from_collection(
-    collection_id: str, book_id: str, user: Any = Depends(get_current_user)
-) -> dict[str, bool]:
-    await execute(
-        "DELETE FROM collection_books WHERE collection_id = $1 AND book_id = $2", UUID(collection_id), UUID(book_id)
-    )
+async def remove_book_from_collection(collection_id: str, book_id: str, user: Any = Depends(get_current_user)) -> dict[str, bool]:
+    await execute("DELETE FROM collection_books WHERE collection_id = $1 AND book_id = $2", UUID(collection_id), UUID(book_id))
     return {"ok": True}
 
 

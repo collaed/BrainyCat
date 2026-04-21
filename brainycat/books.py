@@ -94,6 +94,12 @@ async def upload_book(
         meta.get("has_chapters", False),
     )
 
+    # Clean author name — filter garbage
+    if author_name:
+        garbage = {"libgen.li", "libgen", "z-lib", "unknown", "n/a", "user", "admin", "calibre", "anonymous"}
+        if author_name.lower().strip() in garbage or "/" in author_name or len(author_name) > 100:
+            author_name = None
+
     # Insert author if present
     if author_name:
         await execute("INSERT INTO authors (name) VALUES ($1) ON CONFLICT (name) DO NOTHING", author_name)

@@ -11,9 +11,7 @@ from fastapi.responses import Response
 from brainycat.db import execute, fetch_all, fetch_one
 
 
-async def create_feed(
-    book_id: str, user_id: str, schedule: str = "daily", release_time: str = "08:00"
-) -> dict[str, Any]:
+async def create_feed(book_id: str, user_id: str, schedule: str = "daily", release_time: str = "08:00") -> dict[str, Any]:
     fid = uuid4()
     await execute(
         "INSERT INTO podcast_feeds (id, book_id, user_id, schedule, release_time) VALUES ($1,$2,$3,$4,$5)",

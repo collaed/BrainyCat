@@ -30,9 +30,7 @@ def _parse_edition(data: dict[str, Any]) -> dict[str, Any]:
     return {
         "source": "open_library",
         "title": data.get("title"),
-        "description": data.get("description", {}).get("value")
-        if isinstance(data.get("description"), dict)
-        else data.get("description"),
+        "description": data.get("description", {}).get("value") if isinstance(data.get("description"), dict) else data.get("description"),
         "isbn": next(iter(data.get("isbn_13", data.get("isbn_10", []))), None),
         "language": None,
         "publisher": next(iter(data.get("publishers", [])), None),

@@ -64,9 +64,7 @@ async def get_recommendations(user_id: str, category: str = "all") -> list[dict[
             UUID(user_id),
             top_authors,
         )
-        return [
-            {"id": str(r["id"]), "title": r["title"], "author": r["author"], "reason": "author_match"} for r in rows
-        ]
+        return [{"id": str(r["id"]), "title": r["title"], "author": r["author"], "reason": "author_match"} for r in rows]
 
     if category == "complete_series":
         rows = await fetch_all(

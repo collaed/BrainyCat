@@ -59,11 +59,24 @@ def _extract_pdf(path: str) -> dict[str, Any]:
 
         doc = fitz.open(path)
         meta = doc.metadata or {}
+
+        # Extract cover from first page
+        cover_data = None
+        if len(doc) > 0:
+            page = doc[0]
+            pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+            if pix.width > 600:
+                scale = 600 / pix.width
+                pix = page.get_pixmap(matrix=fitz.Matrix(scale * 1.5, scale * 1.5))
+            cover_data = pix.tobytes("jpeg")
+
+        doc.close()
         return {
             "format": "pdf",
             "title": meta.get("title") or None,
             "author": meta.get("author") or None,
             "description": meta.get("subject") or None,
+            "cover_data": cover_data,
         }
     except Exception:
         return {"format": "pdf"}

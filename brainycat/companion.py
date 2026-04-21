@@ -32,9 +32,7 @@ async def _llm_call(
 
 async def recap(book_id: str, user_id: str) -> dict[str, str]:
     """Generate a recap up to the user's current reading position."""
-    progress = await fetch_one(
-        "SELECT percentage FROM reading_progress WHERE book_id = $1 AND user_id = $2", UUID(book_id), UUID(user_id)
-    )
+    progress = await fetch_one("SELECT percentage FROM reading_progress WHERE book_id = $1 AND user_id = $2", UUID(book_id), UUID(user_id))
     pct = progress["percentage"] if progress else 0
     book = await fetch_one("SELECT title FROM books WHERE id = $1", UUID(book_id))
     title = book["title"] if book else "this book"
@@ -58,9 +56,7 @@ async def recap(book_id: str, user_id: str) -> dict[str, str]:
 
 async def ask(book_id: str, user_id: str, question: str) -> dict[str, str]:
     """Answer a question about the book without spoilers."""
-    progress = await fetch_one(
-        "SELECT percentage FROM reading_progress WHERE book_id = $1 AND user_id = $2", UUID(book_id), UUID(user_id)
-    )
+    progress = await fetch_one("SELECT percentage FROM reading_progress WHERE book_id = $1 AND user_id = $2", UUID(book_id), UUID(user_id))
     pct = progress["percentage"] if progress else 0
 
     chunks = await fetch_all(

@@ -15,18 +15,12 @@ class TranslationBackend(Protocol):
     def supported_languages(self) -> list[str]: ...
 
 
-async def translate_book(
-    book_id: str, target_lang: str, backend_name: str = "argos", user_id: str | None = None
-) -> str:
+async def translate_book(book_id: str, target_lang: str, backend_name: str = "argos", user_id: str | None = None) -> str:
     """Start translation job. Returns job ID."""
-    job_id = await create_job(
-        "translate", book_id=book_id, user_id=user_id, params={"target_lang": target_lang, "backend": backend_name}
-    )
+    job_id = await create_job("translate", book_id=book_id, user_id=user_id, params={"target_lang": target_lang, "backend": backend_name})
 
     async def _run() -> None:
-        file_row = await fetch_one(
-            "SELECT * FROM book_files WHERE book_id = $1 AND format = 'epub' LIMIT 1", UUID(book_id)
-        )
+        file_row = await fetch_one("SELECT * FROM book_files WHERE book_id = $1 AND format = 'epub' LIMIT 1", UUID(book_id))
         if not file_row:
             await update_job(job_id, status="failed", error="No EPUB file")
             return

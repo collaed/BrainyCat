@@ -6,6 +6,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sox \
     libsox-fmt-all \
     espeak-ng \
+    ocrmypdf \
+    tesseract-ocr \
+    tesseract-ocr-fra \
+    tesseract-ocr-deu \
+    tesseract-ocr-spa \
     fonts-dejavu-core \
     calibre \
     wget \

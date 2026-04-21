@@ -572,3 +572,48 @@ async def gen_covers(_a: Any = Depends(require_admin)) -> dict[str, Any]:
     from brainycat.covers import generate_missing_covers
 
     return await generate_missing_covers()
+
+
+# ── OCR ──────────────────────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/ocr")
+async def ocr_book(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, str]:
+    from brainycat.ocr import ocr_pdf
+
+    job_id = await ocr_pdf(book_id, str(user["id"]))
+    return {"job_id": job_id}
+
+
+# ── Metadata download (Calibre-style) ───────────────────────────────────
+@app.post("/api/v1/books/{book_id}/download-metadata")
+async def download_metadata(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await metadata.enrich_book(book_id)
+
+
+@app.post("/api/v1/books/{book_id}/download-cover")
+async def download_cover(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Download cover from online sources."""
+    import os as _os
+    from uuid import UUID as _UUID
+
+    import httpx as _httpx
+
+    from brainycat.storage import book_dir as _bd
+
+    row = await db.fetch_one("SELECT * FROM books WHERE id = $1", _UUID(book_id))
+    if not row:
+        return {"error": "not found"}
+
+    # Try Google Books
+    from brainycat.sources.google_books import search as _gs
+
+    r = await _gs(title=row["title"], isbn=row["isbn"])
+    if r and r.get("cover_url"):
+        async with _httpx.AsyncClient() as client:
+            resp = await client.get(r["cover_url"], timeout=15)
+            if resp.status_code == 200:
+                cover_path = _os.path.join(_bd(book_id), "cover.jpg")
+                with open(cover_path, "wb") as f:
+                    f.write(resp.content)
+                await db.execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, _UUID(book_id))
+                return {"ok": True, "source": "google_books"}
+    return {"ok": False, "reason": "no cover found"}
