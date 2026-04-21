@@ -41,7 +41,13 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        headers = {}
+        import os
+
+        key = os.environ.get("HARDCOVER_API_KEY", "")
+        if key:
+            headers["Authorization"] = key if key.startswith("Bearer") else f"Bearer {key}"
+        async with httpx.AsyncClient(timeout=10, headers=headers) as client:
             resp = await client.post(API_URL, json=graphql)
             if resp.status_code != 200:
                 return None

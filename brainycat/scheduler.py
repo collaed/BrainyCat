@@ -8,46 +8,49 @@ from brainycat.logging import log
 
 
 async def start_scheduler() -> None:
-    """Start background tasks."""
     asyncio.create_task(_enrichment_loop())  # noqa: RUF006
     asyncio.create_task(_fingerprint_loop())  # noqa: RUF006
+    await log.ainfo("scheduler_started")
 
 
 async def _enrichment_loop() -> None:
-    """Continuously enrich books with low quality scores."""
-    await asyncio.sleep(30)
+    await asyncio.sleep(15)
     while True:
         try:
-            from brainycat.db import fetch_one
+            from brainycat.db import fetch_all
             from brainycat.metadata import enrich_book
 
-            row = await fetch_one("SELECT id, title FROM books WHERE quality_score < 50 ORDER BY quality_score ASC, updated_at ASC LIMIT 1")
-            if row:
+            rows = await fetch_all("SELECT id, title FROM books WHERE quality_score < 50 ORDER BY updated_at ASC LIMIT 5")
+            enriched = 0
+            for row in rows:
                 result = await enrich_book(str(row["id"]))
                 if result.get("enriched"):
-                    await log.ainfo("auto_enriched", title=row["title"], score=result.get("quality_score"))
+                    enriched += 1
+                # Mark as attempted even if no results (bump updated_at so we don't retry immediately)
+                from brainycat.db import execute
+
+                await execute("UPDATE books SET updated_at = now() WHERE id = $1", row["id"])
+            if enriched:
+                await log.ainfo("auto_enriched", count=enriched, batch=len(rows))
         except Exception as e:
             await log.awarning("enrichment_error", error=str(e))
         await asyncio.sleep(5)
 
 
 async def _fingerprint_loop() -> None:
-    """Compute fingerprints and find duplicates in background."""
-    await asyncio.sleep(60)
+    await asyncio.sleep(45)
     while True:
         try:
             from brainycat.fingerprints import compute_all_fingerprints, find_duplicates_by_content
 
-            # Compute fingerprints for 10 books at a time
             result = await compute_all_fingerprints(batch_size=10)
             if result["computed"] > 0:
-                await log.ainfo("fingerprints_computed", **result)
+                await log.ainfo("fingerprints", **result)
 
-            # Compare for duplicates
             if result.get("pending", 0) == 0:
                 dupes = await find_duplicates_by_content(batch_size=20)
                 if dupes["new_matches"] > 0:
-                    await log.ainfo("duplicates_found", **dupes)
+                    await log.ainfo("dupes_found", **dupes)
         except Exception as e:
             await log.awarning("fingerprint_error", error=str(e))
         await asyncio.sleep(30)
