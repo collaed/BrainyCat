@@ -33,6 +33,21 @@ nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(-
 <button onclick="setTab('librivox',this)">🎧 LibriVox (Audiobooks)</button>
 </div>
 <div class="search-row">
+<input type="text" id="q" placeholder="Search 60,000+ public domain ebooks..." oninput="clearTimeout(window._st);window._st=setTimeout(doSearch,400)">
+<select id="lang" onchange="doSearch()" title="Language">
+<option value="en">English</option>
+<option value="fr">Français</option>
+<option value="de">Deutsch</option>
+<option value="es">Español</option>
+<option value="it">Italiano</option>
+<option value="pt">Português</option>
+<option value="nl">Nederlands</option>
+<option value="sv">Svenska</option>
+<option value="zh">中文</option>
+<option value="">All languages</option>
+</select>
+</div>
+<div class="search-row">
 <input id="q" placeholder="Search 60,000+ public domain ebooks..." onkeydown="if(event.key==='Enter')doSearch()">
 <button onclick="doSearch()">Search</button>
 </div>
@@ -47,14 +62,14 @@ async function doSearch(){
     const q=document.getElementById('q').value;const el=document.getElementById('results');const st=document.getElementById('status');
     el.innerHTML='<div class="empty">Searching...</div>';
     if(tab==='gutenberg'){
-        const data=await BC.get('/catalog/gutenberg/search?q='+encodeURIComponent(q||'dickens'));
+        const data=await BC.get('/catalog/gutenberg/search?q='+encodeURIComponent(q||'')+'&language='+document.getElementById('lang').value);
         const books=data?.books||[];st.textContent=(data?.count||books.length)+' results';
         if(!books.length){el.innerHTML='<div class="empty">No results</div>';return;}
         el.innerHTML=books.map(b=>`<div class="item">${b.cover_url?`<img src="${b.cover_url}" onerror="this.style.display='none'">`:''}
             <div class="info"><h3>${b.title}</h3><div class="meta">${(b.authors||[]).join(', ')} · ${b.language||'en'} · ${b.download_count||0} downloads</div>
             <button onclick="importGut(${b.gutenberg_id},this)">📥 Import</button></div></div>`).join('');
     } else {
-        const data=await BC.get('/catalog/librivox/search?title='+encodeURIComponent(q||'Adventures')+'&author='+encodeURIComponent(q||'Adventures'));
+        const data=await BC.get('/catalog/librivox/search?title='+encodeURIComponent(q||''));
         const books=data?.books||[];st.textContent=books.length+' results';
         if(!books.length){el.innerHTML='<div class="empty">No results</div>';return;}
         el.innerHTML=books.map(b=>`<div class="item"><div class="info"><h3>${b.title}</h3>

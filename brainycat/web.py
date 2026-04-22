@@ -1809,3 +1809,112 @@ async def public_feed(username: str) -> dict[str, Any]:
     from brainycat.social import get_public_feed
 
     return await get_public_feed(username)
+
+
+# ── Book Clubs ───────────────────────────────────────────────────────────
+@app.post("/api/v1/clubs")
+async def create_book_club(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.book_clubs import create_club
+
+    body = await request.json()
+    return await create_club(str(user["id"]), body["name"], body["book_id"], body.get("chapters_per_week", 3), body.get("start_date"))
+
+
+@app.get("/api/v1/clubs/{club_id}")
+async def get_book_club(club_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.book_clubs import get_club
+
+    return await get_club(club_id, str(user["id"]))
+
+
+@app.post("/api/v1/clubs/{club_id}/join")
+async def join_book_club(club_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.book_clubs import join_club
+
+    return await join_club(club_id, str(user["id"]))
+
+
+@app.post("/api/v1/clubs/{club_id}/discuss")
+async def club_discuss(club_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.book_clubs import post_discussion
+
+    body = await request.json()
+    return await post_discussion(club_id, str(user["id"]), body["chapter"], body["content"])
+
+
+# ── Sleep Fade ───────────────────────────────────────────────────────────
+@app.post("/api/v1/sleep/report")
+async def sleep_report(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.sleep_fade import report_playback_stop
+
+    body = await request.json()
+    return await report_playback_stop(str(user["id"]), body["book_id"], body["position"], body.get("explicit_pause", False))
+
+
+@app.get("/api/v1/sleep/rewind/{book_id}")
+async def sleep_rewind(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.sleep_fade import get_rewind_suggestion
+
+    return await get_rewind_suggestion(str(user["id"]), book_id)
+
+
+# ── Lending ──────────────────────────────────────────────────────────────
+@app.post("/api/v1/lending/request")
+async def lend_request(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.lending import request_lend
+
+    body = await request.json()
+    return await request_lend(str(user["id"]), body["book_id"], body.get("server_url", ""), body.get("owner", ""), body.get("message", ""))
+
+
+@app.get("/api/v1/lending/incoming")
+async def lending_incoming(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.lending import list_incoming_requests
+
+    return await list_incoming_requests(str(user["id"]))
+
+
+@app.post("/api/v1/lending/{request_id}/approve")
+async def lending_approve(request_id: str, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.lending import approve_request
+
+    return await approve_request(request_id, "")
+
+
+@app.post("/api/v1/lending/{request_id}/deny")
+async def lending_deny(request_id: str, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.lending import deny_request
+
+    return await deny_request(request_id)
+
+
+# ── Streaks & Challenges ─────────────────────────────────────────────────
+@app.get("/api/v1/streaks")
+async def get_streaks(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.streaks import get_streak
+
+    return await get_streak(str(user["id"]))
+
+
+@app.get("/api/v1/challenges")
+async def get_challenges_list(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.streaks import get_challenges
+
+    return await get_challenges(str(user["id"]))
+
+
+@app.post("/api/v1/challenges")
+async def create_challenge_endpoint(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.streaks import create_challenge
+
+    body = await request.json()
+    return await create_challenge(str(user["id"]), body["name"], body["target"], body.get("year"))
+
+
+# ── Contextual Footnotes ─────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/footnotes")
+async def get_footnotes(book_id: str, request: Request, _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.footnotes import generate_footnotes
+
+    body = await request.json()
+    return await generate_footnotes(book_id, body.get("text", ""), body.get("chapter_idx", 0))

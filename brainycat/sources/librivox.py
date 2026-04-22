@@ -11,9 +11,9 @@ API_URL = "https://librivox.org/api/feed/audiobooks"
 
 async def search(title: str | None = None, author: str | None = None, limit: int = 20) -> dict[str, Any]:
     params: dict[str, Any] = {"format": "json", "limit": limit}
-    # LibriVox can't combine title+author — search one at a time
+    # LibriVox title search is prefix-only — try title, then author, then both
     if title:
-        params["title"] = title
+        params["title"] = f"^{title}"
     elif author:
         params["author"] = author
     else:
@@ -28,9 +28,9 @@ async def search(title: str | None = None, author: str | None = None, limit: int
                     return {"books": [_parse(b) for b in books_raw]}
     except Exception:
         pass
-    # Fallback: if title search failed and we have author, retry with author only
-    if title and author:
-        return await search(title=None, author=author, limit=limit)
+    # Fallback: if title search failed, retry as author search
+    if title and not author:
+        return await search(title=None, author=title, limit=limit)
     return {"books": []}
 
 
