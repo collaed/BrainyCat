@@ -1918,3 +1918,28 @@ async def get_footnotes(book_id: str, request: Request, _u: Any = Depends(get_cu
 
     body = await request.json()
     return await generate_footnotes(book_id, body.get("text", ""), body.get("chapter_idx", 0))
+
+
+# ── Adaptive chapter splitting ────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/detect-chapters")
+async def detect_chapters(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.chapter_split import detect_chapters as _detect
+
+    return await _detect(book_id)
+
+
+# ── Readability scoring ──────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/readability")
+async def book_readability(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.readability import score_book_readability
+
+    return await score_book_readability(book_id)
+
+
+# ── Edition diffing ──────────────────────────────────────────────────────
+@app.post("/api/v1/diff")
+async def edition_diff(request: Request, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.edition_diff import diff_editions
+
+    body = await request.json()
+    return await diff_editions(body["book_a"], body["book_b"])

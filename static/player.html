@@ -64,11 +64,17 @@ header a{color:var(--muted);text-decoration:none}header h2{flex:1;overflow:hidde
 <button onclick="setSleep(15,this)">15m</button>
 <button onclick="setSleep(30,this)">30m</button>
 <button onclick="setSleep(60,this)">1h</button>
+<button onclick="toggleSleepMode(this)" id="sleep-mode-btn" style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:.2rem .5rem;color:var(--text);cursor:pointer;font-size:.75rem">🌙 Smart</button>
 <span id="sleep-countdown" style="color:var(--accent);font-size:.75rem;margin-left:.3rem"></span>
 <span style="margin-left:auto"></span>
 <button onclick="bookmarkPosition()" style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:.2rem .5rem;color:var(--text);cursor:pointer;font-size:.75rem">🔖 Bookmark</button>
 <a id="dl-link" style="display:none;padding:.2rem .5rem;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);text-decoration:none;font-size:.75rem;cursor:pointer">⬇ Download</a>
 </div>
+<!-- Sleep mode toast -->
+<div id="sleep-toast" style="display:none;position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(59,130,246,0.95);color:#fff;padding:12px 24px;border-radius:12px;font-size:1rem;z-index:1000;cursor:pointer;box-shadow:0 4px 20px rgba(0,0,0,0.3);animation:fadeIn .3s" onclick="sleepTap()">
+🌙 Still listening? <span style="font-size:.8rem;opacity:.7">Tap to continue</span>
+</div>
+<style>@keyframes fadeIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}</style>
 <div id="status"></div>
 <div class="chapters" id="chapters-section" style="display:none">
 <h3>Chapters (<span id="ch-count">0</span>)</h3>
@@ -133,6 +139,8 @@ async function init() {
     } else {
         log('Tap ▶ to start');
     }
+    // Check for sleep rewind suggestion
+    checkRewind();
 }
 
 function setSource(idx) {
@@ -180,6 +188,7 @@ setInterval(() => {
 let sleepTimer = null, sleepRemaining = 0;
 function setSleep(mins, btn) {
     clearInterval(sleepTimer);
+    disableSmartSleep();
     document.querySelectorAll('.speed:nth-child(2) button').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
     const el = document.getElementById('sleep-countdown');
@@ -191,6 +200,119 @@ function setSleep(mins, btn) {
         if (sleepRemaining <= 0) { clearInterval(sleepTimer); audio.pause(); el.textContent = 'Paused'; }
     }, 1000);
 }
+
+// ── Smart Sleep Mode (dead-man's-switch) ────────────────────────────────
+let smartSleep = { active: false, interval: 900, timer: null, missCount: 0, checkTimer: null, chimeCtx: null, originalVol: 1 };
+
+function toggleSleepMode(btn) {
+    if (smartSleep.active) { disableSmartSleep(); btn.style.background = 'var(--surface)'; btn.style.color = 'var(--text)'; }
+    else { enableSmartSleep(); btn.style.background = 'var(--accent)'; btn.style.color = '#fff'; }
+}
+
+function enableSmartSleep() {
+    smartSleep.active = true;
+    smartSleep.interval = 900; // 15 min
+    smartSleep.missCount = 0;
+    smartSleep.originalVol = audio.volume;
+    scheduleCheck();
+    log('🌙 Smart sleep on — will check if you\'re awake');
+}
+
+function disableSmartSleep() {
+    smartSleep.active = false;
+    clearTimeout(smartSleep.timer);
+    clearTimeout(smartSleep.checkTimer);
+    document.getElementById('sleep-toast').style.display = 'none';
+    if (smartSleep.originalVol) audio.volume = smartSleep.originalVol;
+    const btn = document.getElementById('sleep-mode-btn');
+    btn.style.background = 'var(--surface)'; btn.style.color = 'var(--text)';
+}
+
+function scheduleCheck() {
+    if (!smartSleep.active) return;
+    clearTimeout(smartSleep.timer);
+    smartSleep.timer = setTimeout(() => {
+        if (audio.paused || !smartSleep.active) return;
+        playChime();
+        document.getElementById('sleep-toast').style.display = '';
+        // Wait 60s for response
+        smartSleep.checkTimer = setTimeout(() => missedCheck(), 60000);
+    }, smartSleep.interval * 1000);
+}
+
+function sleepTap() {
+    // User confirmed they're awake
+    document.getElementById('sleep-toast').style.display = 'none';
+    clearTimeout(smartSleep.checkTimer);
+    smartSleep.missCount = 0;
+    audio.volume = smartSleep.originalVol;
+    // Shorten interval: 15m → 10m → 8m as session progresses
+    smartSleep.interval = Math.max(480, smartSleep.interval - 120);
+    log('🌙 Good, still listening. Next check in ' + Math.round(smartSleep.interval/60) + 'min');
+    scheduleCheck();
+}
+
+function missedCheck() {
+    smartSleep.missCount++;
+    document.getElementById('sleep-toast').style.display = 'none';
+    if (smartSleep.missCount === 1) {
+        // First miss: fade volume to 50%, shorten interval
+        audio.volume = smartSleep.originalVol * 0.5;
+        smartSleep.interval = 180; // 3 min until next check
+        log('🌙 No response — volume lowered. Checking again soon...');
+        scheduleCheck();
+    } else {
+        // Second miss: pause and bookmark
+        const pos = audio.currentTime;
+        audio.pause();
+        audio.volume = smartSleep.originalVol;
+        smartSleep.active = false;
+        // Bookmark the sleep point
+        BC.post('/sleep/report', { book_id: bookId, position: pos, explicit_pause: false });
+        BC.post('/books/' + bookId + '/annotations', {
+            content: '💤 Fell asleep at ' + fmt(pos) + ' in ' + (files[currentIdx]?.file_name || 'chapter ' + (currentIdx+1)),
+            annotation_type: 'sleep_bookmark', position: String(pos)
+        });
+        log('💤 Paused — you fell asleep. Bookmarked at ' + fmt(pos));
+        const btn = document.getElementById('sleep-mode-btn');
+        btn.style.background = 'var(--surface)'; btn.style.color = 'var(--text)';
+    }
+}
+
+function playChime() {
+    // Gentle wind chime mixed into audio at low volume using Web Audio API
+    try {
+        if (!smartSleep.chimeCtx) smartSleep.chimeCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = smartSleep.chimeCtx;
+        const now = ctx.currentTime;
+        // Two soft sine tones — wind chime effect
+        [523.25, 659.25].forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0, now + i * 0.3);
+            gain.gain.linearRampToValueAtTime(0.04, now + i * 0.3 + 0.1); // Very quiet
+            gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.3 + 1.5);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + i * 0.3);
+            osc.stop(now + i * 0.3 + 1.5);
+        });
+    } catch(e) {} // Silently fail if AudioContext unavailable
+}
+
+// On session start, check for rewind suggestion
+async function checkRewind() {
+    const r = await BC.get('/sleep/rewind/' + bookId);
+    if (r && r.has_suggestion) {
+        log('💤 ' + r.message);
+        if (confirm(r.message)) {
+            audio.currentTime = r.rewind_to;
+        }
+    }
+}
+
 async function bookmarkPosition() {
     await BC.post('/books/' + bookId + '/annotations', {
         content: `Bookmark at ${fmt(audio.currentTime)} in ${files[currentIdx]?.file_name || 'chapter ' + (currentIdx+1)}`,
