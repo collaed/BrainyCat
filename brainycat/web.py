@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, FastAPI, Query, UploadFile
@@ -803,13 +803,13 @@ async def generate_pdf(book_id: str, _u: Any = Depends(get_current_user)) -> dic
     from uuid import UUID as _UUID
     from uuid import uuid4 as _uuid4
 
-    import fitz
-
     from brainycat.storage import book_dir as _bd
 
     # Check if we already have a PDF
     pdf_row = await db.fetch_one("SELECT * FROM book_files WHERE book_id = $1 AND format = 'pdf' LIMIT 1", _UUID(book_id))
     if pdf_row and os.path.isfile(pdf_row["file_path"]):
+        import fitz
+
         # Optimize existing PDF: linearize for fast web view, ensure annotations allowed
         src = pdf_row["file_path"]
         dest = src.replace(".pdf", "_kindle.pdf")
@@ -833,57 +833,39 @@ async def generate_pdf(book_id: str, _u: Any = Depends(get_current_user)) -> dic
         except Exception as e:
             return {"error": f"PDF optimization failed: {e}"}
 
-    # No PDF — generate from EPUB via PyMuPDF story-based rendering
+    # No PDF — generate from EPUB via WeasyPrint (proper HTML/CSS rendering)
     epub_row = await db.fetch_one("SELECT * FROM book_files WHERE book_id = $1 AND format = 'epub' LIMIT 1", _UUID(book_id))
     if not epub_row:
         return {"error": "No EPUB or PDF source file"}
 
     try:
         import ebooklib
-        from bs4 import BeautifulSoup
+        import weasyprint
         from ebooklib import epub
 
         ebook = epub.read_epub(epub_row["file_path"], options={"ignore_ncx": True})
-        book_meta = await db.fetch_one("SELECT title FROM books WHERE id = $1", _UUID(book_id))
-        book_meta["title"] if book_meta else "Book"
-
-        pdf = fitz.open()
-        width, height = 595, 842  # A4
-
+        html_parts = []
         for item in ebook.get_items_of_type(ebooklib.ITEM_DOCUMENT):
-            soup = BeautifulSoup(item.get_content(), "html.parser")
-            text = soup.get_text(separator="\n", strip=True)
-            if len(text) < 10:
-                continue
+            html_parts.append(item.get_content().decode(errors="replace"))
 
-            # Paginate text
-            lines = text.split("\n")
-            y = 72
-            page = pdf.new_page(width=width, height=height)
-
-            for line in lines:
-                if y > height - 72:
-                    page = pdf.new_page(width=width, height=height)
-                    y = 72
-
-                fontsize = 16 if len(line) < 60 and line == line.title() else 11
-                with suppress(Exception):
-                    page.insert_text((72, y), line[:100], fontsize=fontsize, fontname="helv")
-                y += fontsize + 4
+        css = "body{font-family:serif;font-size:11pt;line-height:1.6;margin:2cm}h1,h2,h3{page-break-before:always}img{max-width:100%;height:auto}"
+        full_html = "<html><head><style>" + css + "</style></head><body>" + "\n".join(html_parts) + "</body></html>"
+        pdf_bytes = weasyprint.HTML(string=full_html).write_pdf()
 
         dest = os.path.join(_bd(book_id), "kindle.pdf")
-        pdf.save(dest, deflate=True, linear=True)
-        pdf.close()
+        with open(dest, "wb") as out:
+            out.write(pdf_bytes)
 
         fid = _uuid4()
+        size = os.path.getsize(dest)
         await db.execute(
             """INSERT INTO book_files (id, book_id, format, file_path, file_name, file_size, mime_type)
                VALUES ($1,$2,'pdf',$3,'kindle.pdf',$4,'application/pdf')""",
             fid,
             _UUID(book_id),
             dest,
-            os.path.getsize(dest),
+            size,
         )
-        return {"ok": True, "file_id": str(fid), "method": "epub_to_pdf", "pages": len(pdf), "size": os.path.getsize(dest)}
+        return {"ok": True, "file_id": str(fid), "method": "epub_to_pdf_weasyprint", "size": size}
     except Exception as e:
         return {"error": f"PDF generation failed: {e}"}
