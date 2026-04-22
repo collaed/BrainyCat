@@ -9,6 +9,7 @@ Routes: /compat/abs/api/* mirrors ABS's API structure.
 
 from __future__ import annotations
 
+import contextlib
 import time
 from typing import Any
 from uuid import UUID, uuid4
@@ -318,10 +319,8 @@ async def abs_play(item_id: str, request: Request, user: Any = Depends(get_curre
     if raw:
         import json as _json
 
-        try:
+        with contextlib.suppress(Exception):
             body = _json.loads(raw)
-        except Exception:
-            pass
 
     files = await fetch_all(
         "SELECT * FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac','ogg') ORDER BY file_name",

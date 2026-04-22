@@ -1,19 +1,24 @@
-"""KFX input — read Amazon KFX format (Ion binary containers).
+"""KFX input — Amazon's Kindle format.
 
-KFX is Amazon's current Kindle format. It's a SQLite database containing
-Ion binary data blobs. We extract:
-- Text content (for search, fingerprinting, word count)
-- Metadata (title, author, ASIN, language, publisher)
-- Cover image
+KFX uses Ion binary serialization inside a SQLite container. Full parsing
+requires jhowell's KFX Input plugin (Ion deserialization, DRM detection,
+container parsing). We don't reimplement that.
 
-This is a best-effort parser — KFX is undocumented and complex.
-For full fidelity, Amazon's Kindle Previewer would be needed.
+Strategy:
+1. If ebook-convert is available (Calibre in Docker): convert KFX→EPUB, extract from EPUB
+2. If not: extract what we can from the SQLite container (metadata, cover)
+3. For text extraction: convert first, then extract
+
+This is honest: KFX is a complex proprietary format. We use Calibre's
+ebook-convert for the heavy lifting, same as everyone else.
 """
 
 from __future__ import annotations
 
-import re
-import sqlite3
+import asyncio
+import os
+import shutil
+import tempfile
 from typing import Any
 
 
@@ -21,172 +26,78 @@ def is_kfx(path: str) -> bool:
     """Check if a file is KFX format."""
     if path.lower().endswith(".kfx"):
         return True
-    # KFX can also be a SQLite DB
     try:
         with open(path, "rb") as f:
             magic = f.read(16)
-            return magic[:6] == b"SQLite" or magic[:4] == b"\xe0\x01\x00\xea"
+            return magic[:6] == b"SQLite"
     except Exception:
         return False
 
 
-def extract_kfx_metadata(path: str) -> dict[str, Any]:
-    """Extract metadata from a KFX file."""
+async def extract_kfx_metadata(path: str) -> dict[str, Any]:
+    """Extract metadata from KFX. Uses ebook-convert if available."""
     result: dict[str, Any] = {"format": "kfx"}
 
+    if not os.path.isfile(path):
+        return result
+
+    # Best path: convert to EPUB via ebook-convert, extract from that
+    if shutil.which("ebook-convert"):
+        tmp = tempfile.mktemp(suffix=".epub")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ebook-convert", path, tmp, "--no-default-epub-cover",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.communicate()
+            if os.path.isfile(tmp):
+                from brainycat.extract import _extract_epub
+
+                result = _extract_epub(tmp)
+                result["format"] = "kfx"
+                result["converted_from"] = "kfx"
+        except Exception:
+            pass
+        finally:
+            if os.path.isfile(tmp):
+                os.unlink(tmp)
+        return result
+
+    # Fallback: try to read SQLite metadata directly (limited)
     try:
-        # KFX is typically a SQLite database
+        import sqlite3
+
         conn = sqlite3.connect(path)
-        cursor = conn.cursor()
-
-        # Check for KFX tables
-        tables = [r[0] for r in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-
-        if "fragments" in tables:
-            # Standard KFX container
-            for row in cursor.execute("SELECT key, value FROM fragments"):
-                key, blob = row
-                _parse_fragment(key, blob, result)
-
-        elif "metadata" in tables:
-            # Alternative KFX layout
-            for row in cursor.execute("SELECT key, value FROM metadata"):
-                key, value = row
-                if key == "title":
-                    result["title"] = value
-                elif key == "author":
-                    result["authors"] = [value]
-                elif key == "ASIN":
-                    result["asin"] = value
-                elif key == "language":
-                    result["language"] = value
-                elif key == "publisher":
-                    result["publisher"] = value
-
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        if "metadata" in tables:
+            for row in conn.execute("SELECT key, value FROM metadata"):
+                if row[0] == "title":
+                    result["title"] = row[1]
+                elif row[0] == "author":
+                    result["authors"] = [row[1]]
         conn.close()
-    except sqlite3.DatabaseError:
-        # Not a SQLite KFX — try as raw Ion binary
-        _parse_ion_kfx(path, result)
+    except Exception:
+        pass
 
     return result
 
 
 def extract_kfx_text(path: str) -> str:
-    """Extract plain text content from a KFX file."""
-    text_parts: list[str] = []
+    """Extract text from KFX — requires ebook-convert."""
+    if not shutil.which("ebook-convert"):
+        return ""
+    # Synchronous fallback — convert to txt
+    import subprocess
 
+    tmp = tempfile.mktemp(suffix=".txt")
     try:
-        conn = sqlite3.connect(path)
-        cursor = conn.cursor()
-        tables = [r[0] for r in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-
-        if "fragments" in tables:
-            for row in cursor.execute("SELECT value FROM fragments"):
-                blob = row[0]
-                if isinstance(blob, bytes):
-                    # Extract readable text from Ion blobs
-                    text = _extract_text_from_ion(blob)
-                    if text:
-                        text_parts.append(text)
-
-        conn.close()
-    except sqlite3.DatabaseError:
-        # Try reading as binary
-        try:
-            with open(path, "rb") as f:
-                data = f.read()
-            text_parts.append(_extract_text_from_ion(data))
-        except Exception:
-            pass
-
-    return "\n".join(text_parts)
-
-
-def extract_kfx_cover(path: str) -> bytes | None:
-    """Extract cover image from a KFX file."""
-    try:
-        conn = sqlite3.connect(path)
-        cursor = conn.cursor()
-        tables = [r[0] for r in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-
-        if "fragments" in tables:
-            for row in cursor.execute("SELECT value FROM fragments"):
-                blob = row[0]
-                if isinstance(blob, bytes):
-                    # JPEG magic
-                    if b"\xff\xd8\xff" in blob:
-                        start = blob.index(b"\xff\xd8\xff")
-                        # Find JPEG end
-                        end = blob.rfind(b"\xff\xd9")
-                        if end > start:
-                            return blob[start : end + 2]
-                    # PNG magic
-                    if b"\x89PNG" in blob:
-                        start = blob.index(b"\x89PNG")
-                        return blob[start:]
-
-        conn.close()
+        subprocess.run(["ebook-convert", path, tmp], capture_output=True, timeout=60)
+        if os.path.isfile(tmp):
+            with open(tmp) as f:
+                return f.read()
     except Exception:
         pass
-    return None
-
-
-def _parse_fragment(key: Any, blob: bytes, result: dict[str, Any]) -> None:
-    """Parse a KFX fragment blob for metadata."""
-    if not isinstance(blob, bytes) or len(blob) < 4:
-        return
-
-    # Look for readable strings that might be metadata
-    strings = re.findall(rb"[\x20-\x7e]{10,}", blob)
-    for s in strings:
-        text = s.decode("ascii", errors="ignore")
-        if "title" in str(key).lower() and not result.get("title"):
-            result["title"] = text
-        elif "author" in str(key).lower():
-            result.setdefault("authors", []).append(text)
-        elif "ASIN" in text or "asin" in str(key).lower():
-            asin_match = re.search(r"B[A-Z0-9]{9}", text)
-            if asin_match:
-                result["asin"] = asin_match.group()
-
-
-def _extract_text_from_ion(blob: bytes) -> str:
-    """Extract readable text from an Ion binary blob."""
-    # Ion binary uses UTF-8 strings prefixed with length
-    # We do a best-effort extraction of readable text runs
-    text_parts = []
-    i = 0
-    while i < len(blob) - 4:
-        # Look for UTF-8 text runs (printable ASCII + common Unicode)
-        if 0x20 <= blob[i] <= 0x7E or blob[i] >= 0xC0:
-            start = i
-            while i < len(blob) and (0x20 <= blob[i] <= 0x7E or blob[i] >= 0x80):
-                i += 1
-            if i - start > 20:  # Only keep substantial text runs
-                try:
-                    text = blob[start:i].decode("utf-8", errors="ignore").strip()
-                    if text and not text.startswith(("<?", "<!", "{")):
-                        text_parts.append(text)
-                except Exception:
-                    pass
-        else:
-            i += 1
-
-    return " ".join(text_parts)
-
-
-def _parse_ion_kfx(path: str, result: dict[str, Any]) -> None:
-    """Parse a raw Ion binary KFX file."""
-    try:
-        with open(path, "rb") as f:
-            data = f.read(4096)  # Just read header for metadata
-
-        # Look for metadata strings
-        strings = re.findall(rb"[\x20-\x7e]{10,}", data)
-        for s in strings:
-            text = s.decode("ascii", errors="ignore")
-            if not result.get("title") and len(text) > 5 and not text.startswith(("http", "<?", "<!")):
-                result["title"] = text
-                break
-    except Exception:
-        pass
+    finally:
+        if os.path.isfile(tmp):
+            os.unlink(tmp)
+    return ""

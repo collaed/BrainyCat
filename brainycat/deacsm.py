@@ -1,6 +1,8 @@
 """DeACSM — convert Adobe DRM .acsm files to DRM-free EPUB/PDF.
 
-Uses libgourou (open-source ACSM handler) if available.
+Uses libgourou (open-source ACSM handler) if installed.
+NOT included in Docker image — requires manual installation of libgourou-bin.
+See: https://indefero.soutade.fr/p/libgourou
 Legal: for personal backup of purchased books only.
 """
 
