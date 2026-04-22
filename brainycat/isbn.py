@@ -1,4 +1,4 @@
-"""ISBN extraction — from OPF metadata, text content, and front/back matter."""
+"""ISBN & publication metadata extraction — multilingual, front/back matter aware."""
 
 from __future__ import annotations
 
@@ -10,15 +10,40 @@ from uuid import UUID
 
 from brainycat.db import execute, fetch_all, fetch_one
 
-# ISBN-13 pattern: 978 or 979 followed by 10 digits (with optional hyphens)
 ISBN13_RE = re.compile(r"(?:ISBN[-:\s]*)?(?:97[89])[-\s]?\d[-\s]?\d{2}[-\s]?\d{4,6}[-\s]?\d{1,3}[-\s]?\d")
 ISBN10_RE = re.compile(r"(?:ISBN[-:\s]*)?\d[-\s]?\d{2}[-\s]?\d{4,6}[-\s]?\d[-\s]?[\dXx]")
-COPYRIGHT_RE = re.compile(r"©\s*(\d{4})")
-PRINTER_RE = re.compile(r"(?:Imprimé par|Achevé d'imprimer|Druck:|Printed by|Printed in)\s+(.+?)(?:\n|$)", re.IGNORECASE)
+
+# Multilingual anchor patterns for metadata extraction
+PUBLISHER_ANCHORS = re.compile(
+    r"(?:Published by|Publisher|Éditeur|Publié par|Verlag|Herausgegeben von|Editorial|Publicado por"
+    r"|Editore|Casa editrice|Editora|Editura|Förlag|Utgiven av|出版社|出版)\s*:?\s*(.+?)(?:\n|$)",
+    re.IGNORECASE,
+)
+PRINTER_ANCHORS = re.compile(
+    r"(?:Printed by|Manufactured in|Achevé d'imprimer|Imprimé par|Gedruckt bei|Druck:"
+    r"|Impreso en|Imprenta|Stampato da|Finito di stampare|Impresso por|Tipografia"
+    r"|Tipărit la|Tryckt av|印刷|印制)\s*:?\s*(.+?)(?:\n|$)",
+    re.IGNORECASE,
+)
+EDITION_ANCHORS = re.compile(
+    r"(?:First|Second|Third|\d+(?:st|nd|rd|th))?\s*(?:Edition|Printing|Édition|Tirage|Auflage|Ausgabe"
+    r"|Edición|Reimpresión|Edizione|Ristampa|Edição|Tiragem|Ediția|Utgåva|Upplaga|版次|印次)",
+    re.IGNORECASE,
+)
+TRANSLATOR_ANCHORS = re.compile(
+    r"(?:Translated by|Trans\.|Traduit par|Traduction|Übersetzt von|Übersetzung"
+    r"|Traducido por|Traducción|Traduzione di|Tradotto da|Traduzido por|Tradução"
+    r"|Traducere de|Tradus de|Översatt av|翻译|译者)\s*:?\s*(.+?)(?:\n|$)",
+    re.IGNORECASE,
+)
+COPYRIGHT_RE = re.compile(r"[©Ⓒ]\s*(\d{4})")
+DEPOT_LEGAL_RE = re.compile(r"[Dd]épôt\s+légal\s*:?\s*(.+?)(?:\n|$)")
+IMPRESSUM_RE = re.compile(r"Impressum|Auflage\s*:?\s*(.+?)(?:\n|$)", re.IGNORECASE)
+# Number line: "10 9 8 7 6 5 4 3 2 1" — lowest = printing number
+NUMBER_LINE_RE = re.compile(r"(?:^|\n)\s*((?:\d+\s+){3,}\d+)\s*(?:\n|$)")
 
 
 def _clean_isbn(raw: str) -> str | None:
-    """Normalize an ISBN string to digits only."""
     digits = re.sub(r"[^0-9Xx]", "", raw)
     if len(digits) == 13 and digits.startswith(("978", "979")):
         return digits
@@ -32,14 +57,12 @@ def extract_from_opf(epub_path: str) -> dict[str, Any]:
     result: dict[str, Any] = {}
     try:
         with zipfile.ZipFile(epub_path, "r") as z:
-            # Find the OPF file
             opf_path = None
             for name in z.namelist():
                 if name.endswith(".opf"):
                     opf_path = name
                     break
             if not opf_path:
-                # Check container.xml
                 try:
                     container = z.read("META-INF/container.xml").decode(errors="replace")
                     m = re.search(r'full-path="([^"]+\.opf)"', container)
@@ -47,13 +70,10 @@ def extract_from_opf(epub_path: str) -> dict[str, Any]:
                         opf_path = m.group(1)
                 except KeyError:
                     pass
-
             if not opf_path:
                 return result
 
             opf = z.read(opf_path).decode(errors="replace")
-
-            # Extract Dublin Core fields
             for tag, key in [
                 ("dc:identifier", "identifiers"),
                 ("dc:title", "title"),
@@ -61,16 +81,11 @@ def extract_from_opf(epub_path: str) -> dict[str, Any]:
                 ("dc:publisher", "publisher"),
                 ("dc:date", "date"),
                 ("dc:language", "language"),
-                ("dc:description", "description"),
             ]:
                 matches = re.findall(rf"<{tag}[^>]*>([^<]+)</{tag}>", opf, re.IGNORECASE)
                 if matches:
-                    if key == "identifiers":
-                        result[key] = matches
-                    else:
-                        result[key] = matches[0].strip()
+                    result[key] = matches if key == "identifiers" else matches[0].strip()
 
-            # Extract ISBN from identifiers
             for ident in result.get("identifiers", []):
                 isbn = _clean_isbn(ident)
                 if isbn:
@@ -81,17 +96,36 @@ def extract_from_opf(epub_path: str) -> dict[str, Any]:
     return result
 
 
-def extract_isbn_from_text(text: str) -> dict[str, Any]:
-    """Extract ISBN, copyright year, and printer from book text."""
+def extract_from_text(text: str) -> dict[str, Any]:
+    """Extract ISBN + publication metadata from book text using multilingual anchors."""
     result: dict[str, Any] = {}
+    total = len(text)
+    if total < 500:
+        return result
 
-    # Search front matter (first 10%) and back matter (last 10%)
-    front = text[: int(len(text) * 0.1)]
-    back = text[int(len(text) * 0.9) :]
-    search_text = front + "\n" + back
+    # Strategy: search front 10%, back 2%, and also around "Impressum"/"Achevé" markers
+    front = text[: int(total * 0.10)]
+    back = text[int(total * 0.98) :]
+
+    # For German books: find Impressum section
+    impressum_match = IMPRESSUM_RE.search(text[:5000])
+    impressum_section = ""
+    if impressum_match:
+        start = max(0, impressum_match.start() - 200)
+        impressum_section = text[start : start + 2000]
+
+    # For French books: find Achevé d'imprimer (usually last pages)
+    acheve_section = ""
+    acheve_match = re.search(r"Achevé d'imprimer", text[int(total * 0.90) :], re.IGNORECASE)
+    if acheve_match:
+        pos = int(total * 0.90) + acheve_match.start()
+        acheve_section = text[max(0, pos - 200) : pos + 1000]
+
+    # Combine all search zones
+    search_zones = front + "\n" + back + "\n" + impressum_section + "\n" + acheve_section
 
     # ISBN-13
-    for m in ISBN13_RE.finditer(search_text):
+    for m in ISBN13_RE.finditer(search_zones):
         isbn = _clean_isbn(m.group())
         if isbn:
             result["isbn"] = isbn
@@ -99,27 +133,54 @@ def extract_isbn_from_text(text: str) -> dict[str, Any]:
 
     # ISBN-10 fallback
     if "isbn" not in result:
-        for m in ISBN10_RE.finditer(search_text):
+        for m in ISBN10_RE.finditer(search_zones):
             isbn = _clean_isbn(m.group())
             if isbn:
                 result["isbn_10"] = isbn
                 break
 
     # Copyright year
-    m = COPYRIGHT_RE.search(search_text)
+    m = COPYRIGHT_RE.search(search_zones)
     if m:
         result["copyright_year"] = m.group(1)
 
-    # Printer (EU legal requirement)
-    m = PRINTER_RE.search(search_text)
+    # Publisher
+    m = PUBLISHER_ANCHORS.search(search_zones)
     if m:
-        result["printer"] = m.group(1).strip()
+        result["publisher"] = m.group(1).strip()[:100]
+
+    # Printer
+    m = PRINTER_ANCHORS.search(search_zones)
+    if m:
+        result["printer"] = m.group(1).strip()[:100]
+
+    # Edition
+    m = EDITION_ANCHORS.search(search_zones)
+    if m:
+        result["edition"] = m.group().strip()
+
+    # Translator
+    m = TRANSLATOR_ANCHORS.search(search_zones)
+    if m:
+        result["translator"] = m.group(1).strip()[:100]
+
+    # Dépôt légal
+    m = DEPOT_LEGAL_RE.search(search_zones)
+    if m:
+        result["depot_legal"] = m.group(1).strip()
+
+    # Number line (printing number)
+    m = NUMBER_LINE_RE.search(search_zones)
+    if m:
+        nums = [int(x) for x in m.group(1).split()]
+        if nums == sorted(nums, reverse=True) and len(nums) >= 3:
+            result["printing_number"] = min(nums)
 
     return result
 
 
 async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
-    """Extract ISBN from a book's files and update the DB."""
+    """Extract ISBN + metadata from a book's files and update the DB."""
     row = await fetch_one(
         "SELECT bf.file_path, bf.format FROM book_files bf WHERE bf.book_id = $1 AND bf.format IN ('epub','pdf') LIMIT 1",
         UUID(book_id),
@@ -130,19 +191,19 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
     isbn = None
     extra: dict[str, Any] = {}
 
-    # Phase 1: OPF metadata (most reliable)
+    # Phase 1: OPF metadata
     if row["format"] == "epub":
         opf_data = extract_from_opf(row["file_path"])
         isbn = opf_data.get("isbn")
         extra.update({k: v for k, v in opf_data.items() if k != "identifiers"})
 
-    # Phase 2: Text content (front/back matter)
+    # Phase 2: Text content with multilingual anchors
     if not isbn:
         from brainycat.fingerprints import _extract_full_text
 
         text = _extract_full_text(row["file_path"], row["format"])
         if text:
-            text_data = extract_isbn_from_text(text)
+            text_data = extract_from_text(text)
             isbn = text_data.get("isbn") or text_data.get("isbn_10")
             extra.update(text_data)
 
@@ -155,11 +216,27 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
                 UUID(book_id),
             )
 
+    # Store publisher if found and not already set
+    if extra.get("publisher"):
+        import json
+
+        await execute(
+            "UPDATE books SET extra_metadata = extra_metadata || $1::jsonb WHERE id = $2",
+            json.dumps(
+                {
+                    "publisher": extra["publisher"],
+                    "printer": extra.get("printer"),
+                    "edition": extra.get("edition"),
+                    "translator": extra.get("translator"),
+                }
+            ),
+            UUID(book_id),
+        )
+
     return {"ok": True, "isbn": isbn, **extra}
 
 
 async def batch_extract_isbns(limit: int = 50) -> dict[str, Any]:
-    """Extract ISBNs for books that don't have one."""
     rows = await fetch_all(
         """
         SELECT b.id FROM books b
@@ -169,12 +246,10 @@ async def batch_extract_isbns(limit: int = 50) -> dict[str, Any]:
     """,
         limit,
     )
-
     found = 0
     for r in rows:
         result = await extract_and_store_isbn(str(r["id"]))
         if result.get("isbn"):
             found += 1
-
     total_missing = await fetch_one("SELECT count(*) as n FROM books WHERE isbn IS NULL OR isbn = ''")
     return {"extracted": found, "batch": len(rows), "still_missing": total_missing["n"] if total_missing else 0}
