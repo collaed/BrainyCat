@@ -1360,6 +1360,7 @@ async def delete_api_key(key_id: str, user: Any = Depends(get_current_user)) -> 
 @app.post("/api/v1/books/{book_id}/epub-check")
 async def epub_check(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
     from brainycat.epub_check import check_epub
+
     return await check_epub(book_id)
 
 
@@ -1374,6 +1375,7 @@ async def batch_epub_check(_a: Any = Depends(require_admin)) -> dict[str, Any]:
     checked = 0
     for r in rows:
         from brainycat.epub_check import check_epub
+
         result = await check_epub(str(r["book_id"]))
         if result.get("score") is not None:
             checked += 1
@@ -1390,12 +1392,14 @@ class MergeBody(BaseModel):
 @app.post("/api/v1/epub/merge")
 async def epub_merge(body: MergeBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
     from brainycat.epub_tools import merge_epubs
+
     return await merge_epubs(body.book_ids, body.title, body.author)
 
 
 @app.post("/api/v1/books/{book_id}/epub-split")
 async def epub_split(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
     from brainycat.epub_tools import split_epub
+
     return await split_epub(book_id)
 
 
@@ -1403,6 +1407,7 @@ async def epub_split(book_id: str, _u: Any = Depends(get_current_user)) -> dict[
 @app.post("/api/v1/embeddings/reindex")
 async def reindex_embeddings(_a: Any = Depends(require_admin)) -> dict[str, Any]:
     from brainycat.embeddings import reindex_all
+
     return await reindex_all()
 
 
@@ -1417,3 +1422,122 @@ async def list_skins() -> list[dict[str, str]]:
         {"id": "canvas", "name": "Canvas", "description": "Drag-and-drop: floating panels, spatial organization"},
         {"id": "wizard", "name": "Wizard", "description": "Guided: step-by-step flows for complex tasks"},
     ]
+
+
+# ── Book Genome / Taste Engine ───────────────────────────────────────────
+@app.get("/api/v1/recommendations/{user_id}")
+async def taste_recommendations(user_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.taste import get_5cat_recommendations
+
+    return await get_5cat_recommendations(user_id)
+
+
+@app.get("/api/v1/taste-profile/{user_id}")
+async def taste_profile(user_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.taste import build_taste_profile
+
+    return await build_taste_profile(user_id)
+
+
+# ── Multi-source aggregation ─────────────────────────────────────────────
+@app.get("/api/v1/books/{book_id}/sources")
+async def book_sources(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.aggregator import aggregate_metadata
+
+    return await aggregate_metadata(book_id)
+
+
+@app.get("/api/v1/sources/coverage")
+async def source_coverage(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.aggregator import library_source_coverage
+
+    return await library_source_coverage()
+
+
+# ── Calibre import ───────────────────────────────────────────────────────
+@app.post("/api/v1/import/calibre")
+async def import_calibre(path: str = Query(...), _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.calibre_import import calibre_library_stats, detect_calibre_library
+
+    if not detect_calibre_library(path):
+        return {"error": "Not a Calibre library (no metadata.db)"}
+    return {"detected": True, "stats": calibre_library_stats(path)}
+
+
+@app.post("/api/v1/import/calibre/run")
+async def run_calibre_import(path: str = Query(...), _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Import books from Calibre library into BrainyCat."""
+    from brainycat.calibre_import import detect_calibre_library, read_calibre_db
+
+    if not detect_calibre_library(path):
+        return {"error": "Not a Calibre library"}
+
+    books = read_calibre_db(path)
+    imported = 0
+    skipped = 0
+    for b in books:
+        # Skip if already exists (by ISBN or title+author)
+        if b.get("isbn"):
+            existing = await db.fetch_one("SELECT id FROM books WHERE isbn = $1", b["isbn"])
+            if existing:
+                skipped += 1
+                continue
+        existing = await db.fetch_one("SELECT id FROM books WHERE title = $1", b["title"])
+        if existing:
+            skipped += 1
+            continue
+
+        # Import the book
+        import uuid
+
+        book_id = uuid.uuid4()
+        await db.execute(
+            "INSERT INTO books (id, title, isbn, description, rating) VALUES ($1,$2,$3,$4,$5)",
+            book_id,
+            b["title"],
+            b.get("isbn"),
+            b.get("description"),
+            (b.get("rating") or 0) / 2,
+        )
+        # Authors
+        for author_name in b.get("authors", []):
+            author_row = await db.fetch_one("SELECT id FROM authors WHERE name = $1", author_name)
+            if not author_row:
+                aid = uuid.uuid4()
+                await db.execute("INSERT INTO authors (id, name) VALUES ($1,$2)", aid, author_name)
+            else:
+                aid = author_row["id"]
+            await db.execute("INSERT INTO books_authors (book_id, author_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", book_id, aid)
+        # Tags
+        for tag_name in b.get("tags", []):
+            await db.execute("INSERT INTO tags (name) VALUES ($1) ON CONFLICT DO NOTHING", tag_name)
+            tag_row = await db.fetch_one("SELECT id FROM tags WHERE name = $1", tag_name)
+            if tag_row:
+                await db.execute("INSERT INTO books_tags (book_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", book_id, tag_row["id"])
+        # Files — copy to /data/books/
+        import shutil
+
+        for f in b.get("files", []):
+            dest = f"/data/books/{book_id}.{f['format']}"
+            try:
+                shutil.copy2(f["path"], dest)
+                await db.execute(
+                    "INSERT INTO book_files (id, book_id, format, file_path) VALUES ($1,$2,$3,$4)",
+                    uuid.uuid4(),
+                    book_id,
+                    f["format"],
+                    dest,
+                )
+            except Exception:
+                pass
+        # Cover
+        if b.get("cover_path"):
+            dest = f"/data/covers/{book_id}.jpg"
+            try:
+                shutil.copy2(b["cover_path"], dest)
+                await db.execute("UPDATE books SET cover_path = $1 WHERE id = $2", dest, book_id)
+            except Exception:
+                pass
+        imported += 1
+
+    return {"imported": imported, "skipped": skipped, "total_in_calibre": len(books)}

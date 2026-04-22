@@ -108,6 +108,7 @@ async def check_epub(book_id: str) -> dict[str, Any]:
             # 7. Check for broken internal links in HTML content
             total_checks += 1
             import os
+
             opf_dir = os.path.dirname(opf_path) if opf_path else ""
             broken_links = 0
             for _iid, href in manifest_items.items():
@@ -162,7 +163,8 @@ async def check_epub(book_id: str) -> dict[str, Any]:
     score = round(checks_passed / max(total_checks, 1) * 100)
     await execute(
         "UPDATE books SET quality_score = $1 WHERE id = $2",
-        score, UUID(book_id),
+        score,
+        UUID(book_id),
     )
     return {
         "score": score,
