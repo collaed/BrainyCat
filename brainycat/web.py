@@ -1716,3 +1716,96 @@ async def list_async_jobs(book_id: str = Query(None), _u: Any = Depends(get_curr
     from brainycat.async_jobs import list_jobs
 
     return await list_jobs(book_id)
+
+
+# ── Plugin system ────────────────────────────────────────────────────────
+@app.get("/api/v1/plugins")
+async def list_plugins(_a: Any = Depends(require_admin)) -> list[dict[str, str]]:
+    from brainycat.plugins import get_plugins
+
+    return get_plugins()
+
+
+# ── Custom columns ───────────────────────────────────────────────────────
+@app.get("/api/v1/custom-columns")
+async def get_custom_columns(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.custom_columns import list_columns
+
+    return await list_columns()
+
+
+@app.post("/api/v1/custom-columns")
+async def create_custom_column(request: Request, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.custom_columns import create_column
+
+    body = await request.json()
+    return await create_column(body["name"], body["label"], body.get("datatype", "text"))
+
+
+@app.post("/api/v1/books/{book_id}/custom/{column_name}")
+async def set_custom_value(book_id: str, column_name: str, request: Request, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.custom_columns import set_value
+
+    body = await request.json()
+    return await set_value(book_id, column_name, body.get("value"))
+
+
+# ── Virtual libraries ────────────────────────────────────────────────────
+@app.get("/api/v1/virtual-libraries")
+async def get_vlibs(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.virtual_libraries import list_virtual_libraries
+
+    return await list_virtual_libraries(str(user["id"]))
+
+
+@app.post("/api/v1/virtual-libraries")
+async def create_vlib(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.virtual_libraries import create_virtual_library
+
+    body = await request.json()
+    return await create_virtual_library(str(user["id"]), body["name"], body["query"], body.get("filters"))
+
+
+@app.delete("/api/v1/virtual-libraries/{vlib_id}")
+async def delete_vlib(vlib_id: str, user: Any = Depends(get_current_user)) -> dict[str, bool]:
+    from brainycat.virtual_libraries import delete_virtual_library
+
+    return await delete_virtual_library(vlib_id, str(user["id"]))
+
+
+# ── Federated social ─────────────────────────────────────────────────────
+@app.post("/api/v1/social/enable-profile")
+async def enable_profile(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.social import enable_public_profile
+
+    return await enable_public_profile(str(user["id"]), "tools.ecb.pm/brainycat")
+
+
+@app.get("/api/v1/social/following")
+async def get_following(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.social import list_following
+
+    return await list_following(str(user["id"]))
+
+
+@app.post("/api/v1/social/follow")
+async def follow(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.social import follow_user
+
+    body = await request.json()
+    return await follow_user(str(user["id"]), body["hash"])
+
+
+@app.post("/api/v1/social/refresh")
+async def refresh_social(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.social import refresh_follows
+
+    return await refresh_follows(str(user["id"]))
+
+
+@app.get("/public/{username}/feed.json")
+async def public_feed(username: str) -> dict[str, Any]:
+    """Public feed endpoint — no auth required, polled by followers."""
+    from brainycat.social import get_public_feed
+
+    return await get_public_feed(username)
