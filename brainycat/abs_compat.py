@@ -305,3 +305,109 @@ async def abs_in_progress(user: Any = Depends(get_current_user)) -> dict:
         user["id"],
     )
     return {"libraryItems": [_book_to_abs_minified(dict(r)) for r in rows]}
+
+
+# ── Playback Session ─────────────────────────────────────────────────────
+
+
+@router.post("/api/items/{item_id}/play")
+async def abs_play(item_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict:
+    """Start playback session — returns audioTracks with stream URLs."""
+    raw = await request.body()
+    body: dict = {}
+    if raw:
+        import json as _json
+
+        try:
+            body = _json.loads(raw)
+        except Exception:
+            pass
+
+    files = await fetch_all(
+        "SELECT * FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac','ogg') ORDER BY file_name",
+        UUID(item_id),
+    )
+    book = await fetch_one("SELECT title FROM books WHERE id = $1", UUID(item_id))
+
+    session_id = str(uuid4())
+    audio_tracks = []
+    for i, f in enumerate(files):
+        audio_tracks.append(
+            {
+                "index": i,
+                "startOffset": 0,
+                "duration": f.get("duration") or 0,
+                "title": f.get("file_name", f"Track {i + 1}"),
+                "contentUrl": f"/api/v1/books/{item_id}/file/{f['id']}",
+                "mimeType": {"mp3": "audio/mpeg", "m4b": "audio/mp4", "m4a": "audio/mp4", "flac": "audio/flac", "ogg": "audio/ogg"}.get(
+                    f["format"], "audio/mpeg"
+                ),
+                "metadata": {"filename": f.get("file_name", "")},
+            }
+        )
+
+    return {
+        "id": session_id,
+        "userId": str(user["id"]),
+        "libraryItemId": item_id,
+        "mediaType": "book",
+        "mediaMetadata": {"title": book["title"] if book else ""},
+        "chapters": [{"id": i, "start": 0, "end": 0, "title": t["title"]} for i, t in enumerate(audio_tracks)],
+        "displayTitle": book["title"] if book else "",
+        "displayAuthor": "",
+        "coverPath": f"/api/v1/books/{item_id}/cover",
+        "duration": sum(t.get("duration", 0) for t in audio_tracks),
+        "playMethod": 0,  # 0 = direct play
+        "startedAt": int(time.time() * 1000),
+        "currentTime": body.get("currentTime", 0),
+        "audioTracks": audio_tracks,
+    }
+
+
+@router.post("/api/session/{session_id}/sync")
+async def abs_sync_session(session_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict:
+    body = await request.json()
+    # Update progress
+    item_id = body.get("libraryItemId")
+    if item_id:
+        from brainycat.db import execute
+
+        await execute(
+            """
+            INSERT INTO reading_progress (id, user_id, book_id, position_timestamp, percentage, is_finished)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (user_id, book_id) DO UPDATE SET
+                position_timestamp = EXCLUDED.position_timestamp, percentage = EXCLUDED.percentage, updated_at = now()
+        """,
+            uuid4(),
+            user["id"],
+            UUID(item_id),
+            body.get("currentTime", 0),
+            body.get("progress", 0),
+            body.get("isFinished", False),
+        )
+    return {"success": True}
+
+
+@router.post("/api/session/{session_id}/close")
+async def abs_close_session(session_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict:
+    _ = await request.body()  # drain
+    return {"success": True}
+
+
+# ── Sleep endpoints (for StayAwake PR) ────────────────────────────────────
+
+
+@router.post("/api/sleep/report")
+async def abs_sleep_report(request: Request, user: Any = Depends(get_current_user)) -> dict:
+    from brainycat.sleep_fade import report_playback_stop
+
+    body = await request.json()
+    return await report_playback_stop(str(user["id"]), body["bookId"], body["position"], False)
+
+
+@router.get("/api/sleep/rewind/{book_id}")
+async def abs_sleep_rewind(book_id: str, user: Any = Depends(get_current_user)) -> dict:
+    from brainycat.sleep_fade import get_rewind_suggestion
+
+    return await get_rewind_suggestion(str(user["id"]), book_id)
