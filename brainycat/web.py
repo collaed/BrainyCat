@@ -916,6 +916,9 @@ async def enrichment_stats(_u: Any = Depends(get_current_user)) -> dict[str, Any
             "with_isbn": (await db.fetch_one("SELECT count(*) as n FROM books WHERE isbn IS NOT NULL AND isbn != ''"))["n"],
             "enriched": (await db.fetch_one("SELECT count(*) as n FROM books WHERE quality_score > 0"))["n"],
             "total": (await db.fetch_one("SELECT count(*) as n FROM books"))["n"],
+            "in_series": (await db.fetch_one("SELECT count(DISTINCT book_id) as n FROM books_series"))["n"],
+            "series_count": (await db.fetch_one("SELECT count(*) as n FROM series"))["n"],
+            "fingerprinted": (await db.fetch_one("SELECT count(*) as n FROM book_fingerprints"))["n"],
         },
     }
 
