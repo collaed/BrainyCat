@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, FastAPI, Query, UploadFile
@@ -794,3 +794,96 @@ async def classify_book(book_id: str, _u: Any = Depends(get_current_user)) -> di
     from brainycat.metadata import classify_genre_via_llm
 
     return await classify_genre_via_llm(book_id)
+
+
+# ── PDF generation for Kindle ────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/generate-pdf")
+async def generate_pdf(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Generate a clean, annotatable PDF from EPUB or optimize existing PDF for Kindle."""
+    from uuid import UUID as _UUID
+    from uuid import uuid4 as _uuid4
+
+    import fitz
+
+    from brainycat.storage import book_dir as _bd
+
+    # Check if we already have a PDF
+    pdf_row = await db.fetch_one("SELECT * FROM book_files WHERE book_id = $1 AND format = 'pdf' LIMIT 1", _UUID(book_id))
+    if pdf_row and os.path.isfile(pdf_row["file_path"]):
+        # Optimize existing PDF: linearize for fast web view, ensure annotations allowed
+        src = pdf_row["file_path"]
+        dest = src.replace(".pdf", "_kindle.pdf")
+        try:
+            doc = fitz.open(src)
+            # Remove restrictions if any
+            doc.save(dest, deflate=True, garbage=4, linear=True)
+            doc.close()
+            if os.path.isfile(dest):
+                fid = _uuid4()
+                await db.execute(
+                    """INSERT INTO book_files (id, book_id, format, file_path, file_name, file_size, mime_type)
+                       VALUES ($1,$2,'pdf',$3,$4,$5,'application/pdf')""",
+                    fid,
+                    _UUID(book_id),
+                    dest,
+                    "kindle_" + os.path.basename(src),
+                    os.path.getsize(dest),
+                )
+                return {"ok": True, "file_id": str(fid), "method": "optimized_pdf", "size": os.path.getsize(dest)}
+        except Exception as e:
+            return {"error": f"PDF optimization failed: {e}"}
+
+    # No PDF — generate from EPUB via PyMuPDF story-based rendering
+    epub_row = await db.fetch_one("SELECT * FROM book_files WHERE book_id = $1 AND format = 'epub' LIMIT 1", _UUID(book_id))
+    if not epub_row:
+        return {"error": "No EPUB or PDF source file"}
+
+    try:
+        import ebooklib
+        from bs4 import BeautifulSoup
+        from ebooklib import epub
+
+        ebook = epub.read_epub(epub_row["file_path"], options={"ignore_ncx": True})
+        book_meta = await db.fetch_one("SELECT title FROM books WHERE id = $1", _UUID(book_id))
+        book_meta["title"] if book_meta else "Book"
+
+        pdf = fitz.open()
+        width, height = 595, 842  # A4
+
+        for item in ebook.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+            soup = BeautifulSoup(item.get_content(), "html.parser")
+            text = soup.get_text(separator="\n", strip=True)
+            if len(text) < 10:
+                continue
+
+            # Paginate text
+            lines = text.split("\n")
+            y = 72
+            page = pdf.new_page(width=width, height=height)
+
+            for line in lines:
+                if y > height - 72:
+                    page = pdf.new_page(width=width, height=height)
+                    y = 72
+
+                fontsize = 16 if len(line) < 60 and line == line.title() else 11
+                with suppress(Exception):
+                    page.insert_text((72, y), line[:100], fontsize=fontsize, fontname="helv")
+                y += fontsize + 4
+
+        dest = os.path.join(_bd(book_id), "kindle.pdf")
+        pdf.save(dest, deflate=True, linear=True)
+        pdf.close()
+
+        fid = _uuid4()
+        await db.execute(
+            """INSERT INTO book_files (id, book_id, format, file_path, file_name, file_size, mime_type)
+               VALUES ($1,$2,'pdf',$3,'kindle.pdf',$4,'application/pdf')""",
+            fid,
+            _UUID(book_id),
+            dest,
+            os.path.getsize(dest),
+        )
+        return {"ok": True, "file_id": str(fid), "method": "epub_to_pdf", "pages": len(pdf), "size": os.path.getsize(dest)}
+    except Exception as e:
+        return {"error": f"PDF generation failed: {e}"}
