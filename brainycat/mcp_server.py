@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 import httpx
@@ -10,9 +11,14 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
-# BrainyCat API base URL
-API_URL = "http://localhost:8000/api/v1"
-HEADERS = {"X-Auth-User": "ecb"}
+# BrainyCat API — configure via environment
+API_URL = os.environ.get("BRAINYCAT_URL", "http://localhost:8000") + "/api/v1"
+API_KEY = os.environ.get("BRAINYCAT_API_KEY", "")
+HEADERS: dict[str, str] = {}
+if API_KEY:
+    HEADERS["Authorization"] = f"Bearer {API_KEY}"
+else:
+    HEADERS["X-Auth-User"] = os.environ.get("BRAINYCAT_USER", "ecb")
 
 
 async def _api(method: str, path: str, body: dict | None = None) -> dict:

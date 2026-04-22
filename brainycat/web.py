@@ -1321,3 +1321,36 @@ async def bulk_enrich(body: BulkEnrichBody, _u: Any = Depends(get_current_user))
         if result.get("enriched"):
             enriched += 1
     return {"enriched": enriched, "total": len(body.book_ids)}
+
+
+# ── API Keys ─────────────────────────────────────────────────────────────
+@app.post("/api/v1/api-keys")
+async def create_api_key(name: str = Query("default"), user: Any = Depends(get_current_user)) -> dict[str, str]:
+    """Generate a new API key for the current user."""
+    import hashlib
+    import secrets
+
+    token = f"bc_{secrets.token_urlsafe(32)}"
+    key_hash = hashlib.sha256(token.encode()).hexdigest()
+    await db.execute(
+        "INSERT INTO api_keys (key_hash, user_id, name) VALUES ($1, $2, $3)",
+        key_hash,
+        user["id"],
+        name,
+    )
+    return {"api_key": token, "name": name, "note": "Save this key — it cannot be retrieved later"}
+
+
+@app.get("/api/v1/api-keys")
+async def list_api_keys(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List API keys for the current user (hashes only, not the actual keys)."""
+    rows = await db.fetch_all("SELECT id, name, created_at FROM api_keys WHERE user_id = $1", user["id"])
+    return [dict(r) for r in rows]
+
+
+@app.delete("/api/v1/api-keys/{key_id}")
+async def delete_api_key(key_id: str, user: Any = Depends(get_current_user)) -> dict[str, bool]:
+    from uuid import UUID as _UUID
+
+    await db.execute("DELETE FROM api_keys WHERE id = $1 AND user_id = $2", _UUID(key_id), user["id"])
+    return {"ok": True}

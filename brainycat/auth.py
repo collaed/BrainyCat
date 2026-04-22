@@ -93,7 +93,20 @@ async def get_current_user(request: Request) -> asyncpg.Record:
         except (ValueError, IndexError):
             pass
 
-    # 3) BrainyCat session cookie
+    # 3) API key (Bearer token) — for MCP server and external integrations
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        import hashlib
+
+        token = auth_header[7:]
+        key_hash = hashlib.sha256(token.encode()).hexdigest()
+        key_row = await fetch_one("SELECT user_id FROM api_keys WHERE key_hash = $1", key_hash)
+        if key_row:
+            user = await _get_user_by_id(str(key_row["user_id"]))
+            if user:
+                return user
+
+    # 4) BrainyCat session cookie
     token = request.cookies.get(COOKIE_NAME)
     if token:
         try:
