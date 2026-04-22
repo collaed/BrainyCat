@@ -16,7 +16,7 @@ def parse_filename(filename: str) -> dict[str, str | None]:
     """Extract author and title from common filename patterns."""
     name = os.path.splitext(filename)[0]
     # Pattern: "Author - Title"
-    m = re.match(r"^(.+?)\s*[--—]\s*(.+)$", name)
+    m = re.match(r"^(.+?)\s*[-\u2013\u2014]\s*(.+)$", name)
     if m:
         return {"author": m.group(1).strip(), "title": m.group(2).strip()}
     return {"author": None, "title": name.strip()}

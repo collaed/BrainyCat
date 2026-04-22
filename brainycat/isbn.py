@@ -10,7 +10,7 @@ from uuid import UUID
 
 from brainycat.db import execute, fetch_all, fetch_one
 
-ISBN13_RE = re.compile(r"(?:ISBN[-:\s]*)?(?:97[89])[-\s]?\d[-\s]?\d{2}[-\s]?\d{4,6}[-\s]?\d{1,3}[-\s]?\d")
+ISBN13_RE = re.compile(r"(?:ISBN[-:\s]*)?97[89][\d\s-]{10,17}")
 ISBN10_RE = re.compile(r"(?:ISBN[-:\s]*)?\d[-\s]?\d{2}[-\s]?\d{4,6}[-\s]?\d[-\s]?[\dXx]")
 
 # Multilingual anchor patterns for metadata extraction
