@@ -932,3 +932,99 @@ async def toggle_workbook(book_id: str, _u: Any = Depends(get_current_user)) -> 
     new_val = not (row["is_workbook"] if row else False)
     await db.execute("UPDATE books SET is_workbook = $1 WHERE id = $2", new_val, _UUID(book_id))
     return {"is_workbook": new_val}
+
+
+# ── Metadata writeback ───────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/writeback")
+async def writeback(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.writeback import writeback_metadata
+
+    return await writeback_metadata(book_id)
+
+
+@app.post("/api/v1/writeback/batch")
+async def batch_wb(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.writeback import batch_writeback
+
+    return await batch_writeback(limit=50)
+
+
+# ── Efficiency dashboard ─────────────────────────────────────────────────
+@app.get("/api/v1/intelligence/efficiency")
+async def efficiency_dashboard(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Comprehensive efficiency metrics for all algorithms."""
+    # ISBN pipeline
+    isbn_stats = await db.fetch_one("""
+        SELECT
+            count(*) FILTER (WHERE isbn IS NOT NULL AND isbn != '') as with_isbn,
+            count(*) FILTER (WHERE isbn IS NULL OR isbn = '') as without_isbn,
+            count(*) FILTER (WHERE quality_score >= 75) as high_quality,
+            count(*) FILTER (WHERE quality_score BETWEEN 50 AND 74) as medium_quality,
+            count(*) FILTER (WHERE quality_score BETWEEN 1 AND 49) as low_quality,
+            count(*) FILTER (WHERE quality_score = 0) as not_enriched,
+            count(*) as total
+        FROM books
+    """)
+
+    # ISBN → enrichment success rate
+    isbn_to_enrich = await db.fetch_one("""
+        SELECT
+            count(DISTINCT el.book_id) FILTER (WHERE el.success AND b.isbn IS NOT NULL) as isbn_led_to_data,
+            count(DISTINCT el.book_id) FILTER (WHERE NOT el.success AND b.isbn IS NOT NULL) as isbn_no_data,
+            count(DISTINCT el.book_id) FILTER (WHERE el.success AND b.isbn IS NULL) as no_isbn_got_data,
+            count(DISTINCT el.book_id) FILTER (WHERE NOT el.success AND b.isbn IS NULL) as no_isbn_no_data
+        FROM enrichment_log el
+        JOIN books b ON b.id = el.book_id
+    """)
+
+    # Per-source hit rates
+    source_stats = await db.fetch_all("""
+        SELECT method,
+            count(*) FILTER (WHERE success) as hits,
+            count(*) FILTER (WHERE NOT success) as misses,
+            count(*) as total,
+            CASE WHEN count(*) > 0 THEN round(100.0 * count(*) FILTER (WHERE success) / count(*), 1) ELSE 0 END as hit_rate
+        FROM enrichment_log
+        WHERE method NOT IN ('writeback', 'isbn_extract', 'series_detect')
+        GROUP BY method ORDER BY hit_rate DESC
+    """)
+
+    # Fingerprint progress
+    fp_stats = await db.fetch_one("""
+        SELECT
+            (SELECT count(*) FROM book_fingerprints) as fingerprinted,
+            (SELECT count(*) FROM duplicate_matches WHERE status = 'pending') as pending_dupes,
+            (SELECT count(*) FROM duplicate_matches WHERE status = 'confirmed') as confirmed_dupes,
+            (SELECT count(*) FROM duplicate_matches WHERE status = 'dismissed') as dismissed_dupes
+    """)
+
+    # Series
+    series_stats = await db.fetch_one("""
+        SELECT
+            (SELECT count(*) FROM series) as series_count,
+            (SELECT count(DISTINCT book_id) FROM books_series) as books_in_series
+    """)
+
+    # Writeback
+    wb_stats = await db.fetch_one("""
+        SELECT count(*) FILTER (WHERE success) as written_back
+        FROM enrichment_log WHERE method = 'writeback'
+    """)
+
+    # Cover stats
+    cover_stats = await db.fetch_one("""
+        SELECT
+            count(*) FILTER (WHERE cover_path IS NOT NULL) as with_cover,
+            count(*) FILTER (WHERE cover_path IS NULL) as without_cover
+        FROM books
+    """)
+
+    return {
+        "isbn": dict(isbn_stats) if isbn_stats else {},
+        "isbn_effectiveness": dict(isbn_to_enrich) if isbn_to_enrich else {},
+        "sources": [dict(r) for r in source_stats],
+        "fingerprints": dict(fp_stats) if fp_stats else {},
+        "series": dict(series_stats) if series_stats else {},
+        "writeback": {"written_back": wb_stats["written_back"] if wb_stats else 0},
+        "covers": dict(cover_stats) if cover_stats else {},
+    }

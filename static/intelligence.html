@@ -74,6 +74,11 @@ async function load(){
             <p>Deep comparison: 16×2KB text samples from book midpoints, 2% tolerance</p>
             <div class="meta">${fpStatus.fingerprinted} fingerprinted · ${fpStatus.pending_fingerprint} pending · ${fpStatus.pending_matches} matches</div>
         </div>
+        <div class="icard" onclick="location='efficiency.html'">
+            <h3>📊 Algorithm Efficiency</h3>
+            <p>ISBN pipeline, source hit rates, fingerprint progress, metadata writeback</p>
+            <div class="meta">Detailed metrics for all background processes</div>
+        </div>
         <div class="icard" onclick="location='intel-quality.html'">
             <h3>🔍 Quality Issues ${quality.length?`<span class="count">${quality.length}</span>`:''}</h3>
             <p>Low bitrate audio, missing chapters, tiny files</p>

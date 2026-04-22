@@ -1,0 +1,93 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrainyCat — Efficiency Dashboard</title>
+<link rel="stylesheet" href="style.css">
+<style>
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.8rem;margin-bottom:1rem}
+.metric{background:var(--surface);border-radius:8px;padding:1rem}
+.metric h3{font-size:.85rem;color:var(--muted);margin-bottom:.6rem}
+.metric .bar-row{display:flex;align-items:center;gap:.5rem;margin-bottom:.3rem;font-size:.8rem}
+.metric .bar-row .label{width:100px;color:var(--muted);flex-shrink:0}
+.metric .bar-row .bar{flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden}
+.metric .bar-row .bar .fill{height:100%;border-radius:4px;transition:width .5s}
+.metric .bar-row .val{width:50px;text-align:right;font-weight:600;font-size:.75rem}
+.metric .big{font-size:1.8rem;font-weight:700;color:var(--accent)}
+.metric .sub{font-size:.75rem;color:var(--muted)}
+.source-table{width:100%;border-collapse:collapse;font-size:.8rem}
+.source-table th{text-align:left;padding:.3rem;color:var(--muted);border-bottom:1px solid var(--border)}
+.source-table td{padding:.3rem;border-bottom:1px solid var(--border)}
+.source-table .rate{font-weight:600}
+.green{color:var(--success)}.yellow{color:var(--warn)}.red{color:var(--danger)}
+.actions{margin-top:1rem;display:flex;gap:.4rem;flex-wrap:wrap}
+</style></head><body>
+<header><a href="intelligence.html">← Intelligence</a><h2>📊 Algorithm Efficiency</h2>
+<nav><a href="index.html">📚 Library</a><a href="intelligence.html">🧠 Intel</a><a href="stats.html">📊 Stats</a></nav>
+</header>
+<div class="container">
+<div class="metrics" id="metrics">Loading...</div>
+<h3 style="color:var(--muted);margin-bottom:.5rem">Source Hit Rates</h3>
+<table class="source-table" id="sources"><tr><td>Loading...</td></tr></table>
+<div class="actions">
+<button class="btn primary" onclick="run('/isbn/extract',this)">🔍 Extract ISBNs</button>
+<button class="btn primary" onclick="run('/writeback/batch',this)">📝 Writeback Metadata</button>
+<button class="btn success" onclick="run('/covers/optimize',this)">📐 Optimize Covers</button>
+<button class="btn success" onclick="run('/covers/generate-missing',this)">🎨 Generate Covers</button>
+<button class="btn warn" onclick="run('/fingerprints/compute',this)">🔍 Fingerprints</button>
+</div>
+</div>
+<script src="api.js"></script>
+<script>
+function pct(n,t){return t>0?Math.round(100*n/t):0;}
+function barColor(p){return p>=70?'var(--success)':p>=40?'var(--warn)':'var(--danger)';}
+function bar(label,value,total,color){
+    const p=pct(value,total);
+    return `<div class="bar-row"><span class="label">${label}</span><div class="bar"><div class="fill" style="width:${p}%;background:${color||barColor(p)}"></div></div><span class="val">${value}/${total}</span></div>`;
+}
+
+async function load(){
+    const d=await BC.get('/intelligence/efficiency');
+    const i=d.isbn||{},ie=d.isbn_effectiveness||{},fp=d.fingerprints||{},s=d.series||{},wb=d.writeback||{},cv=d.covers||{};
+    const total=i.total||1;
+
+    document.getElementById('metrics').innerHTML=`
+        <div class="metric">
+            <h3>📖 ISBN Coverage</h3>
+            ${bar('With ISBN',i.with_isbn||0,total)}
+            ${bar('Without',i.without_isbn||0,total,'var(--danger)')}
+            <div class="sub" style="margin-top:.3rem">${pct(i.with_isbn||0,total)}% of library has ISBNs</div>
+        </div>
+        <div class="metric">
+            <h3>✨ Enrichment Quality</h3>
+            ${bar('High (75+)',i.high_quality||0,total,'var(--success)')}
+            ${bar('Medium (50-74)',i.medium_quality||0,total,'var(--warn)')}
+            ${bar('Low (1-49)',i.low_quality||0,total,'var(--warn)')}
+            ${bar('Not enriched',i.not_enriched||0,total,'var(--danger)')}
+        </div>
+        <div class="metric">
+            <h3>🔗 ISBN → Data Pipeline</h3>
+            ${bar('ISBN → got data',ie.isbn_led_to_data||0,(ie.isbn_led_to_data||0)+(ie.isbn_no_data||0),'var(--success)')}
+            ${bar('ISBN → no data',ie.isbn_no_data||0,(ie.isbn_led_to_data||0)+(ie.isbn_no_data||0),'var(--danger)')}
+            ${bar('No ISBN → got data',ie.no_isbn_got_data||0,(ie.no_isbn_got_data||0)+(ie.no_isbn_no_data||0),'var(--accent)')}
+        </div>
+        <div class="metric">
+            <h3>🔍 Content Fingerprints</h3>
+            ${bar('Fingerprinted',fp.fingerprinted||0,total)}
+            <div class="sub">${fp.pending_dupes||0} pending · ${fp.confirmed_dupes||0} confirmed · ${fp.dismissed_dupes||0} dismissed</div>
+        </div>
+        <div class="metric">
+            <h3>📚 Series & Covers</h3>
+            ${bar('In series',s.books_in_series||0,total,'var(--accent)')}
+            ${bar('Has cover',cv.with_cover||0,total,'var(--success)')}
+            <div class="sub">${s.series_count||0} series · ${wb.written_back||0} metadata written back</div>
+        </div>
+    `;
+
+    // Source table
+    const sources=d.sources||[];
+    document.getElementById('sources').innerHTML=`
+        <tr><th>Source</th><th>Hits</th><th>Misses</th><th>Total</th><th>Hit Rate</th></tr>
+        ${sources.map(s=>`<tr><td>${s.method}</td><td class="green">${s.hits}</td><td class="red">${s.misses}</td><td>${s.total}</td><td class="rate ${s.hit_rate>=20?'green':s.hit_rate>=5?'yellow':'red'}">${s.hit_rate}%</td></tr>`).join('')}
+    `;
+}
+async function run(path,btn){btn.disabled=true;const t=btn.textContent;btn.textContent='⏳';const r=await BC.post(path);btn.textContent='✅';setTimeout(()=>{btn.textContent=t;btn.disabled=false;load();},2000);}
+load();
+</script></body></html>
