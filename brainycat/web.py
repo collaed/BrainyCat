@@ -1114,3 +1114,18 @@ def _extract_paragraphs(epub_path: str) -> list[str]:
         return paragraphs
     except Exception:
         return []
+
+
+# ── Embeddings & Similar Books ───────────────────────────────────────────
+@app.post("/api/v1/embeddings/generate")
+async def gen_embeddings(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.embeddings import embed_all_books
+
+    return await embed_all_books(limit=100)
+
+
+@app.get("/api/v1/books/{book_id}/similar")
+async def similar_books(book_id: str, _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.embeddings import find_similar
+
+    return await find_similar(book_id)

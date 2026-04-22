@@ -41,6 +41,11 @@ async def _fingerprint_loop() -> None:
     await asyncio.sleep(45)
     while True:
         try:
+            # Generate embeddings for books without them
+            from brainycat.embeddings import embed_all_books
+
+            await embed_all_books(limit=20)
+
             from brainycat.fingerprints import compute_all_fingerprints, find_duplicates_by_content
 
             result = await compute_all_fingerprints(batch_size=10)

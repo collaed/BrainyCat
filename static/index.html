@@ -194,6 +194,7 @@ async function openBook(id){
         <div class="desc">${b.description||'<em>No description</em>'}</div>
         ${tags.length?'<div class="tag-cloud">'+tags.map(t=>`<span class="tag" onclick="searchTag('${t}')">${t}</span>`).join('')+'</div>':''}
         <div id="job-status"><span id="job-msg"></span><div class="bar"><div class="fill" id="job-bar"></div></div></div>
+        <div id="similar" style="margin-top:.5rem"></div>
         <div class="actions">
             ${hasEpub?`<button class="btn primary" onclick="location='reader.html?id=${id}'">📖 Read</button>`:''}
             ${hasAudio?`<button class="btn primary" onclick="location='player.html?id=${id}'">🎧 Listen</button>`:''}
@@ -208,6 +209,13 @@ async function openBook(id){
             <button class="btn danger" onclick="deleteBook('${id}')">🗑️</button>
         </div>`;
     document.getElementById('modal').classList.add('active');
+    // Load similar books
+    BC.get('/books/'+id+'/similar').then(sim=>{
+        if(sim.length){
+            document.getElementById('similar').innerHTML='<div style="font-size:.75rem;color:var(--muted);margin-bottom:.3rem">Similar books:</div><div style="display:flex;gap:.3rem;flex-wrap:wrap">'+
+                sim.slice(0,5).map(s=>'<span class="badge" style="cursor:pointer;padding:.2rem .4rem" onclick="openBook(\''+s.id+'\')">'+s.title.slice(0,30)+(s.title.length>30?'...':'')+'</span>').join('')+'</div>';
+        }
+    }).catch(()=>{});
 }
 
 function closeModal(){document.getElementById('modal').classList.remove('active');}
