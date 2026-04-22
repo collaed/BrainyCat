@@ -254,6 +254,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         result = await _api("POST", "/bulk/enrich", {"book_ids": arguments["book_ids"]})
     elif name == "convert_format":
         result = await _api("POST", f"/books/{arguments['book_id']}/convert/{arguments['target_format']}")
+    elif name == "search_gutenberg":
+        result = await _api("GET", f"/catalog/gutenberg/search?q={arguments['query']}")
+    elif name == "search_librivox":
+        result = await _api("GET", f"/catalog/librivox/search?q={arguments['query']}")
+    elif name == "list_characters":
+        result = await _api("POST", f"/books/{arguments['book_id']}/xray")
+    elif name == "translate_book":
+        result = await _api("POST", f"/books/{arguments['book_id']}/translate", {"target_lang": arguments["target_lang"]})
+    elif name == "generate_cover":
+        result = await _api("POST", f"/books/{arguments['book_id']}/generate-cover")
 
     # Wrap errors for better AI client experience
     if isinstance(result, dict) and result.get("detail"):
