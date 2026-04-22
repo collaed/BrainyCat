@@ -11,11 +11,11 @@ Self-hosted unified personal library for ebooks and audiobooks.
 - **Cover Generation** — Genre-styled covers (fiction: vertical stripe, non-fiction: horizontal stripe)
 - **Library Intelligence** — Quality analysis, series detection, author dedup, duplicate detection
 - **Text-to-Speech** — Piper TTS converts ebooks to per-chapter audiobooks
-- **Speech-to-Text** — faster-whisper transcribes audiobooks to EPUB with word timestamps
-- **Format Conversion** — EPUB ↔ MOBI/PDF/AZW3 via Calibre
+- **Speech-to-Text** — Via Intello (Groq Whisper) with chapter splitting
+- **Format Conversion** — EPUB → PDF via WeasyPrint
 - **Translation** — Pluggable backends: Argos (local), DeepL, Google, LLM, Ollama
-- **Bilingual Reader** — Side-by-side original + translation with synced scrolling
-- **Reading/Listening Sync** — Switch between text and audio at matching positions
+- **Bilingual Reader** — Side-by-side reader (in development)
+- **Reading/Listening Sync** — Position tracking (sync map generation in development)
 - **Kindle Delivery** — Send books via email to Kindle devices
 - **Public Domain Catalog** — Browse/import from Project Gutenberg + LibriVox
 - **Recommendations** — Taste profile with DNA match, author favorites, series completion
@@ -33,7 +33,7 @@ Self-hosted unified personal library for ebooks and audiobooks.
 **Backend:** Python 3.12, FastAPI, asyncpg, PostgreSQL 16 (pg_trgm, pgvector-ready)
 **Frontend:** Vanilla HTML/JS/CSS, EPUB.js, Chart.js
 **Audio:** Piper TTS, faster-whisper, ffmpeg, SoX
-**Ebook:** ebooklib, PyMuPDF, Calibre CLI
+**Ebook:** ebooklib, PyMuPDF, WeasyPrint
 **Deploy:** Docker, Caddy reverse proxy
 
 ## Quick Start
