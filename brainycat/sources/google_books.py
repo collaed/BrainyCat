@@ -24,9 +24,28 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
         return None
     info = items[0].get("volumeInfo", {})
     cover = info.get("imageLinks", {}).get("thumbnail")
+    # Extract series from subtitle (e.g. 'Book 1 of the Expanse')
+    subtitle = info.get("subtitle", "")
+    series_name = None
+    series_index = None
+    if subtitle:
+        import re
+
+        m = re.search(r"(?:Book|Vol\.?|Volume|#)\s*(\d+)\s+(?:of|in|:)\s+(?:the\s+)?(.+?)(?:\s*\(|$)", subtitle, re.IGNORECASE)
+        if m:
+            series_index = int(m.group(1))
+            series_name = m.group(2).strip()
+        else:
+            m = re.search(r"(.+?)\s+(?:Series|Trilogy|Saga|Cycle),?\s*(?:Book|#|Vol)\s*(\d+)", subtitle, re.IGNORECASE)
+            if m:
+                series_name = m.group(1).strip()
+                series_index = int(m.group(2))
+
     return {
         "source": "google_books",
         "title": info.get("title"),
+        "series": series_name,
+        "series_index": series_index,
         "description": info.get("description"),
         "isbn": next((i["identifier"] for i in info.get("industryIdentifiers", []) if i["type"] == "ISBN_13"), None),
         "language": info.get("language"),

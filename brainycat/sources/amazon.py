@@ -159,11 +159,30 @@ async def _scrape_product_page(url: str) -> dict[str, Any] | None:
                 if m2:
                     pubdate = m2.group(1)
 
+        # Series info from title or detail bullets
+        series_name = None
+        series_index = None
+        if book_title:
+            m = re.search(r"\((.+?)\s+Book\s+(\d+)\)", book_title)
+            if m:
+                series_name = m.group(1).strip()
+                series_index = int(m.group(2))
+                book_title = re.sub(r"\s*\(.+?Book\s+\d+\)", "", book_title).strip()
+        # Also check detail bullets for series
+        for row in soup.select("#detailBullets_feature_div li, #seriesBulletWidget span"):
+            text = row.text.strip()
+            m = re.search(r"Book\s+(\d+)\s+of\s+\d+\s*:\s*(.+)", text)
+            if m and not series_name:
+                series_index = int(m.group(1))
+                series_name = m.group(2).strip()
+
         if not book_title:
             return None
 
         return {
             "source": "amazon",
+            "series": series_name,
+            "series_index": series_index,
             "title": book_title,
             "description": description,
             "isbn": isbn,

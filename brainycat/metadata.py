@@ -113,6 +113,31 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
         except Exception:
             pass
 
+    # Auto-apply series info from sources
+    for r in results:
+        series_name = r.get("series")
+        series_idx = r.get("series_index")
+        if series_name:
+            # Check if book already in a series
+            existing = await fetch_one("SELECT 1 FROM books_series WHERE book_id = $1", UUID(book_id))
+            if not existing:
+                await execute("INSERT INTO series (name) VALUES ($1) ON CONFLICT (name) DO NOTHING", series_name)
+                sid = await fetch_one("SELECT id FROM series WHERE name = $1", series_name)
+                if sid:
+                    await execute(
+                        "INSERT INTO books_series (book_id, series_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                        UUID(book_id),
+                        sid["id"],
+                    )
+                    if series_idx:
+                        await execute("UPDATE books SET series_index = $1 WHERE id = $2", float(series_idx), UUID(book_id))
+                    await execute(
+                        "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, 'series_detect', true, $2::jsonb)",
+                        UUID(book_id),
+                        json.dumps({"series": series_name, "index": series_idx, "source": r.get("source")}),
+                    )
+            break  # Use first series found
+
     # Update quality score
     score = _compute_quality(book_id, row, merged)
     await execute("UPDATE books SET quality_score = $1 WHERE id = $2", score, UUID(book_id))
