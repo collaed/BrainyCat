@@ -786,3 +786,11 @@ async def librivox_import(librivox_id: str, _u: Any = Depends(get_current_user))
                 continue
 
     return {"book_id": bid, "title": data["title"], "chapters_downloaded": downloaded, "total_chapters": len(chapters)}
+
+
+# ── Genre classification ─────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/classify")
+async def classify_book(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.metadata import classify_genre_via_llm
+
+    return await classify_genre_via_llm(book_id)

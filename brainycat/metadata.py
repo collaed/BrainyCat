@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 from uuid import UUID
 
 from brainycat.db import execute, fetch_one
 from brainycat.logging import log
-from brainycat.sources import google_books, gutendex, hardcover, loc, open_library
+from brainycat.sources import google_books, gutendex, hardcover, loc, oclc, open_library
 
 
 async def enrich_book(book_id: str) -> dict[str, Any]:
@@ -21,7 +22,7 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
 
     # Query sources in parallel-ish
     results = []
-    for source_fn in [google_books.search, open_library.search, loc.search, hardcover.search, gutendex.search]:
+    for source_fn in [google_books.search, open_library.search, oclc.search, loc.search, hardcover.search, gutendex.search]:
         try:
             r = await source_fn(title=title, isbn=isbn)
             if r:
@@ -101,3 +102,63 @@ def _compute_quality(book_id: str, row: Any, merged: dict[str, Any]) -> int:
         if val:
             score += weight
     return min(score, 100)
+
+
+async def classify_genre_via_llm(book_id: str) -> dict[str, Any]:
+    """Use LLM to classify a book's genre from its title + description + text sample."""
+    row = await fetch_one("SELECT title, description FROM books WHERE id = $1", UUID(book_id))
+    if not row:
+        return {"error": "not found"}
+
+    title = row["title"] or ""
+    desc = (row["description"] or "")[:500]
+
+    # Try to get a text sample from the book
+    sample = ""
+    file_row = await fetch_one(
+        "SELECT file_path, format FROM book_files WHERE book_id = $1 AND format IN ('epub','pdf') LIMIT 1", UUID(book_id)
+    )
+    if file_row and os.path.isfile(file_row["file_path"]):
+        try:
+            from brainycat.fingerprints import _extract_full_text
+
+            text = _extract_full_text(file_row["file_path"], file_row["format"])
+            if len(text) > 2000:
+                mid = len(text) // 2
+                sample = text[1000:3000]  # first 2KB after intro
+                sample += "\n...\n" + text[mid : mid + 2000]  # 2KB from middle
+        except Exception:
+            pass
+
+    prompt = f"""Classify this book into Thema subject categories. Return JSON only.
+
+Title: {title}
+Description: {desc[:300]}
+Text sample: {sample[:3000]}
+
+Return: {{"thema_code": "XX", "thema_label": "...", "fiction": true/false, "genre": "...", "subgenre": "...", "language": "en/fr/de/...", "confidence": 0.0-1.0}}"""
+
+    try:
+        import httpx
+
+        from brainycat.config import settings
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{settings.intello_url}/v1/chat/completions",
+                json={"model": "auto", "messages": [{"role": "user", "content": prompt}], "max_tokens": 200},
+            )
+            if resp.status_code == 200:
+                content = resp.json()["choices"][0]["message"]["content"]
+                import json
+
+                # Try to parse JSON from response
+                content = content.strip()
+                if content.startswith("```"):
+                    content = content.split("```")[1].strip("json\n ")
+                result = json.loads(content)
+                return {"classified": True, **result}
+    except Exception as e:
+        return {"error": str(e)}
+
+    return {"classified": False}
