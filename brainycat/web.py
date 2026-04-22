@@ -869,3 +869,18 @@ async def generate_pdf(book_id: str, _u: Any = Depends(get_current_user)) -> dic
         return {"ok": True, "file_id": str(fid), "method": "epub_to_pdf_weasyprint", "size": size}
     except Exception as e:
         return {"error": f"PDF generation failed: {e}"}
+
+
+# ── ISBN extraction ──────────────────────────────────────────────────────
+@app.post("/api/v1/isbn/extract")
+async def extract_isbns(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.isbn import batch_extract_isbns
+
+    return await batch_extract_isbns(limit=100)
+
+
+@app.post("/api/v1/books/{book_id}/extract-isbn")
+async def extract_book_isbn(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.isbn import extract_and_store_isbn
+
+    return await extract_and_store_isbn(book_id)
