@@ -34,7 +34,7 @@ async def _enrichment_loop() -> None:
                 await log.ainfo("auto_enriched", count=enriched, batch=len(rows))
         except Exception as e:
             await log.awarning("enrichment_error", error=str(e))
-        await asyncio.sleep(5)
+        await asyncio.sleep(15)  # 15s between batches to respect API rate limits
 
 
 async def _fingerprint_loop() -> None:
