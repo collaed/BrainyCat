@@ -1,22 +1,16 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BrainyCat — Stats</title>
+<link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6}
-*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:var(--bg);color:var(--text)}
-header{background:var(--surface);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border);flex-wrap:wrap}
-header a{color:var(--muted);text-decoration:none}header h2{flex:1}
-nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(--muted);text-decoration:none}
-.container{max-width:1000px;margin:0 auto;padding:1.5rem}
-.personality{background:var(--surface);border-radius:10px;padding:1.2rem;margin-bottom:1.5rem;font-size:1rem;line-height:1.6;border-left:4px solid var(--accent)}
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem;margin-bottom:1.5rem}
-.stat{background:var(--surface);border-radius:8px;padding:1rem;text-align:center}
-.stat .val{font-size:1.8rem;font-weight:700;color:var(--accent)}.stat .lbl{font-size:.8rem;color:var(--muted)}
-.section{margin-bottom:1.5rem}.section h3{margin-bottom:.8rem;font-size:.95rem;color:var(--muted)}
-.charts{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem}
-.chart-box{background:var(--surface);border-radius:8px;padding:1rem}
-.chart-box h3{margin-bottom:.5rem;font-size:.85rem;color:var(--muted)}
-.top-list{list-style:none}.top-list li{display:flex;justify-content:space-between;padding:.3rem 0;border-bottom:1px solid var(--border);font-size:.85rem}
+.personality{background:var(--surface);border-radius:10px;padding:1rem;margin-bottom:1rem;font-size:.9rem;line-height:1.6;border-left:4px solid var(--accent)}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.6rem;margin-bottom:1rem}
+.stat{background:var(--surface);border-radius:8px;padding:.8rem;text-align:center}
+.stat .val{font-size:1.6rem;font-weight:700;color:var(--accent)}.stat .lbl{font-size:.72rem;color:var(--muted)}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin-bottom:1rem}
+.chart-box{background:var(--surface);border-radius:8px;padding:.8rem}
+.chart-box h3{margin-bottom:.4rem;font-size:.82rem;color:var(--muted)}
+.top-list{list-style:none}.top-list li{display:flex;justify-content:space-between;padding:.25rem 0;border-bottom:1px solid var(--border);font-size:.8rem}
 .top-list li .n{color:var(--accent);font-weight:600}
 @media(max-width:768px){.charts{grid-template-columns:1fr}}
 </style></head><body>
@@ -28,10 +22,12 @@ nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(-
 <div class="stats-grid">
 <div class="stat"><div class="val" id="total">—</div><div class="lbl">Total Books</div></div>
 <div class="stat"><div class="val" id="authors">—</div><div class="lbl">Authors</div></div>
+<div class="stat"><div class="val" id="isbn">—</div><div class="lbl">ISBNs</div></div>
 <div class="stat"><div class="val" id="fiction">—</div><div class="lbl">Fiction</div></div>
 <div class="stat"><div class="val" id="nonfiction">—</div><div class="lbl">Non-Fiction</div></div>
+<div class="stat"><div class="val" id="enriched">—</div><div class="lbl">Enriched</div></div>
 <div class="stat"><div class="val" id="finished">—</div><div class="lbl">Finished</div></div>
-<div class="stat"><div class="val" id="streak">—</div><div class="lbl">Day Streak 🔥</div></div>
+<div class="stat"><div class="val" id="streak">—</div><div class="lbl">Streak 🔥</div></div>
 </div>
 <div class="charts">
 <div class="chart-box"><h3>Genre / Field Distribution</h3><canvas id="genres"></canvas></div>
@@ -39,49 +35,41 @@ nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(-
 </div>
 <div class="charts">
 <div class="chart-box"><h3>Top 10 Authors</h3><ul class="top-list" id="top-authors"></ul></div>
-<div class="chart-box"><h3>Books per Month</h3><canvas id="monthly"></canvas></div>
+<div class="chart-box"><h3>Language Distribution</h3><canvas id="languages"></canvas></div>
 </div>
 </div>
 <script src="api.js"></script>
 <script>
-const colors=['#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#f97316','#14b8a6','#a855f7','#64748b','#e11d48','#0891b2','#854d0e'];
+const colors=['#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#f97316','#14b8a6','#a855f7','#64748b','#e11d48'];
 async function load(){
     const s=await BC.get('/stats/overview');
     document.getElementById('personality').textContent=s.personality||'';
-    document.getElementById('total').textContent=s.library?.total_books||0;
-    document.getElementById('authors').textContent=s.library?.total_authors||0;
+    const lib=s.library||{};
+    document.getElementById('total').textContent=lib.total_books||0;
+    document.getElementById('authors').textContent=lib.total_authors||0;
+    document.getElementById('isbn').textContent=s.totals?.with_isbn||'—';
     document.getElementById('fiction').textContent=s.genre_analysis?.fiction||0;
     document.getElementById('nonfiction').textContent=s.genre_analysis?.nonfiction||0;
+    document.getElementById('enriched').textContent=s.totals?.enriched||'—';
     document.getElementById('finished').textContent=s.total_finished||0;
     document.getElementById('streak').textContent=s.current_streak_days||0;
 
-    // Genre chart
     const genres=s.genre_analysis?.genres||{};
-    new Chart(document.getElementById('genres'),{
-        type:'doughnut',data:{labels:Object.keys(genres),datasets:[{data:Object.values(genres),backgroundColor:colors}]},
-        options:{plugins:{legend:{position:'right',labels:{color:'#94a3b8',font:{size:11}}}}}
-    });
+    new Chart(document.getElementById('genres'),{type:'doughnut',data:{labels:Object.keys(genres),datasets:[{data:Object.values(genres),backgroundColor:colors}]},options:{plugins:{legend:{position:'right',labels:{color:'#94a3b8',font:{size:10}}}}}});
 
-    // Format chart
-    const fmts=s.library?.formats||{};
-    new Chart(document.getElementById('formats'),{
-        type:'bar',data:{labels:Object.keys(fmts),datasets:[{data:Object.values(fmts),backgroundColor:colors}]},
-        options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:'#94a3b8'}},x:{ticks:{color:'#94a3b8'}}}}
-    });
+    const fmts=lib.formats||{};
+    new Chart(document.getElementById('formats'),{type:'bar',data:{labels:Object.keys(fmts),datasets:[{data:Object.values(fmts),backgroundColor:colors}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:'#94a3b8'}},x:{ticks:{color:'#94a3b8'}}}}});
 
-    // Top authors
-    document.getElementById('top-authors').innerHTML=(s.library?.top_authors||[]).map(a=>
-        `<li><span>${a.name}</span><span class="n">${a.books}</span></li>`
-    ).join('');
+    document.getElementById('top-authors').innerHTML=(lib.top_authors||[]).map(a=>`<li><span>${a.name}</span><span class="n">${a.books}</span></li>`).join('');
 
-    // Monthly
-    const mo=s.books_per_month||{};
-    if(Object.keys(mo).length){
-        new Chart(document.getElementById('monthly'),{
-            type:'bar',data:{labels:Object.keys(mo),datasets:[{data:Object.values(mo),backgroundColor:'#3b82f6'}]},
-            options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:'#94a3b8'}},x:{ticks:{color:'#94a3b8'}}}}
-        });
-    }
+    // Language chart — fetch from enrichment stats
+    try{
+        const es=await BC.get('/intelligence/enrichment-stats');
+        if(es.totals){
+            document.getElementById('isbn').textContent=es.totals.with_isbn||'—';
+            document.getElementById('enriched').textContent=es.totals.enriched||'—';
+        }
+    }catch{}
 }
 load();
 </script></body></html>
