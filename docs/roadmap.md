@@ -1,183 +1,201 @@
-# BrainyCat Roadmap v2 — Full Feature Parity + Innovation
+# BrainyCat Roadmap v3
 
 ## Completed ✅
 
-- Phase 1: Bilingual reader, sync maps, MOBI metadata
-- Phase 2: pgvector, embeddings, similar books
-- Phase 3: WebSocket activity, AI companion, collaborative annotations
-- Phase 4: 53 tests, scanner/ISBN regex fixes
+| Phase | Features | Status |
+|-------|----------|--------|
+| 1 | Project scaffolding, 33-table schema, Docker, Caddy | ✅ |
+| 2 | Auth (X-Auth-User + cookie + Bearer + OAuth stubs) | ✅ |
+| 3 | Book upload, EPUB/PDF/audio extraction, CRUD, search | ✅ |
+| 4 | Collections, book linking, shelves | ✅ |
+| 5 | Library UI (grid/list, search, upload, drag-drop) | ✅ |
+| 6 | Metadata enrichment (5 sources), Calibre-style merge | ✅ |
+| 7 | Incoming folder scanner | ✅ |
+| 8 | Library intelligence (authors, series, quality, dupes) | ✅ |
+| 9 | EPUB reader (epub.js, progress, themes, genre margins) | ✅ |
+| 10 | Audio player (chapters, speed, sleep timer, Media Session) | ✅ |
+| 11 | Audio restoration (7 ffmpeg profiles) | ✅ |
+| 12 | TTS ebook→audiobook (Piper, per-chapter MP3s) | ✅ |
+| 13 | STT audiobook→ebook (via Intello Whisper) | ✅ |
+| 14 | Format conversion (EPUB→PDF via WeasyPrint) | ✅ |
+| 15 | Gutenberg + LibriVox catalog with import | ✅ |
+| 16 | Translation (5 backends: Argos, DeepL, Google, LLM, Ollama) | ✅ |
+| 17 | Bilingual reader (aligned paragraphs, synced scroll) | ✅ |
+| 18 | Text↔audio sync maps (generated during TTS/STT) | ✅ |
+| 19 | Recommendations (pgvector cosine similarity) | ✅ |
+| 20 | AI companion (semantic search, recap, Q&A, auto-tag) | ✅ |
+| 21 | Reviews aggregation (Google Books, Open Library) | ✅ |
+| 22 | Stats (genres, authors, personality, language) | ✅ |
+| 23 | Import (Calibre, Goodreads CSV, audiobookshelf) | ✅ |
+| 24 | OPDS v2 (pagination, OpenSearch, per-format links) | ✅ |
+| 25 | CLI tool | ✅ |
+| P1 | Bilingual reader content loading | ✅ |
+| P2 | pgvector, embeddings, similar books | ✅ |
+| P3 | WebSocket activity, collab annotations | ✅ |
+| P4 | 53 tests, scanner/ISBN regex fixes | ✅ |
+| P5 | MCP server (16 tools), API key auth | ✅ |
+| — | ISBN extraction (9 languages, EU legal) | ✅ |
+| — | Content fingerprinting (winnowing + MinHash) | ✅ |
+| — | Cover generation + optimization | ✅ |
+| — | Metadata writeback into EPUB OPF | ✅ |
+| — | Efficiency dashboard | ✅ |
+| — | MOBI metadata extraction (EXTH records) | ✅ |
+| — | Page/word count | ✅ |
+| — | Bulk tag, bulk enrich | ✅ |
+| — | OCR via Intello (job-based, searchable PDF) | ✅ |
+| — | LLM genre classification (Thema codes) | ✅ |
+| — | Amazon metadata (Google proxy, IPv6) | ✅ |
+| — | Series detection from Google Books/Amazon | ✅ |
+| — | Kindle delivery (EPUB or PDF for workbooks) | ✅ |
+| — | Podcast RSS feeds | ✅ |
+| — | Signal notifications | ✅ |
+| — | Background scheduler (6 processes) | ✅ |
 
-## Phase 5: MCP Server (Priority: HIGH)
+## Next: Immediate (This Week)
 
-Expose BrainyCat as an MCP (Model Context Protocol) server so AI clients
-(Gemini, Claude, ChatGPT) can directly manage the library.
+### N1: EPUB Quality Check
+- Validate OPF structure, NCX, content references
+- Check: broken links, missing images, encoding issues
+- Auto-fix common problems (missing NCX, broken hrefs)
+- Quality score integration (affects book quality_score)
+- **Effort**: 3h
 
-**Tools to expose:**
-- `search_books(query)` — search library
-- `get_book(id)` — full book details
-- `enrich_book(id)` — trigger enrichment
-- `similar_books(id)` — find similar
-- `recommend(category)` — get recommendations
-- `search_content(book_id, query)` — semantic search in book
-- `recap(book_id)` — AI recap up to current position
-- `ask(book_id, question)` — Q&A about book
-- `classify(book_id)` — LLM genre classification
-- `list_authors()` — browse authors
-- `merge_authors(keep_id, merge_id)` — fix duplicates
-- `create_series(name, book_ids)` — organize series
-- `send_to_kindle(book_id)` — deliver to device
-- `convert_tts(book_id)` — generate audiobook
-- `library_stats()` — overview statistics
-- `efficiency_dashboard()` — algorithm metrics
+### N2: EPUB Linter + Cleanup
+- CSS: find unused rules, invalid properties
+- Images: detect oversized images, offer optimization
+- Fonts: check embedding, suggest subsetting
+- Accessibility: alt text, reading order
+- **Effort**: 3h
 
-## Phase 6: Format Support (Priority: HIGH)
+### N3: Count Pages Batch + Display
+- Run page/word count on all books (background)
+- Show in list view and book detail
+- Estimated reading time in hours/minutes
+- **Effort**: 1h (mostly wiring — counting works)
 
-### 6.1 KFX Input/Output
-- Amazon's current Kindle format (most requested Calibre plugin: 155K downloads)
-- KFX is essentially a container of Ion binary data
-- Input: parse KFX to extract text + metadata
-- Output: not feasible without Amazon's toolchain — focus on input only
-- Alternative: use Kindle Previewer CLI if available
+### N4: Goodreads Full Integration
+- Import shelves, ratings, reading dates from CSV (already partial)
+- Scrape series info from Goodreads pages
+- Match library books to Goodreads editions by ISBN
+- **Effort**: 3h
 
-### 6.2 AZW3/MOBI Enhanced Support
-- AZW3 = KF8 (MOBI with HTML5) — parse EXTH + KF8 records
-- MOBI metadata extraction already works (Phase 1)
-- Add: cover extraction from MOBI/AZW3 thumbnail records
-- Add: reading position from Kindle sidecar files (.sdr)
+### N5: Amazon Multi-Country
+- Search .com, .co.uk, .de, .fr, .es, .it
+- Google proxy per country domain
+- Merge: best cover, most complete metadata
+- **Effort**: 2h
 
-### 6.3 DeACSM (Adobe DRM → EPUB/PDF)
-- Convert .acsm files to DRM-free EPUB/PDF
-- Requires: Adobe Digital Editions account credentials
-- Use: libgourou (open-source ACSM handler)
-- Legal note: for personal backup of purchased books only
+### N6: Bulk Edit UI
+- Select multiple books in list view → "Edit Selected"
+- Change: author, tags, series for all selected
+- Bulk convert to PDF
+- Bulk send to Kindle
+- **Effort**: 3h
 
-### 6.4 EPUB Merge/Split
-- Merge: combine multiple EPUBs into one (anthology, collected works)
-- Split: break EPUB at chapter boundaries
-- Both via ebooklib manipulation (no external tools)
+## Next: Short-Term (This Month)
 
-## Phase 7: Metadata & Quality (Priority: HIGH)
+### S1: KFX Input
+- Parse Amazon KFX (Ion binary format)
+- Extract: text, metadata, cover
+- Use: Amazon's Kindle Previewer if available, else parse Ion directly
+- **Effort**: 1-2 days (complex binary format)
 
-### 7.1 Goodreads Full Integration
-- Import: shelves, ratings, reviews, reading dates from CSV
-- Sync: match library books to Goodreads editions
-- Metadata: scrape ratings, reviews, series info
-- Social: import friends' recommendations
+### S2: AZW3 Enhanced
+- Parse KF8 records (HTML5 in MOBI container)
+- Extract cover from thumbnail record
+- Reading position from .sdr sidecar files
+- **Effort**: 1 day
 
-### 7.2 Count Pages/Words
-- EPUB: count words per chapter, total word count
-- PDF: count pages (already have via PyMuPDF)
-- Store in books table: word_count, page_count, estimated_reading_time
-- Display in book detail and list view
+### S3: DeACSM (Adobe DRM → EPUB)
+- Integrate libgourou for ACSM file handling
+- Requires: Adobe account credentials (one-time setup)
+- Legal: personal backup only
+- **Effort**: 1 day
 
-### 7.3 EPUB Quality Check (EpubCheck)
-- Validate EPUB structure (OPF, NCX, content files)
-- Check: broken internal links, missing images, invalid CSS
-- Check: encoding issues, ID uniqueness, namespace correctness
-- Report: per-book quality score with specific issues
-- Auto-fix: common issues (missing NCX, broken links)
+### S4: EPUB Merge/Split
+- Merge: combine EPUBs (anthology builder)
+- Split: break at chapter boundaries
+- Via ebooklib manipulation
+- **Effort**: 3h
 
-### 7.4 Amazon Multiple Countries
-- Search Amazon .com, .co.uk, .de, .fr, .es, .it, .co.jp
-- Use Google as proxy per country domain
-- Merge results: pick best cover, most complete metadata
-- Respect rate limits per domain
+### S5: WordDumb (Word Wise + X-Ray)
+- Word Wise: annotate difficult words with definitions (LLM)
+- X-Ray: extract characters, locations, terms → reference card
+- Generate Kindle-compatible files
+- **Effort**: 1 day
 
-### 7.5 EPUB Linter
-- CSS validation (unused rules, invalid properties)
-- Image optimization (oversized images in EPUBs)
-- Font embedding check
-- Accessibility check (alt text, reading order)
+### S6: Kobo Support
+- Detect Kobo via USB/MTP (if server has USB access)
+- Read KoboReader.sqlite for progress, annotations
+- KEPUB output format
+- **Effort**: 1-2 days
 
-## Phase 8: Device Integration (Priority: MEDIUM)
+### S7: Kindle Annotation Import
+- Parse My Clippings.txt
+- Parse .sdr sidecar files
+- Match to library books
+- Import as annotations
+- **Effort**: 3h
 
-### 8.1 Kobo Support
-- Detect Kobo device via USB/MTP
-- Read: KoboReader.sqlite for reading progress, bookmarks, annotations
-- Write: send books in KEPUB format
-- Sync: import highlights and reading position
+### S8: Cover Customization Settings
+- Settings page: colors per genre, stripe width/position
+- Font selection, background options
+- Show/hide elements (author, genre label, watermark)
+- Preview before batch regenerate
+- **Effort**: 3h
 
-### 8.2 Kindle Device Import
-- Read: Kindle sidecar files (.sdr) for annotations, bookmarks, clippings
-- Parse: My Clippings.txt for highlights
-- Import: reading position from Kindle
-- Match: clippings to library books by title/author
+### S9: FanFicFare
+- Download from AO3, FFN, Wattpad, Royal Road
+- Convert to EPUB with metadata
+- Track series/chapters, update notifications
+- **Effort**: 1 day
 
-### 8.3 Annotation Import from Devices
-- Kindle: My Clippings.txt parser
-- Kobo: KoboReader.sqlite annotations table
-- Apple Books: parse annotation plist files
-- Store: in annotations table with device source tag
+## Next: Medium-Term (Next Month)
 
-## Phase 9: Cover & Display (Priority: MEDIUM)
+### M1: Plugin System
+- Python plugin interface with hooks
+- Auto-discovery from plugins/ directory
+- Per-plugin settings
+- **Effort**: 2 days
 
-### 9.1 Cover Generation Customization
-- Settings page for cover preferences:
-  - Fiction stripe: vertical (default), width, position
-  - Non-fiction stripe: horizontal (default), height, position
-  - Color overrides per genre
-  - Font selection (serif/sans-serif/custom)
-  - Background color/gradient
-  - Show/hide: author, genre label, BrainyCat watermark
-- Preview before applying
-- Batch regenerate with new settings
-
-### 9.2 Kindle Hi-Res Covers
-- Download highest resolution covers from Amazon
-- Use Google Images as fallback
-- Store multiple resolutions (thumbnail, medium, full)
-
-## Phase 10: AI & Intelligence (Priority: MEDIUM)
-
-### 10.1 WordDumb (Kindle Word Wise + X-Ray)
-- Word Wise: annotate difficult words with simple definitions
-- X-Ray: extract characters, locations, terms → build reference card
-- Generate: Kindle-compatible Word Wise and X-Ray files
-- Use: LLM for definitions, NER for entity extraction
-
-### 10.2 FanFicFare Integration
-- Download fanfiction from: AO3, FFN, Wattpad, Royal Road
-- Convert to EPUB with proper metadata
-- Track: series, chapters, update notifications
-
-### 10.3 Bulk Operations
-- Bulk edit: select multiple books → change author/tags/series
-- Bulk convert: select → convert all to PDF/EPUB
-- Bulk enrich: select → trigger enrichment for all
-- Bulk tag: select → apply/remove tags
-- Bulk delete: already implemented ✅
-
-## Phase 11: Infrastructure (Priority: LOW)
-
-### 11.1 OPDS v2
-- Pagination (page/offset)
-- Faceted navigation (by author, tag, series, format)
-- Search with OpenSearch descriptor
-- Proper acquisition links per format
-- Thumbnail links
-- Compatible with: Moon+ Reader, KOReader, Librera, Calibre
-
-### 11.2 Plugin System
-- Python plugin interface: `class BrainyCatPlugin`
-- Hooks: on_upload, on_enrich, on_convert, on_search
-- Plugin directory with auto-discovery
-- Settings per plugin
-- Community plugin repository (future)
-
-### 11.3 Custom Columns
-- User-defined metadata fields (text, number, date, boolean, rating)
+### M2: Custom Columns
+- User-defined fields (text, number, date, boolean, rating)
 - Stored in JSONB extra_metadata
-- Searchable and sortable
-- Displayed in list view
+- Searchable, sortable, displayed in list view
+- **Effort**: 1 day
 
-## Priority Matrix
+### M3: Virtual Libraries
+- Saved search queries as "virtual libraries"
+- Quick switch between views
+- Per-user virtual libraries
+- **Effort**: 3h
 
-| Phase | Impact | Effort | Priority |
-|-------|--------|--------|----------|
-| 5. MCP Server | 🔥 High (AI integration) | Medium (2-3h) | **P0** |
-| 6. Format Support | 🔥 High (user need #1) | High (days) | **P1** |
-| 7. Metadata & Quality | 🔥 High (library quality) | Medium (hours) | **P1** |
-| 8. Device Integration | Medium (niche) | High (days) | **P2** |
-| 9. Cover Customization | Medium (UX) | Low (hours) | **P2** |
-| 10. AI & Intelligence | Medium (innovation) | Medium (hours) | **P2** |
-| 11. Infrastructure | Low (foundation) | Medium (hours) | **P3** |
+### M4: Real-Time Collaboration v2
+- Live cursors in reader (see where others are reading)
+- Book club mode: shared reading sessions
+- Discussion threads per book/chapter
+- **Effort**: 2 days
+
+### M5: Mobile App (PWA)
+- Progressive Web App manifest
+- Offline reading (service worker + cached EPUBs)
+- Push notifications for new books
+- **Effort**: 1 day
+
+## Architecture Notes
+
+### Current Stack
+- **Backend**: Python 3.12, FastAPI, asyncpg, PostgreSQL 16 + pgvector
+- **Frontend**: Vanilla HTML/JS/CSS, EPUB.js, Chart.js
+- **AI**: Intello (TTS, STT, OCR, LLM × 13 providers)
+- **MCP**: 16 tools, Bearer auth, stdio transport
+- **Background**: 6 concurrent processes (enrichment, ISBN, fingerprints, embeddings, writeback, dupes)
+- **Image**: 1.7GB Docker (ffmpeg, sox, espeak-ng, Piper TTS, WeasyPrint, PyMuPDF)
+
+### Metrics (as of 2026-04-22)
+- 1,617 books, 1,052 authors, 5 series
+- 1,310 ISBNs (81%), 964 enriched (60%)
+- 350 fingerprinted, 100 embedded
+- 53 tests, 55 Python modules, ~10K lines
+- 7 background processes, 7 metadata sources
+- 16 MCP tools, 4-layer auth
