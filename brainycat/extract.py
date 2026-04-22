@@ -17,6 +17,8 @@ def extract_metadata(file_path: str) -> dict[str, Any]:
         return _extract_audio(file_path)
     if ext == ".mobi":
         return _extract_mobi(file_path)
+    if ext in {".kfx", ".azw3"}:
+        return _extract_kfx(file_path)
     return {"format": ext.lstrip(".")}
 
 
@@ -172,3 +174,19 @@ def _extract_audio(path: str) -> dict[str, Any]:
         }
     except Exception:
         return {"format": os.path.splitext(path)[1].lstrip(".")}
+
+
+def _extract_kfx(path: str) -> dict[str, Any]:
+    """Extract metadata from KFX/AZW3 files."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".azw3":
+        # AZW3 is KF8 in MOBI container — use MOBI extractor
+        return _extract_mobi(path)
+    try:
+        from brainycat.kfx import extract_kfx_metadata
+
+        result = extract_kfx_metadata(path)
+        result["format"] = "kfx"
+        return result
+    except Exception:
+        return {"format": "kfx"}

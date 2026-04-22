@@ -25,24 +25,47 @@ def _next_ua() -> str:
 
 
 async def search(title: str | None = None, isbn: str | None = None) -> dict[str, Any] | None:
-    """Search for a book on Amazon via Google (Calibre's approach)."""
+    """Search for a book on Amazon via Google across multiple country domains."""
     query = isbn or title
     if not query:
         return None
 
-    # Step 1: Find Amazon product URL via Google
-    google_query = f"site:amazon.com {query} book"
-    product_url = await _google_find_amazon_url(google_query)
+    # Try multiple Amazon domains — more chances of finding metadata
+    domains = ["amazon.com", "amazon.co.uk", "amazon.de", "amazon.fr", "amazon.es", "amazon.it"]
+    results: list[dict[str, Any]] = []
 
-    if not product_url:
+    for domain in domains:
+        google_query = f"site:{domain} {query} book"
+        product_url = await _google_find_amazon_url(google_query, domain)
+        if product_url:
+            data = await _scrape_product_page(product_url)
+            if data:
+                data["_source_domain"] = domain
+                results.append(data)
+                break  # Got a result, stop trying other domains
+
+    if not results:
         # Fallback: direct Amazon search
         product_url = await _amazon_search(query)
-
-    if not product_url:
+        if product_url:
+            data = await _scrape_product_page(product_url)
+            if data:
+                return data
         return None
 
-    # Step 2: Scrape the product page
-    return await _scrape_product_page(product_url)
+    # If we got results from multiple domains, merge (best cover, longest description)
+    if len(results) == 1:
+        return results[0]
+
+    best = results[0]
+    for r in results[1:]:
+        if len(r.get("description", "")) > len(best.get("description", "")):
+            best["description"] = r["description"]
+        if r.get("cover_url") and not best.get("cover_url"):
+            best["cover_url"] = r["cover_url"]
+        if r.get("series") and not best.get("series"):
+            best["series"] = r["series"]
+    return best
 
 
 def _ipv6_transport() -> httpx.AsyncHTTPTransport:
@@ -50,8 +73,8 @@ def _ipv6_transport() -> httpx.AsyncHTTPTransport:
     return httpx.AsyncHTTPTransport(local_address="::" if socket.has_ipv6 else "0.0.0.0")
 
 
-async def _google_find_amazon_url(query: str) -> str | None:
-    """Use Google to find an Amazon product page."""
+async def _google_find_amazon_url(query: str, domain: str = "amazon.com") -> str | None:
+    """Use Google to find an Amazon product page on a specific domain."""
     try:
         async with httpx.AsyncClient(timeout=10, follow_redirects=True, transport=_ipv6_transport()) as client:
             resp = await client.get(
@@ -61,8 +84,9 @@ async def _google_find_amazon_url(query: str) -> str | None:
             )
             if resp.status_code != 200:
                 return None
-            # Find Amazon dp/ URLs in results
-            for m in re.finditer(r"https?://www\.amazon\.\w+/[^\"&]+/dp/[A-Z0-9]{10}", resp.text):
+            # Find Amazon dp/ URLs in results for the target domain
+            escaped = re.escape(domain)
+            for m in re.finditer(rf"https?://www\.{escaped}/[^\"&]+/dp/[A-Z0-9]{{10}}", resp.text):
                 return m.group()
     except Exception:
         pass

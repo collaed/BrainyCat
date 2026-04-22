@@ -6,7 +6,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from fastapi import Depends, FastAPI, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -1541,3 +1541,22 @@ async def run_calibre_import(path: str = Query(...), _a: Any = Depends(require_a
         imported += 1
 
     return {"imported": imported, "skipped": skipped, "total_in_calibre": len(books)}
+
+
+# ── EPUB Lint ────────────────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/epub-lint")
+async def epub_lint(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.epub_lint import lint_epub
+
+    return await lint_epub(book_id)
+
+
+# ── Goodreads import ─────────────────────────────────────────────────────
+@app.post("/api/v1/import/goodreads")
+async def import_goodreads(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Import Goodreads CSV export. Send CSV as request body."""
+    from brainycat.goodreads import import_goodreads_csv
+
+    body = await request.body()
+    csv_content = body.decode("utf-8", errors="replace")
+    return await import_goodreads_csv(csv_content, str(user["id"]))

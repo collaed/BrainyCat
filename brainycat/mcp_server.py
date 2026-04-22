@@ -141,6 +141,31 @@ async def list_tools() -> list[Tool]:
             description="Delete a book from the library",
             inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
         ),
+        Tool(
+            name="taste_recommendations",
+            description="Get 5-category taste-based recommendations (DNA, Author, Community, Overlap, Anti)",
+            inputSchema={"type": "object", "properties": {"user_id": {"type": "string"}}, "required": ["user_id"]},
+        ),
+        Tool(
+            name="book_sources",
+            description="Get side-by-side metadata from all enrichment sources for a book",
+            inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
+        ),
+        Tool(
+            name="epub_check",
+            description="Run quality check on an EPUB (structure, links, images)",
+            inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
+        ),
+        Tool(
+            name="epub_lint",
+            description="Lint an EPUB (CSS, images, fonts, accessibility)",
+            inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
+        ),
+        Tool(
+            name="count_pages",
+            description="Count pages and words in a book",
+            inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
+        ),
     ]
 
 
@@ -185,6 +210,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         async with httpx.AsyncClient(base_url=API_URL, headers=HEADERS, timeout=10) as c:
             r = await c.delete(f"/books/{arguments['book_id']}")
             result = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+    elif name == "taste_recommendations":
+        result = await _api("GET", f"/recommendations/{arguments['user_id']}")
+    elif name == "book_sources":
+        result = await _api("GET", f"/books/{arguments['book_id']}/sources")
+    elif name == "epub_check":
+        result = await _api("POST", f"/books/{arguments['book_id']}/epub-check")
+    elif name == "epub_lint":
+        result = await _api("POST", f"/books/{arguments['book_id']}/epub-lint")
+    elif name == "count_pages":
+        result = await _api("POST", f"/books/{arguments['book_id']}/count-pages")
 
     return [TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
 
