@@ -4,6 +4,14 @@
 
 | Phase | Features | Status |
 |-------|----------|--------|
+| — | Real TF-IDF embeddings (replaced MD5 trigram hack) | ✅ |
+| — | Book Genome taste engine (5-cat recs, ported from CineCross) | ✅ |
+| — | Multi-source metadata aggregator (per-book + library-wide) | ✅ |
+| — | Calibre DB import (detect, stats, full import with dedup) | ✅ |
+| — | EPUB quality check (10-point validation, batch) | ✅ |
+| — | EPUB merge/split (anthology builder, chapter splitter) | ✅ |
+| — | 5 UI skins (Spreadsheet, Cockpit, Notebook, Canvas, Wizard) | ✅ |
+| — | API key auth (Bearer tokens, Caddy bypass for MCP) | ✅ |
 | 1 | Project scaffolding, 33-table schema, Docker, Caddy | ✅ |
 | 2 | Auth (X-Auth-User + cookie + Bearer + OAuth stubs) | ✅ |
 | 3 | Book upload, EPUB/PDF/audio extraction, CRUD, search | ✅ |
@@ -195,7 +203,19 @@
 ### Metrics (as of 2026-04-22)
 - 1,617 books, 1,052 authors, 5 series
 - 1,310 ISBNs (81%), 964 enriched (60%)
-- 350 fingerprinted, 100 embedded
-- 53 tests, 55 Python modules, ~10K lines
+- 1,600 embedded (TF-IDF), 350 fingerprinted
+- 56 tests, 62 Python modules, ~12K lines
 - 7 background processes, 7 metadata sources
-- 16 MCP tools, 4-layer auth
+- 16 MCP tools, 4-layer auth, 5 UI skins
+- 6 new endpoints: taste, aggregator, Calibre import
+
+### Competitive Response to OpenBookshelf
+They claim: 616 tests, 46 managers, Calibre bundled, Orpheus TTS.
+Our counters:
+- **Calibre import** — we read their DB directly, no need to bundle
+- **Book Genome** — 5-category taste engine (they have nothing like this)
+- **MCP server** — AI clients can manage library (they don't have this)
+- **Multi-source aggregator** — side-by-side metadata comparison
+- **5 UI skins** — web advantage, instant CSS swap per user
+- **Real embeddings** — TF-IDF with corpus IDF (not fake anymore)
+- **Content fingerprinting** — winnowing + MinHash (they don't have this)
