@@ -6,7 +6,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from fastapi import Depends, FastAPI, Query, UploadFile
+from fastapi import Depends, FastAPI, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -1129,3 +1129,101 @@ async def similar_books(book_id: str, _u: Any = Depends(get_current_user)) -> li
     from brainycat.embeddings import find_similar
 
     return await find_similar(book_id)
+
+
+# ── Real-time activity (WebSocket) ───────────────────────────────────────
+
+_active_readers: dict[str, dict[str, Any]] = {}  # user_id → {book_id, title, percentage, updated}
+
+
+@app.websocket("/api/v1/ws/activity")
+async def ws_activity(websocket: WebSocket) -> None:
+    """WebSocket for real-time reading activity feed."""
+    await websocket.accept()
+    import asyncio
+    import json
+
+    try:
+        while True:
+            # Send current activity every 5 seconds
+            activity = [{"user": uid, **data} for uid, data in _active_readers.items()]
+            await websocket.send_text(json.dumps({"type": "activity", "readers": activity}))
+            await asyncio.sleep(5)
+    except WebSocketDisconnect:
+        pass
+
+
+@app.post("/api/v1/activity/reading")
+async def report_reading(book_id: str = Query(...), percentage: float = Query(0), user: Any = Depends(get_current_user)) -> dict[str, bool]:
+    """Report current reading position for activity feed."""
+    import datetime
+
+    book = await db.fetch_one("SELECT title FROM books WHERE id = $1", __import__("uuid").UUID(book_id))
+    _active_readers[user["username"]] = {
+        "book_id": book_id,
+        "title": book["title"] if book else "Unknown",
+        "percentage": round(percentage, 1),
+        "updated": datetime.datetime.now(datetime.UTC).isoformat(),
+    }
+    return {"ok": True}
+
+
+# ── Collaborative annotations ────────────────────────────────────────────
+@app.get("/api/v1/books/{book_id}/shared-annotations")
+async def shared_annotations(book_id: str, _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Get all shared annotations for a book (from all users)."""
+    from uuid import UUID as _UUID
+
+    rows = await db.fetch_all(
+        """
+        SELECT a.*, u.username FROM annotations a
+        JOIN users u ON u.id = a.user_id
+        WHERE a.book_id = $1 AND a.is_shared = true
+        ORDER BY a.created_at
+    """,
+        _UUID(book_id),
+    )
+    return [dict(r) for r in rows]
+
+
+@app.patch("/api/v1/annotations/{annotation_id}/share")
+async def toggle_share(annotation_id: str, _u: Any = Depends(get_current_user)) -> dict[str, bool]:
+    """Toggle sharing of an annotation."""
+    from uuid import UUID as _UUID
+
+    row = await db.fetch_one("SELECT is_shared FROM annotations WHERE id = $1", _UUID(annotation_id))
+    new_val = not (row["is_shared"] if row else False)
+    await db.execute("UPDATE annotations SET is_shared = $1 WHERE id = $2", new_val, _UUID(annotation_id))
+    return {"is_shared": new_val}
+
+
+# ── Activity feed ────────────────────────────────────────────────────────
+@app.get("/api/v1/activity/feed")
+async def activity_feed(limit: int = Query(20), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Recent activity across all users."""
+    rows = await db.fetch_all(
+        """
+        SELECT al.*, u.username, b.title as book_title
+        FROM activity_log al
+        JOIN users u ON u.id = al.user_id
+        LEFT JOIN books b ON b.id = al.book_id
+        ORDER BY al.created_at DESC LIMIT $1
+    """,
+        limit,
+    )
+    return [dict(r) for r in rows]
+
+
+# ── AI Companion (updated) ───────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/index-content")
+async def index_content(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.companion import index_book_content
+
+    return await index_book_content(book_id)
+
+
+@app.get("/api/v1/books/{book_id}/search-content")
+async def search_content(book_id: str, q: str = Query(...), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.companion import semantic_search
+
+    return await semantic_search(book_id, q)
