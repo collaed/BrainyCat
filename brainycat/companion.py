@@ -11,12 +11,18 @@ from brainycat.config import settings
 from brainycat.db import execute, fetch_all, fetch_one
 
 
-async def _llm(prompt: str, system: str = "You are a helpful book companion. Never reveal spoilers beyond the reader's current position.") -> str:
+async def _llm(
+    prompt: str, system: str = "You are a helpful book companion. Never reveal spoilers beyond the reader's current position."
+) -> str:
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 f"{settings.intello_url}/v1/chat/completions",
-                json={"model": "auto", "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}], "max_tokens": 1024},
+                json={
+                    "model": "auto",
+                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                    "max_tokens": 1024,
+                },
             )
             if resp.status_code == 200:
                 return resp.json()["choices"][0]["message"]["content"]
@@ -58,7 +64,10 @@ async def index_book_content(book_id: str) -> dict[str, Any]:
     for idx, chunk_text, vec_str in chunks:
         await execute(
             "INSERT INTO content_chunks (book_id, chapter_index, chunk_index, text_content, embedding) VALUES ($1, 0, $2, $3, $4::vector)",
-            UUID(book_id), idx, chunk_text, vec_str,
+            UUID(book_id),
+            idx,
+            chunk_text,
+            vec_str,
         )
 
     return {"ok": True, "chunks": len(chunks)}
@@ -71,13 +80,18 @@ async def semantic_search(book_id: str, query: str, limit: int = 5) -> list[dict
     vec = _text_to_vector(query)
     vec_str = "[" + ",".join(str(v) for v in vec) + "]"
 
-    rows = await fetch_all("""
+    rows = await fetch_all(
+        """
         SELECT chunk_index, text_content, embedding <=> $1::vector as distance
         FROM content_chunks
         WHERE book_id = $2
         ORDER BY distance ASC
         LIMIT $3
-    """, vec_str, UUID(book_id), limit)
+    """,
+        vec_str,
+        UUID(book_id),
+        limit,
+    )
 
     return [{"chunk": r["chunk_index"], "text": r["text_content"][:300], "relevance": round(1 - r["distance"], 3)} for r in rows]
 
@@ -107,7 +121,9 @@ async def recap(book_id: str, user_id: str) -> dict[str, str]:
     cutoff = max(1, int(len(chunks) * pct / 100))
     text = "\n".join(c["text_content"] for c in chunks[:cutoff])[:6000]
 
-    recap_text = await _llm(f"Summarize what has happened so far in '{title}' (reader is at {pct:.0f}%). Be concise, 3-5 paragraphs:\n\n{text}")
+    recap_text = await _llm(
+        f"Summarize what has happened so far in '{title}' (reader is at {pct:.0f}%). Be concise, 3-5 paragraphs:\n\n{text}"
+    )
     return {"recap": recap_text, "percentage": pct}
 
 
@@ -143,7 +159,7 @@ async def auto_tag(book_id: str) -> dict[str, Any]:
     text = "\n---\n".join(samples)
 
     result = await _llm(
-        f"Analyze these book excerpts and return JSON: {{\"genres\": [], \"mood\": \"\", \"themes\": [], \"pace\": \"slow/medium/fast\", \"audience\": \"\", \"one_liner\": \"\"}}\n\n{text}",
+        f'Analyze these book excerpts and return JSON: {{"genres": [], "mood": "", "themes": [], "pace": "slow/medium/fast", "audience": "", "one_liner": ""}}\n\n{text}',
         system="You are a literary analyst. Return valid JSON only.",
     )
     return {"tags": result}

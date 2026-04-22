@@ -31,3 +31,4 @@ psycopg2-binary==2.9.10
 sqlalchemy==2.0.41
 Pillow==11.2.1
 weasyprint==68.1
+mcp==1.27.0

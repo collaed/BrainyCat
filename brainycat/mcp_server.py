@@ -1,0 +1,194 @@
+"""BrainyCat MCP Server — expose library operations to AI clients."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import httpx
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import TextContent, Tool
+
+# BrainyCat API base URL
+API_URL = "http://localhost:8000/api/v1"
+HEADERS = {"X-Auth-User": "ecb"}
+
+
+async def _api(method: str, path: str, body: dict | None = None) -> dict:
+    async with httpx.AsyncClient(base_url=API_URL, headers=HEADERS, timeout=30) as c:
+        if method == "GET":
+            r = await c.get(path)
+        else:
+            r = await c.post(path, json=body) if body else await c.post(path)
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+
+
+app = Server("brainycat")
+
+
+@app.list_tools()
+async def list_tools() -> list[Tool]:
+    return [
+        Tool(
+            name="search_books",
+            description="Search the book library by title, author, ISBN, or tag",
+            inputSchema={"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+        ),
+        Tool(
+            name="get_book",
+            description="Get full details of a book by ID",
+            inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
+        ),
+        Tool(
+            name="similar_books",
+            description="Find books similar to a given book",
+            inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
+        ),
+        Tool(
+            name="enrich_book",
+            description="Trigger metadata enrichment for a book from online sources",
+            inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
+        ),
+        Tool(
+            name="classify_book",
+            description="Use LLM to classify a book's genre (Thema codes)",
+            inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
+        ),
+        Tool(
+            name="search_content",
+            description="Semantic search within a book's content",
+            inputSchema={
+                "type": "object",
+                "properties": {"book_id": {"type": "string"}, "query": {"type": "string"}},
+                "required": ["book_id", "query"],
+            },
+        ),
+        Tool(
+            name="recap",
+            description="Get an AI-generated recap of a book up to current reading position",
+            inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
+        ),
+        Tool(
+            name="ask_book",
+            description="Ask a question about a book (no spoilers)",
+            inputSchema={
+                "type": "object",
+                "properties": {"book_id": {"type": "string"}, "question": {"type": "string"}},
+                "required": ["book_id", "question"],
+            },
+        ),
+        Tool(
+            name="library_stats",
+            description="Get library statistics (total books, genres, top authors)",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="efficiency",
+            description="Get algorithm efficiency metrics (ISBN coverage, enrichment rates)",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="send_to_kindle",
+            description="Send a book to Kindle via email",
+            inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
+        ),
+        Tool(
+            name="convert_tts",
+            description="Convert an ebook to audiobook using TTS",
+            inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
+        ),
+        Tool(
+            name="merge_authors",
+            description="Merge two duplicate authors (keep one, delete other)",
+            inputSchema={
+                "type": "object",
+                "properties": {"keep_id": {"type": "string"}, "merge_id": {"type": "string"}},
+                "required": ["keep_id", "merge_id"],
+            },
+        ),
+        Tool(
+            name="create_series",
+            description="Create a book series and link books to it",
+            inputSchema={
+                "type": "object",
+                "properties": {"series_name": {"type": "string"}, "book_ids": {"type": "array", "items": {"type": "string"}}},
+                "required": ["series_name", "book_ids"],
+            },
+        ),
+        Tool(
+            name="edit_book",
+            description="Edit book metadata (title, isbn, description)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "book_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "isbn": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+                "required": ["book_id"],
+            },
+        ),
+        Tool(
+            name="delete_book",
+            description="Delete a book from the library",
+            inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
+        ),
+    ]
+
+
+@app.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    result: dict[str, Any] = {}
+
+    if name == "search_books":
+        result = await _api("GET", f"/books?q={arguments['query']}&limit=20")
+    elif name == "get_book":
+        result = await _api("GET", f"/books/{arguments['book_id']}")
+    elif name == "similar_books":
+        result = await _api("GET", f"/books/{arguments['book_id']}/similar")
+    elif name == "enrich_book":
+        result = await _api("POST", f"/books/{arguments['book_id']}/enrich")
+    elif name == "classify_book":
+        result = await _api("POST", f"/books/{arguments['book_id']}/classify")
+    elif name == "search_content":
+        result = await _api("GET", f"/books/{arguments['book_id']}/search-content?q={arguments['query']}")
+    elif name == "recap":
+        result = await _api("GET", f"/ai/recap/{arguments['book_id']}")
+    elif name == "ask_book":
+        result = await _api("POST", f"/ai/ask/{arguments['book_id']}?question={arguments['question']}")
+    elif name == "library_stats":
+        result = await _api("GET", "/stats/overview")
+    elif name == "efficiency":
+        result = await _api("GET", "/intelligence/efficiency")
+    elif name == "send_to_kindle":
+        result = await _api("POST", f"/books/{arguments['book_id']}/send-to-kindle")
+    elif name == "convert_tts":
+        result = await _api("POST", f"/books/{arguments['book_id']}/convert/tts")
+    elif name == "merge_authors":
+        result = await _api("POST", "/intelligence/merge-authors", {"keep_id": arguments["keep_id"], "merge_id": arguments["merge_id"]})
+    elif name == "create_series":
+        result = await _api(
+            "POST", "/intelligence/apply-series", {"series_name": arguments["series_name"], "book_ids": arguments["book_ids"]}
+        )
+    elif name == "edit_book":
+        body = {k: v for k, v in arguments.items() if k != "book_id" and v}
+        result = await _api("POST", f"/books/{arguments['book_id']}", body)  # PATCH
+    elif name == "delete_book":
+        async with httpx.AsyncClient(base_url=API_URL, headers=HEADERS, timeout=10) as c:
+            r = await c.delete(f"/books/{arguments['book_id']}")
+            result = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+
+    return [TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+
+
+async def main() -> None:
+    async with stdio_server() as (read, write):
+        await app.run(read, write, app.create_initialization_options())
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(main())

@@ -537,13 +537,13 @@ async def export_notes(user: Any = Depends(get_current_user)) -> list[dict[str, 
 
 # ── OPDS ─────────────────────────────────────────────────────────────────
 @app.get("/api/v1/opds/catalog.xml")
-async def opds_catalog() -> Any:
-    return await opds.catalog()
+async def opds_catalog(page: int = Query(1)) -> Any:
+    return await opds.catalog(page)
 
 
 @app.get("/api/v1/opds/search")
-async def opds_search(q: str = Query("")) -> Any:
-    return await opds.search_opds(q)
+async def opds_search(q: str = Query(""), page: int = Query(1)) -> Any:
+    return await opds.search_opds(q, page)
 
 
 # ── Podcast feeds ────────────────────────────────────────────────────────
@@ -1227,3 +1227,97 @@ async def search_content(book_id: str, q: str = Query(...), _u: Any = Depends(ge
     from brainycat.companion import semantic_search
 
     return await semantic_search(book_id, q)
+
+
+# ── Page/word count ──────────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/count-pages")
+async def count_pages(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Count pages and words in a book."""
+    from uuid import UUID as _UUID
+
+    row = await db.fetch_one(
+        "SELECT file_path, format FROM book_files WHERE book_id = $1 AND format IN ('epub','pdf') LIMIT 1", _UUID(book_id)
+    )
+    if not row:
+        return {"error": "no file"}
+    pages, words = 0, 0
+    try:
+        if row["format"] == "pdf":
+            import fitz
+
+            doc = fitz.open(row["file_path"])
+            pages = len(doc)
+            for page in doc:
+                words += len(page.get_text().split())
+            doc.close()
+        elif row["format"] == "epub":
+            import ebooklib
+            from bs4 import BeautifulSoup
+            from ebooklib import epub
+
+            book = epub.read_epub(row["file_path"], options={"ignore_ncx": True})
+            for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+                soup = BeautifulSoup(item.get_content(), "html.parser")
+                text = soup.get_text(separator=" ", strip=True)
+                words += len(text.split())
+            pages = max(1, words // 250)  # ~250 words per page
+    except Exception as e:
+        return {"error": str(e)[:100]}
+    minutes = max(1, words // 250)  # ~250 wpm reading speed
+    await db.execute(
+        "UPDATE books SET word_count=$1, page_count=$2, estimated_reading_minutes=$3 WHERE id=$4", words, pages, minutes, _UUID(book_id)
+    )
+    return {"words": words, "pages": pages, "estimated_minutes": minutes}
+
+
+@app.post("/api/v1/count-pages/batch")
+async def batch_count(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Count pages for books that don't have counts yet."""
+    rows = await db.fetch_all("SELECT b.id FROM books b WHERE b.word_count IS NULL LIMIT 50")
+    counted = 0
+    for r in rows:
+        result = await count_pages(str(r["id"]))
+        if result.get("words"):
+            counted += 1
+    return {"counted": counted, "batch": len(rows)}
+
+
+# ── Bulk operations ──────────────────────────────────────────────────────
+class BulkTagBody(BaseModel):
+    book_ids: list[str]
+    tag: str
+    action: str = "add"  # add or remove
+
+
+@app.post("/api/v1/bulk/tag")
+async def bulk_tag(body: BulkTagBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Add or remove a tag from multiple books."""
+    from uuid import UUID as _UUID
+
+    await db.execute("INSERT INTO tags (name) VALUES ($1) ON CONFLICT DO NOTHING", body.tag)
+    tag_row = await db.fetch_one("SELECT id FROM tags WHERE name = $1", body.tag)
+    if not tag_row:
+        return {"error": "tag creation failed"}
+    applied = 0
+    for bid in body.book_ids:
+        if body.action == "add":
+            await db.execute("INSERT INTO books_tags (book_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", _UUID(bid), tag_row["id"])
+        else:
+            await db.execute("DELETE FROM books_tags WHERE book_id = $1 AND tag_id = $2", _UUID(bid), tag_row["id"])
+        applied += 1
+    return {"applied": applied, "tag": body.tag, "action": body.action}
+
+
+class BulkEnrichBody(BaseModel):
+    book_ids: list[str]
+
+
+@app.post("/api/v1/bulk/enrich")
+async def bulk_enrich(body: BulkEnrichBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Trigger enrichment for multiple books."""
+    enriched = 0
+    for bid in body.book_ids:
+        result = await metadata.enrich_book(bid)
+        if result.get("enriched"):
+            enriched += 1
+    return {"enriched": enriched, "total": len(body.book_ids)}
