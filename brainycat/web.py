@@ -884,3 +884,48 @@ async def extract_book_isbn(book_id: str, _u: Any = Depends(get_current_user)) -
     from brainycat.isbn import extract_and_store_isbn
 
     return await extract_and_store_isbn(book_id)
+
+
+# ── Enrichment stats ─────────────────────────────────────────────────────
+@app.get("/api/v1/intelligence/enrichment-stats")
+async def enrichment_stats(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Enrichment activity by method over time periods."""
+    rows = await db.fetch_all("""
+        SELECT method,
+            count(*) FILTER (WHERE success AND created_at > now() - interval '1 hour') as success_1h,
+            count(*) FILTER (WHERE NOT success AND created_at > now() - interval '1 hour') as fail_1h,
+            count(*) FILTER (WHERE success AND created_at > now() - interval '24 hours') as success_24h,
+            count(*) FILTER (WHERE NOT success AND created_at > now() - interval '24 hours') as fail_24h,
+            count(*) FILTER (WHERE success AND created_at > now() - interval '7 days') as success_7d,
+            count(*) FILTER (WHERE success AND created_at > now() - interval '30 days') as success_30d
+        FROM enrichment_log
+        GROUP BY method ORDER BY method
+    """)
+    return {
+        "methods": [
+            {
+                "method": r["method"],
+                "1h": {"success": r["success_1h"], "fail": r["fail_1h"]},
+                "24h": {"success": r["success_24h"], "fail": r["fail_24h"]},
+                "7d": r["success_7d"],
+                "30d": r["success_30d"],
+            }
+            for r in rows
+        ],
+        "totals": {
+            "with_isbn": (await db.fetch_one("SELECT count(*) as n FROM books WHERE isbn IS NOT NULL AND isbn != ''"))["n"],
+            "enriched": (await db.fetch_one("SELECT count(*) as n FROM books WHERE quality_score > 0"))["n"],
+            "total": (await db.fetch_one("SELECT count(*) as n FROM books"))["n"],
+        },
+    }
+
+
+# ── Workbook flag ────────────────────────────────────────────────────────
+@app.patch("/api/v1/books/{book_id}/workbook")
+async def toggle_workbook(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from uuid import UUID as _UUID
+
+    row = await db.fetch_one("SELECT is_workbook FROM books WHERE id = $1", _UUID(book_id))
+    new_val = not (row["is_workbook"] if row else False)
+    await db.execute("UPDATE books SET is_workbook = $1 WHERE id = $2", new_val, _UUID(book_id))
+    return {"is_workbook": new_val}

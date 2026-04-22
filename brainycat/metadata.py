@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 from uuid import UUID
@@ -23,12 +24,25 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     # Query sources in parallel-ish
     results = []
     for source_fn in [google_books.search, open_library.search, oclc.search, loc.search, hardcover.search, gutendex.search]:
+        source_name = source_fn.__module__.split(".")[-1]
         try:
             r = await source_fn(title=title, isbn=isbn)
             if r:
                 results.append(r)
+                await execute(
+                    "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, $2, true, $3::jsonb)",
+                    UUID(book_id),
+                    source_name,
+                    json.dumps({"fields": list(r.keys())}),
+                )
+            else:
+                await execute(
+                    "INSERT INTO enrichment_log (book_id, method, success) VALUES ($1, $2, false)",
+                    UUID(book_id),
+                    source_name,
+                )
         except Exception as e:
-            await log.awarning("enrichment_source_failed", error=str(e))
+            await log.awarning("enrichment_source_failed", source=source_name, error=str(e))
 
     if not results:
         return {"enriched": False, "reason": "no results"}

@@ -147,10 +147,13 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
             extra.update(text_data)
 
     if isbn:
-        # Update book with ISBN
         current = await fetch_one("SELECT isbn FROM books WHERE id = $1", UUID(book_id))
         if not current or not current["isbn"] or current["isbn"] in ("", "null"):
             await execute("UPDATE books SET isbn = $1, updated_at = now() WHERE id = $2", isbn, UUID(book_id))
+            await execute(
+                "INSERT INTO enrichment_log (book_id, method, success) VALUES ($1, 'isbn_extract', true)",
+                UUID(book_id),
+            )
 
     return {"ok": True, "isbn": isbn, **extra}
 
