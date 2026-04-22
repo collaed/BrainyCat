@@ -25,15 +25,15 @@ async def _tts_via_intello(text: str, language: str = "en", engine: str = "auto"
             # Try Orpheus first (expressive, human-like voices)
             if engine in ("auto", "orpheus"):
                 resp = await client.post(
-                    f"{settings.intello_url}/api/v1/voice/tts",
-                    data={"text": text[:50000], "language": language, "engine": "orpheus"},
+                    f"{settings.intello_url}/api/v1/voice/synthesize",
+                    data={"text": text[:50000], "language": language, "engine": "orpheus", "voice": ""},
                 )
                 if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("audio/"):
                     return resp.content
 
             # Fallback to Piper
             resp = await client.post(
-                f"{settings.intello_url}/api/v1/voice/tts",
+                f"{settings.intello_url}/api/v1/voice/synthesize",
                 data={"text": text[:50000], "language": language, "engine": "piper"},
             )
             if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("audio/"):

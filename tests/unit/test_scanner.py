@@ -1,15 +1,37 @@
-"""Tests for incoming scanner."""
+"""Tests for scanner filename parsing."""
+
 from brainycat.scanner import parse_filename
 
-def test_parse_author_title() -> None:
-    result = parse_filename("Tolkien - The Hobbit.epub")
-    assert "Tolkien" in (result["author"] or "")
-    assert "Hobbit" in (result["title"] or "")
 
-def test_parse_title_only() -> None:
-    result = parse_filename("The Hobbit.epub")
-    assert "Hobbit" in result["title"]
+def test_author_dash_title() -> None:
+    r = parse_filename("Tolkien - The Hobbit.epub")
+    assert r["author"] == "Tolkien"
+    assert r["title"] == "The Hobbit"
 
-def test_parse_no_extension() -> None:
-    result = parse_filename("Some Book")
-    assert result["title"] == "Some Book"
+
+def test_title_only() -> None:
+    r = parse_filename("The Hobbit.epub")
+    assert "Hobbit" in r["title"]
+
+
+def test_no_extension() -> None:
+    r = parse_filename("Some Book")
+    assert r["title"] == "Some Book"
+
+
+def test_em_dash_separator() -> None:
+    r = parse_filename("Author Name \u2014 Book Title.pdf")
+    assert r["author"] == "Author Name"
+    assert r["title"] == "Book Title"
+
+
+def test_en_dash_separator() -> None:
+    r = parse_filename("Author \u2013 Title.epub")
+    assert r["author"] == "Author"
+    assert r["title"] == "Title"
+
+
+def test_complex_filename() -> None:
+    r = parse_filename("J.K. Rowling - Harry Potter and the Philosopher's Stone.epub")
+    assert "Rowling" in (r["author"] or "")
+    assert "Harry Potter" in r["title"]

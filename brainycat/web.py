@@ -1667,3 +1667,52 @@ async def converters(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
     from brainycat.format_convert import list_converters
 
     return await list_converters()
+
+
+# ── DeACSM ───────────────────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/deacsm")
+async def deacsm(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Convert an ACSM file associated with a book to DRM-free EPUB/PDF."""
+    from uuid import UUID as _UUID
+
+    from brainycat.deacsm import convert_acsm
+
+    row = await db.fetch_one(
+        "SELECT file_path FROM book_files WHERE book_id = $1 AND format = 'acsm' LIMIT 1",
+        _UUID(book_id),
+    )
+    if not row:
+        return {"error": "no .acsm file for this book"}
+    return await convert_acsm(row["file_path"], book_id)
+
+
+# ── Kobo KEPUB ───────────────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/convert/kepub")
+async def convert_kepub(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.kepub import epub_to_kepub
+
+    return await epub_to_kepub(book_id)
+
+
+# ── Cover settings ───────────────────────────────────────────────────────
+@app.get("/api/v1/cover-settings")
+async def get_cover_prefs(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.cover_settings import get_cover_settings
+
+    return await get_cover_settings(str(user["id"]))
+
+
+@app.post("/api/v1/cover-settings")
+async def set_cover_prefs(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.cover_settings import update_cover_settings
+
+    body = await request.json()
+    return await update_cover_settings(str(user["id"]), body)
+
+
+# ── Async jobs ───────────────────────────────────────────────────────────
+@app.get("/api/v1/jobs")
+async def list_async_jobs(book_id: str = Query(None), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.async_jobs import list_jobs
+
+    return await list_jobs(book_id)
