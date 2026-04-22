@@ -49,11 +49,25 @@ header a{color:var(--muted);text-decoration:none}header h2{flex:1;overflow:hidde
 <div class="progress"><input type="range" id="seek" min="0" max="100" value="0" step="0.1" oninput="seekTo(this.value)"></div>
 <div class="time"><span id="current">0:00</span><span id="duration">0:00</span></div>
 <div class="speed">
+<span style="color:var(--muted);font-size:.75rem">Speed:</span>
 <button onclick="setSpeed(0.75,this)">0.75×</button>
 <button onclick="setSpeed(1,this)" class="active">1×</button>
 <button onclick="setSpeed(1.25,this)">1.25×</button>
 <button onclick="setSpeed(1.5,this)">1.5×</button>
 <button onclick="setSpeed(2,this)">2×</button>
+<span style="margin-left:.5rem;color:var(--muted);font-size:.75rem">Vol:</span>
+<input type="range" id="volume" min="0" max="100" value="100" style="width:60px;accent-color:var(--accent)" oninput="audio.volume=this.value/100">
+</div>
+<div class="speed">
+<span style="color:var(--muted);font-size:.75rem">Sleep:</span>
+<button onclick="setSleep(0,this)" class="active">Off</button>
+<button onclick="setSleep(15,this)">15m</button>
+<button onclick="setSleep(30,this)">30m</button>
+<button onclick="setSleep(60,this)">1h</button>
+<span id="sleep-countdown" style="color:var(--accent);font-size:.75rem;margin-left:.3rem"></span>
+<span style="margin-left:auto"></span>
+<button onclick="bookmarkPosition()" style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:.2rem .5rem;color:var(--text);cursor:pointer;font-size:.75rem">🔖 Bookmark</button>
+<a id="dl-link" style="display:none;padding:.2rem .5rem;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);text-decoration:none;font-size:.75rem;cursor:pointer">⬇ Download</a>
 </div>
 <div id="status"></div>
 <div class="chapters" id="chapters-section" style="display:none">
@@ -106,6 +120,10 @@ async function init() {
 
     // Set first file but don't play
     setSource(0);
+    // Show download link
+    document.getElementById('dl-link').style.display = '';
+    document.getElementById('dl-link').href = API + '/books/' + bookId + '/file/' + files[0].id;
+    document.getElementById('dl-link').download = files[0].file_name;
 
     // Resume
     const progress = await BC.get('/progress/' + bookId);
@@ -158,6 +176,28 @@ setInterval(() => {
     if (!audio.paused && audio.duration)
         BC.post('/progress/' + bookId, { position_timestamp: audio.currentTime, percentage: (audio.currentTime / audio.duration) * 100 });
 }, 10000);
+
+let sleepTimer = null, sleepRemaining = 0;
+function setSleep(mins, btn) {
+    clearInterval(sleepTimer);
+    document.querySelectorAll('.speed:nth-child(2) button').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    const el = document.getElementById('sleep-countdown');
+    if (!mins) { sleepRemaining = 0; el.textContent = ''; return; }
+    sleepRemaining = mins * 60;
+    sleepTimer = setInterval(() => {
+        sleepRemaining--;
+        el.textContent = Math.floor(sleepRemaining/60) + ':' + String(sleepRemaining%60).padStart(2,'0');
+        if (sleepRemaining <= 0) { clearInterval(sleepTimer); audio.pause(); el.textContent = 'Paused'; }
+    }, 1000);
+}
+async function bookmarkPosition() {
+    await BC.post('/books/' + bookId + '/annotations', {
+        content: `Bookmark at ${fmt(audio.currentTime)} in ${files[currentIdx]?.file_name || 'chapter ' + (currentIdx+1)}`,
+        annotation_type: 'bookmark', position: String(audio.currentTime)
+    });
+    log('🔖 Bookmarked at ' + fmt(audio.currentTime));
+}
 
 if ('mediaSession' in navigator) {
     navigator.mediaSession.setActionHandler('play', () => audio.play());

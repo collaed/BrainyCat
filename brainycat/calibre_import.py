@@ -1,14 +1,11 @@
 """Import books from a Calibre library database (metadata.db).
 
-Reads Calibre's SQLite database to extract:
-- Books with metadata (title, author, ISBN, description, series, rating, tags)
-- Identifiers (ISBN, ASIN, DOI, Google Books ID, etc.)
-- Series with correct series_index from books table
-- File paths for EPUB/PDF/MOBI
-- Cover images
-- Custom columns
-- Annotations and reading positions
-- Author sort names and UUIDs
+Handles all schema versions (v1-v26+):
+- v1-v17: books.isbn exists, no identifiers table
+- v18-v25: books.isbn exists (legacy, may be stale), identifiers table has ISBNs
+- v26+: books.isbn column DROPPED, identifiers table is only ISBN source
+
+Detection: PRAGMA user_version + PRAGMA table_info + sqlite_master
 """
 
 from __future__ import annotations
@@ -19,36 +16,49 @@ from typing import Any
 
 
 def detect_calibre_library(path: str) -> bool:
-    """Check if a directory is a Calibre library."""
     return os.path.isfile(os.path.join(path, "metadata.db"))
 
 
+def _detect_schema(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Detect Calibre schema version and available features."""
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    book_cols = {r[1] for r in conn.execute("PRAGMA table_info(books)")}
+    return {
+        "version": version,
+        "has_isbn_col": "isbn" in book_cols,
+        "has_series_index": "series_index" in book_cols,
+        "has_identifiers": "identifiers" in tables,
+        "has_annotations": "annotations" in tables,
+        "has_last_read": "last_read_positions" in tables,
+        "has_uuid": "uuid" in book_cols,
+        "has_author_sort": "author_sort" in book_cols,
+    }
+
+
 def read_calibre_db(path: str) -> list[dict[str, Any]]:
-    """Read all books from a Calibre metadata.db."""
     db_path = os.path.join(path, "metadata.db")
     if not os.path.isfile(db_path):
         return []
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
+    schema = _detect_schema(conn)
 
-    # Detect schema version — isbn column was dropped in v26
-    columns = {r[1] for r in conn.execute("PRAGMA table_info(books)")}
-    has_isbn_col = "isbn" in columns
-
-    # Check which tables exist
-    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    has_identifiers = "identifiers" in tables
-    has_annotations = "annotations" in tables
-    has_last_read = "last_read_positions" in tables
+    # Build SELECT dynamically based on available columns
+    cols = ["b.id", "b.title", "b.sort as sort_title", "b.path", "b.pubdate", "b.timestamp as added", "b.last_modified"]
+    if schema["has_isbn_col"]:
+        cols.append("b.isbn as legacy_isbn")
+    if schema["has_series_index"]:
+        cols.append("b.series_index")
+    if schema["has_uuid"]:
+        cols.append("b.uuid")
+    if schema["has_author_sort"]:
+        cols.append("b.author_sort")
 
     books = []
-    # series_index is on the books table, NOT on books_series_link
-    isbn_col = "b.isbn," if has_isbn_col else ""
     for row in conn.execute(f"""
-        SELECT b.id, b.title, b.sort as sort_title, b.author_sort,
-               b.series_index, b.uuid, b.path, {isbn_col}
-               b.pubdate, b.timestamp as added, b.last_modified,
+        SELECT {", ".join(cols)},
                c.text as description, r.rating
         FROM books b
         LEFT JOIN comments c ON c.book = b.id
@@ -56,93 +66,86 @@ def read_calibre_db(path: str) -> list[dict[str, Any]]:
         LEFT JOIN ratings r ON r.id = brl.rating
     """):
         book: dict[str, Any] = dict(row)
-        book_id = row["id"]
+        bid = row["id"]
 
-        # ISBN from identifiers table (modern Calibre) or books.isbn (legacy)
+        # ISBN: identifiers table (v18+) > books.isbn (v1-v25)
         isbn = None
-        if has_isbn_col:
-            isbn = row.get("isbn", None)
-        if not isbn and has_identifiers:
-            isbn_row = conn.execute(
-                "SELECT val FROM identifiers WHERE book = ? AND type = 'isbn'",
-                (book_id,),
-            ).fetchone()
-            if isbn_row:
-                isbn = isbn_row["val"]
+        if schema["has_identifiers"]:
+            r = conn.execute("SELECT val FROM identifiers WHERE book=? AND type='isbn'", (bid,)).fetchone()
+            if r:
+                isbn = r[0]
+        if not isbn and schema["has_isbn_col"]:
+            isbn = row["legacy_isbn"] if "legacy_isbn" in dict(row) else None
         book["isbn"] = isbn
 
-        # All identifiers (ASIN, DOI, Google Books, etc.)
+        # All identifiers (v18+)
         book["identifiers"] = {}
-        if has_identifiers:
-            for ident in conn.execute("SELECT type, val FROM identifiers WHERE book = ?", (book_id,)):
+        if schema["has_identifiers"]:
+            for ident in conn.execute("SELECT type, val FROM identifiers WHERE book=?", (bid,)):
                 book["identifiers"][ident["type"]] = ident["val"]
 
-        # Authors with sort names
-        authors = conn.execute(
-            """
-            SELECT a.name, a.sort as author_sort FROM authors a
-            JOIN books_authors_link bal ON bal.author = a.id
-            WHERE bal.book = ?
-        """,
-            (book_id,),
-        ).fetchall()
-        book["authors"] = [{"name": a["name"], "sort": a["author_sort"]} for a in authors]
+        # Authors with sort
+        book["authors"] = [
+            {"name": a["name"], "sort": a["sort"]}
+            for a in conn.execute(
+                """
+                SELECT a.name, a.sort FROM authors a
+                JOIN books_authors_link bal ON bal.author=a.id WHERE bal.book=?
+            """,
+                (bid,),
+            )
+        ]
 
         # Tags
-        tags = conn.execute(
-            """
-            SELECT t.name FROM tags t
-            JOIN books_tags_link btl ON btl.tag = t.id
-            WHERE btl.book = ?
-        """,
-            (book_id,),
-        ).fetchall()
-        book["tags"] = [t["name"] for t in tags]
+        book["tags"] = [
+            t["name"]
+            for t in conn.execute(
+                """
+                SELECT t.name FROM tags t
+                JOIN books_tags_link btl ON btl.tag=t.id WHERE btl.book=?
+            """,
+                (bid,),
+            )
+        ]
 
         # Series — name from series table, index from books.series_index
-        series = conn.execute(
+        for s in conn.execute(
             """
             SELECT s.name FROM series s
-            JOIN books_series_link bsl ON bsl.series = s.id
-            WHERE bsl.book = ?
+            JOIN books_series_link bsl ON bsl.series=s.id WHERE bsl.book=?
         """,
-            (book_id,),
-        ).fetchall()
-        if series:
-            book["series_name"] = series[0]["name"]
-            book["series_index"] = row["series_index"]  # Correct: from books table
+            (bid,),
+        ):
+            book["series_name"] = s["name"]
+            book["series_index"] = row["series_index"] if schema["has_series_index"] else 1
 
         # Publisher
-        pubs = conn.execute(
+        for p in conn.execute(
             """
             SELECT p.name FROM publishers p
-            JOIN books_publishers_link bpl ON bpl.publisher = p.id
-            WHERE bpl.book = ?
+            JOIN books_publishers_link bpl ON bpl.publisher=p.id WHERE bpl.book=?
         """,
-            (book_id,),
-        ).fetchall()
-        if pubs:
-            book["publisher"] = pubs[0]["name"]
+            (bid,),
+        ):
+            book["publisher"] = p["name"]
 
         # Languages
-        langs = conn.execute(
-            """
-            SELECT l.lang_code FROM languages l
-            JOIN books_languages_link bll ON bll.lang_code = l.id
-            WHERE bll.book = ?
-        """,
-            (book_id,),
-        ).fetchall()
-        book["languages"] = [lang["lang_code"] for lang in langs]
+        book["languages"] = [
+            lang["lang_code"]
+            for lang in conn.execute(
+                """
+                SELECT l.lang_code FROM languages l
+                JOIN books_languages_link bll ON bll.lang_code=l.id WHERE bll.book=?
+            """,
+                (bid,),
+            )
+        ]
 
-        # File formats
-        formats = conn.execute(
-            "SELECT format, name, uncompressed_size FROM data WHERE book = ?",
-            (book_id,),
-        ).fetchall()
-        book["formats"] = [{"format": f["format"].lower(), "name": f["name"], "size": f["uncompressed_size"]} for f in formats]
-
-        # Resolve file paths
+        # Files
+        book["formats"] = [
+            {"format": f["format"].lower(), "name": f["name"], "size": f["uncompressed_size"]}
+            for f in conn.execute("SELECT format, name, uncompressed_size FROM data WHERE book=?", (bid,))
+        ]
         book_dir = os.path.join(path, row["path"]) if row["path"] else None
         book["files"] = []
         if book_dir:
@@ -150,31 +153,25 @@ def read_calibre_db(path: str) -> list[dict[str, Any]]:
                 fp = os.path.join(book_dir, f"{fmt['name']}.{fmt['format']}")
                 if os.path.isfile(fp):
                     book["files"].append({"path": fp, "format": fmt["format"]})
-            cover_path = os.path.join(book_dir, "cover.jpg")
-            if os.path.isfile(cover_path):
-                book["cover_path"] = cover_path
+            cover = os.path.join(book_dir, "cover.jpg")
+            if os.path.isfile(cover):
+                book["cover_path"] = cover
 
-        # Annotations (highlights, bookmarks) — Calibre 5+
+        # Annotations (v23+)
         book["annotations"] = []
-        if has_annotations:
+        if schema["has_annotations"]:
             for ann in conn.execute(
-                "SELECT format, annotation_type, annotation_data FROM annotations WHERE book = ?",
-                (book_id,),
+                "SELECT format, annotation_type, annotation_data FROM annotations WHERE book=?",
+                (bid,),
             ):
-                book["annotations"].append(
-                    {
-                        "format": ann["format"],
-                        "type": ann["annotation_type"],
-                        "data": ann["annotation_data"],
-                    }
-                )
+                book["annotations"].append({"format": ann["format"], "type": ann["annotation_type"], "data": ann["annotation_data"]})
 
-        # Reading positions — Calibre 5+
+        # Reading positions (v22+)
         book["reading_positions"] = []
-        if has_last_read:
+        if schema["has_last_read"]:
             for pos in conn.execute(
-                "SELECT format, user, device, cfi, epoch, pos_frac FROM last_read_positions WHERE book = ?",
-                (book_id,),
+                "SELECT format, user, device, cfi, epoch, pos_frac FROM last_read_positions WHERE book=?",
+                (bid,),
             ):
                 book["reading_positions"].append(
                     {
@@ -192,7 +189,7 @@ def read_calibre_db(path: str) -> list[dict[str, Any]]:
             for cc in conn.execute("SELECT id, label, name, datatype FROM custom_columns"):
                 table = f"custom_column_{cc['id']}"
                 try:
-                    vals = conn.execute(f"SELECT value FROM {table} WHERE book = ?", (book_id,)).fetchall()
+                    vals = conn.execute(f"SELECT value FROM {table} WHERE book=?", (bid,)).fetchall()
                     if vals:
                         customs[cc["label"]] = vals[0]["value"] if len(vals) == 1 else [v["value"] for v in vals]
                 except sqlite3.OperationalError:
@@ -209,23 +206,22 @@ def read_calibre_db(path: str) -> list[dict[str, Any]]:
 
 
 def calibre_library_stats(path: str) -> dict[str, Any]:
-    """Quick stats about a Calibre library."""
     db_path = os.path.join(path, "metadata.db")
     if not os.path.isfile(db_path):
         return {"error": "not a Calibre library"}
 
     conn = sqlite3.connect(db_path)
-    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    stats: dict[str, Any] = {}
+    schema = _detect_schema(conn)
+    stats: dict[str, Any] = {"schema": schema}
     stats["books"] = conn.execute("SELECT count(*) FROM books").fetchone()[0]
     stats["authors"] = conn.execute("SELECT count(*) FROM authors").fetchone()[0]
     stats["tags"] = conn.execute("SELECT count(*) FROM tags").fetchone()[0]
     stats["series"] = conn.execute("SELECT count(*) FROM series").fetchone()[0]
-    stats["formats"] = [r[0] for r in conn.execute("SELECT DISTINCT format FROM data").fetchall()]
-    if "identifiers" in tables:
+    stats["formats"] = [r[0] for r in conn.execute("SELECT DISTINCT format FROM data")]
+    if schema["has_identifiers"]:
         stats["identifiers"] = conn.execute("SELECT count(*) FROM identifiers").fetchone()[0]
-        stats["identifier_types"] = [r[0] for r in conn.execute("SELECT DISTINCT type FROM identifiers").fetchall()]
-    if "annotations" in tables:
+        stats["identifier_types"] = [r[0] for r in conn.execute("SELECT DISTINCT type FROM identifiers")]
+    if schema["has_annotations"]:
         stats["annotations"] = conn.execute("SELECT count(*) FROM annotations").fetchone()[0]
     stats["custom_columns"] = [
         {"label": r[1], "name": r[2], "type": r[3]} for r in conn.execute("SELECT id, label, name, datatype FROM custom_columns")

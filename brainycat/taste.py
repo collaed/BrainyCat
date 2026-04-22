@@ -89,9 +89,9 @@ def score_book(
     for s in book.get("series") or []:
         score += profile["series"].get(s, 0) * 1.5
 
-    # Boost by aggregated rating
+    # Boost by aggregated rating (adjusted for 1-10 scale)
     if book.get("rating"):
-        score *= 0.5 + book["rating"] / 20.0
+        score *= 0.7 + book["rating"] / 10.0  # rating 5 = 1.2x, rating 10 = 1.7x
     elif book.get("quality_score"):
         score *= 0.5 + book["quality_score"] / 200.0
 
