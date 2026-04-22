@@ -9,7 +9,7 @@ from uuid import UUID
 
 from brainycat.db import execute, fetch_one
 from brainycat.logging import log
-from brainycat.sources import google_books, gutendex, hardcover, loc, oclc, open_library
+from brainycat.sources import amazon, google_books, gutendex, hardcover, loc, oclc, open_library
 
 
 async def enrich_book(book_id: str) -> dict[str, Any]:
@@ -23,7 +23,7 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
 
     # Query sources in parallel-ish
     results = []
-    for source_fn in [google_books.search, open_library.search, oclc.search, loc.search, hardcover.search, gutendex.search]:
+    for source_fn in [google_books.search, open_library.search, oclc.search, loc.search, hardcover.search, amazon.search, gutendex.search]:
         source_name = source_fn.__module__.split(".")[-1]
         try:
             r = await source_fn(title=title, isbn=isbn)
@@ -47,13 +47,39 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     if not results:
         return {"enriched": False, "reason": "no results"}
 
-    # Merge: pick best value per field
+    # Calibre-style merge: shortest title (least cruft), longest description,
+    # shortest publisher, average rating, longest series name
     merged: dict[str, Any] = {}
-    for field in ["title", "description", "isbn", "cover_url", "language", "publisher", "pubdate", "genres"]:
-        for r in results:
-            val = r.get(field)
-            if val and not merged.get(field):
-                merged[field] = val
+
+    def _pick(field: str, shortest: bool = True) -> Any:
+        vals = [r.get(field) for r in results if r.get(field)]
+        if not vals:
+            return None
+        if isinstance(vals[0], str):
+            vals.sort(key=len, reverse=not shortest)
+        return vals[0]
+
+    merged["title"] = _pick("title", shortest=True)  # shortest = least cruft
+    merged["description"] = _pick("description", shortest=False)  # longest = most info
+    merged["isbn"] = _pick("isbn", shortest=True)
+    merged["cover_url"] = _pick("cover_url", shortest=False)
+    merged["language"] = _pick("language", shortest=True)
+    merged["publisher"] = _pick("publisher", shortest=True)  # shortest = least cruft
+    merged["pubdate"] = _pick("pubdate", shortest=True)
+
+    # Genres: union from all sources, deduplicated
+    all_genres: list[str] = []
+    for r in results:
+        all_genres.extend(r.get("genres") or [])
+    merged["genres"] = list(dict.fromkeys(all_genres))[:20]  # dedup, max 20
+
+    # Authors: longest list (may include editors/translators)
+    merged["authors"] = _pick("authors", shortest=False)
+
+    # Rating: average across sources
+    ratings = [r.get("rating") for r in results if r.get("rating") and r.get("rating") > 0]
+    if ratings:
+        merged["rating"] = round(sum(ratings) / len(ratings), 1)
 
     # Update book
     sets, vals = [], []
