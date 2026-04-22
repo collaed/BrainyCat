@@ -63,6 +63,11 @@ async def root() -> RedirectResponse:
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# ABS mobile app compatibility
+from brainycat.abs_compat import router as abs_router  # noqa: E402
+
+app.include_router(abs_router)
+
 
 # ── Health ────────────────────────────────────────────────────────────────
 @app.get("/api/v1/health")
