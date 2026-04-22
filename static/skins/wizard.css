@@ -1,0 +1,37 @@
+/* BrainyCat Skin: Wizard — Guided, step-by-step, friendly */
+:root {
+  --bg: #fefce8; --surface: #ffffff; --border: #e5e7eb;
+  --text: #1f2937; --text-muted: #6b7280; --accent: #f59e0b;
+  --font: 'Inter', system-ui, sans-serif; --font-size: 16px;
+  --max-w: 640px;
+}
+body { font-family: var(--font); font-size: var(--font-size); background: var(--bg); color: var(--text); margin: 0; }
+.skin-wizard .wizard-container { max-width: var(--max-w); margin: 80px auto; padding: 0 20px; }
+.skin-wizard .wizard-step {
+  background: var(--surface); border-radius: 16px; padding: 40px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06); margin-bottom: 24px;
+}
+.skin-wizard .wizard-step h2 { font-size: 24px; margin: 0 0 8px; }
+.skin-wizard .wizard-step p { color: var(--text-muted); margin: 0 0 24px; line-height: 1.6; }
+.skin-wizard .wizard-step .step-number {
+  display: inline-block; width: 32px; height: 32px; border-radius: 50%;
+  background: var(--accent); color: #fff; text-align: center; line-height: 32px;
+  font-weight: 700; font-size: 14px; margin-bottom: 16px;
+}
+.skin-wizard .wizard-nav { display: flex; justify-content: space-between; margin-top: 32px; }
+.skin-wizard .wizard-nav button {
+  padding: 14px 32px; border: none; border-radius: 10px; font-size: 16px;
+  font-weight: 600; cursor: pointer; transition: all 0.15s;
+}
+.skin-wizard .wizard-nav .btn-back { background: var(--border); color: var(--text); }
+.skin-wizard .wizard-nav .btn-next { background: var(--accent); color: #fff; }
+.skin-wizard .wizard-nav button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+.skin-wizard .progress-bar { height: 4px; background: var(--border); border-radius: 2px; margin-bottom: 40px; }
+.skin-wizard .progress-bar .fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s; }
+.skin-wizard .book-choice {
+  display: flex; gap: 16px; padding: 16px; border: 2px solid var(--border);
+  border-radius: 12px; cursor: pointer; margin-bottom: 12px; transition: border-color 0.15s;
+}
+.skin-wizard .book-choice:hover { border-color: var(--accent); }
+.skin-wizard .book-choice.selected { border-color: var(--accent); background: #fffbeb; }
+.skin-wizard .book-choice img { width: 48px; height: 72px; object-fit: cover; border-radius: 4px; }

@@ -1,0 +1,36 @@
+/* BrainyCat Skin: Notebook — Clean, minimal, Notion-inspired */
+:root {
+  --bg: #ffffff; --surface: #ffffff; --border: #e5e5e5;
+  --text: #37352f; --text-muted: #9b9a97; --accent: #2eaadc;
+  --font: 'Georgia', 'Times New Roman', serif; --font-size: 16px;
+  --max-w: 900px;
+}
+body { font-family: var(--font); font-size: var(--font-size); background: var(--bg); color: var(--text); margin: 0; }
+.skin-notebook .main-content { max-width: var(--max-w); margin: 0 auto; padding: 60px 40px; }
+.skin-notebook .library-header { border: none; padding: 0 0 40px; }
+.skin-notebook .library-header h1 { font-size: 40px; font-weight: 700; letter-spacing: -0.02em; }
+.skin-notebook .search-bar {
+  width: 100%; padding: 12px 0; border: none; border-bottom: 1px solid var(--border);
+  font-family: var(--font); font-size: 18px; outline: none; margin-bottom: 40px;
+}
+.skin-notebook .search-bar::placeholder { color: var(--text-muted); }
+.skin-notebook .book-grid { display: flex; flex-direction: column; gap: 0; }
+.skin-notebook .book-item {
+  padding: 16px 0; border-bottom: 1px solid var(--border); display: flex; gap: 20px;
+  cursor: pointer; transition: background 0.1s;
+}
+.skin-notebook .book-item:hover { background: #fafafa; margin: 0 -20px; padding: 16px 20px; }
+.skin-notebook .book-item img { width: 48px; height: 72px; object-fit: cover; border-radius: 2px; }
+.skin-notebook .book-item .title { font-weight: 600; margin-bottom: 4px; }
+.skin-notebook .book-item .author { color: var(--text-muted); font-size: 14px; }
+.skin-notebook .book-item .desc { color: var(--text-muted); font-size: 14px; margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* Slash command palette */
+.skin-notebook .command-palette {
+  position: fixed; top: 30%; left: 50%; transform: translateX(-50%);
+  width: 500px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); padding: 8px; display: none; z-index: 1000;
+}
+.skin-notebook .command-palette.active { display: block; }
+.skin-notebook .command-palette input { width: 100%; padding: 12px; border: none; font-size: 16px; outline: none; }
+.skin-notebook .command-palette .cmd-item { padding: 10px 12px; cursor: pointer; border-radius: 4px; }
+.skin-notebook .command-palette .cmd-item:hover { background: #f0f0f0; }

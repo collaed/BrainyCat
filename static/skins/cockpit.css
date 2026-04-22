@@ -1,0 +1,36 @@
+/* BrainyCat Skin: Cockpit — Dashboard with sidebar, widgets, stats */
+:root {
+  --bg: #0f172a; --surface: #1e293b; --border: #334155;
+  --text: #e2e8f0; --text-muted: #94a3b8; --accent: #3b82f6;
+  --sidebar-w: 240px; --font: 'Inter', system-ui, sans-serif; --font-size: 14px;
+}
+body { font-family: var(--font); font-size: var(--font-size); background: var(--bg); color: var(--text); margin: 0; }
+.skin-cockpit { display: flex; min-height: 100vh; }
+.skin-cockpit .sidebar {
+  width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border);
+  padding: 16px 0; position: fixed; top: 0; bottom: 0; overflow-y: auto;
+}
+.skin-cockpit .sidebar .nav-item {
+  padding: 10px 20px; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; gap: 10px;
+}
+.skin-cockpit .sidebar .nav-item:hover, .skin-cockpit .sidebar .nav-item.active {
+  background: rgba(59,130,246,0.1); color: var(--accent); border-right: 3px solid var(--accent);
+}
+.skin-cockpit .main-content { margin-left: var(--sidebar-w); flex: 1; padding: 24px; }
+.skin-cockpit .widget-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.skin-cockpit .widget {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px;
+}
+.skin-cockpit .widget h3 { margin: 0 0 12px; font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.skin-cockpit .widget .big-number { font-size: 36px; font-weight: 700; color: var(--text); }
+.skin-cockpit .widget .trend { font-size: 12px; color: #22c55e; }
+.skin-cockpit .search-bar {
+  width: 100%; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); font-size: 15px; margin-bottom: 24px;
+}
+.skin-cockpit .book-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 16px; }
+.skin-cockpit .book-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  overflow: hidden; cursor: pointer; transition: transform 0.15s;
+}
+.skin-cockpit .book-card:hover { transform: translateY(-4px); border-color: var(--accent); }

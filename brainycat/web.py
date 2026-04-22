@@ -1354,3 +1354,66 @@ async def delete_api_key(key_id: str, user: Any = Depends(get_current_user)) -> 
 
     await db.execute("DELETE FROM api_keys WHERE id = $1 AND user_id = $2", _UUID(key_id), user["id"])
     return {"ok": True}
+
+
+# ── EPUB Quality Check ───────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/epub-check")
+async def epub_check(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.epub_check import check_epub
+    return await check_epub(book_id)
+
+
+@app.post("/api/v1/epub-check/batch")
+async def batch_epub_check(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    rows = await db.fetch_all("""
+        SELECT DISTINCT bf.book_id FROM book_files bf
+        JOIN books b ON b.id = bf.book_id
+        WHERE bf.format = 'epub' AND (b.quality_score IS NULL OR b.quality_score = 0)
+        LIMIT 50
+    """)
+    checked = 0
+    for r in rows:
+        from brainycat.epub_check import check_epub
+        result = await check_epub(str(r["book_id"]))
+        if result.get("score") is not None:
+            checked += 1
+    return {"checked": checked, "batch": len(rows)}
+
+
+# ── EPUB Merge/Split ─────────────────────────────────────────────────────
+class MergeBody(BaseModel):
+    book_ids: list[str]
+    title: str
+    author: str = ""
+
+
+@app.post("/api/v1/epub/merge")
+async def epub_merge(body: MergeBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.epub_tools import merge_epubs
+    return await merge_epubs(body.book_ids, body.title, body.author)
+
+
+@app.post("/api/v1/books/{book_id}/epub-split")
+async def epub_split(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.epub_tools import split_epub
+    return await split_epub(book_id)
+
+
+# ── Embeddings reindex ───────────────────────────────────────────────────
+@app.post("/api/v1/embeddings/reindex")
+async def reindex_embeddings(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.embeddings import reindex_all
+    return await reindex_all()
+
+
+# ── UI Skin selection ────────────────────────────────────────────────────
+@app.get("/api/v1/ui/skins")
+async def list_skins() -> list[dict[str, str]]:
+    return [
+        {"id": "default", "name": "BrainyCat Classic", "description": "Grid/list library view"},
+        {"id": "spreadsheet", "name": "Spreadsheet", "description": "Data-first: dense grid, inline edit, batch actions"},
+        {"id": "cockpit", "name": "Cockpit", "description": "Dashboard: sidebar nav, stats widgets, quick actions"},
+        {"id": "notebook", "name": "Notebook", "description": "Clean & minimal: white space, hidden menus, slash commands"},
+        {"id": "canvas", "name": "Canvas", "description": "Drag-and-drop: floating panels, spatial organization"},
+        {"id": "wizard", "name": "Wizard", "description": "Guided: step-by-step flows for complex tasks"},
+    ]

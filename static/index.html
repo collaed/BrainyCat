@@ -72,6 +72,27 @@ nav a:hover{background:var(--surface);color:var(--text)}
 #loading{text-align:center;padding:.5rem;color:var(--muted);display:none}
 #book-count{color:var(--muted);font-size:.75rem;margin-left:auto}
 </style>
+<link id="skin-css" rel="stylesheet" href="">
+<script>
+// Skin switcher — loads CSS overlay, persists per-user
+(function() {
+  const skin = localStorage.getItem('brainycat-skin') || 'default';
+  if (skin !== 'default') {
+    document.getElementById('skin-css').href = `skins/${skin}.css`;
+    document.body.classList.add(`skin-${skin}`);
+  }
+  window.switchSkin = function(name) {
+    localStorage.setItem('brainycat-skin', name);
+    if (name === 'default') {
+      document.getElementById('skin-css').href = '';
+      document.body.className = document.body.className.replace(/skin-\w+/g, '');
+    } else {
+      document.getElementById('skin-css').href = `skins/${name}.css`;
+      document.body.className = document.body.className.replace(/skin-\w+/g, '') + ` skin-${name}`;
+    }
+  };
+})();
+</script>
 </head>
 <body>
 <header>
@@ -97,6 +118,14 @@ nav a:hover{background:var(--surface);color:var(--text)}
 <button class="btn primary" onclick="document.getElementById('file-input').click()">⬆ Upload</button>
 <button class="btn primary" onclick="uploadDirectory()">📁 Folder</button>
 <button id="batch-del-btn" class="btn danger" style="display:none" onclick="batchDelete()">🗑️ <span id="sel-count">0</span></button>
+<select id="skin-select" onchange="switchSkin(this.value)" title="UI Skin">
+<option value="default">🐱 Classic</option>
+<option value="spreadsheet">📊 Spreadsheet</option>
+<option value="cockpit">🎛️ Cockpit</option>
+<option value="notebook">📓 Notebook</option>
+<option value="canvas">🎨 Canvas</option>
+<option value="wizard">🧙 Wizard</option>
+</select>
 <span id="book-count"></span>
 <input type="file" id="file-input" hidden accept=".epub,.pdf,.mobi,.mp3,.m4b,.m4a,.flac,.opus,.ogg" multiple>
 </div>
@@ -298,3 +327,10 @@ document.addEventListener('keydown',e=>{if(e.key==='/'&&document.activeElement!=
 loadBooks();
 </script>
 </body></html>
+<script>
+// Set skin selector to current skin on load
+document.addEventListener('DOMContentLoaded', function() {
+  const sel = document.getElementById('skin-select');
+  if (sel) sel.value = localStorage.getItem('brainycat-skin') || 'default';
+});
+</script>

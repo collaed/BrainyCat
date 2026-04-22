@@ -1,0 +1,38 @@
+/* BrainyCat Skin: Canvas — Spatial, drag-and-drop, floating panels */
+:root {
+  --bg: #f8f9fa; --surface: #ffffff; --border: #dee2e6;
+  --text: #212529; --text-muted: #6c757d; --accent: #7c3aed;
+  --font: system-ui, -apple-system, sans-serif; --font-size: 14px;
+}
+body { font-family: var(--font); font-size: var(--font-size); background: var(--bg); color: var(--text); margin: 0; overflow: hidden; }
+.skin-canvas { width: 100vw; height: 100vh; position: relative; }
+.skin-canvas .canvas-area {
+  width: 100%; height: 100%; overflow: auto; position: relative;
+  background-image: radial-gradient(circle, #ddd 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.skin-canvas .floating-panel {
+  position: absolute; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); min-width: 200px;
+}
+.skin-canvas .floating-panel .panel-header {
+  padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: grab;
+  font-weight: 600; font-size: 13px; display: flex; justify-content: space-between; align-items: center;
+}
+.skin-canvas .floating-panel .panel-body { padding: 12px; max-height: 400px; overflow-y: auto; }
+.skin-canvas .toolbar {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 8px 16px; display: flex; gap: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); z-index: 100;
+}
+.skin-canvas .toolbar button {
+  padding: 8px 12px; border: none; background: transparent; cursor: pointer;
+  border-radius: 6px; font-size: 13px; color: var(--text);
+}
+.skin-canvas .toolbar button:hover { background: #f0f0f0; }
+.skin-canvas .toolbar button.active { background: var(--accent); color: #fff; }
+.skin-canvas .book-node {
+  width: 100px; text-align: center; cursor: grab; user-select: none;
+}
+.skin-canvas .book-node img { width: 80px; height: 120px; object-fit: cover; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.skin-canvas .book-node .label { font-size: 11px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

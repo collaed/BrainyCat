@@ -1,0 +1,32 @@
+/* BrainyCat Skin: Spreadsheet — Data-first, dense grid, inline edit */
+:root {
+  --bg: #fafafa; --surface: #fff; --border: #e0e0e0;
+  --text: #1a1a1a; --text-muted: #666; --accent: #2563eb;
+  --row-hover: #f0f4ff; --header-bg: #f5f5f5;
+  --font: 'SF Mono', 'Consolas', monospace; --font-size: 13px;
+}
+body { font-family: var(--font); font-size: var(--font-size); background: var(--bg); margin: 0; }
+.skin-spreadsheet .library-header { display: none; }
+.skin-spreadsheet .book-grid { display: none !important; }
+.skin-spreadsheet .book-list { display: table !important; width: 100%; border-collapse: collapse; }
+.skin-spreadsheet .book-list .book-row {
+  display: table-row; cursor: pointer; border-bottom: 1px solid var(--border);
+}
+.skin-spreadsheet .book-list .book-row:hover { background: var(--row-hover); }
+.skin-spreadsheet .book-list .book-row td {
+  padding: 4px 8px; border-right: 1px solid var(--border); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 300px;
+}
+.skin-spreadsheet .book-cover-cell { width: 30px; }
+.skin-spreadsheet .book-cover-cell img { width: 24px; height: 36px; object-fit: cover; }
+.skin-spreadsheet .batch-bar {
+  position: sticky; top: 0; background: var(--header-bg); padding: 6px 12px;
+  border-bottom: 2px solid var(--accent); display: flex; gap: 8px; align-items: center; z-index: 10;
+}
+.skin-spreadsheet .batch-bar button {
+  font-size: 12px; padding: 3px 10px; border: 1px solid var(--border);
+  background: var(--surface); cursor: pointer; border-radius: 3px;
+}
+.skin-spreadsheet .batch-bar button:hover { background: var(--accent); color: #fff; }
+.skin-spreadsheet .search-bar { width: 100%; padding: 6px; border: 1px solid var(--border); font-family: var(--font); }
+.skin-spreadsheet .stats-row { font-size: 11px; color: var(--text-muted); padding: 4px 8px; background: var(--header-bg); }

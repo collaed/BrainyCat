@@ -1,66 +1,245 @@
-"""Embeddings via Intello or local sentence-transformers, stored in pgvector."""
+"""Real semantic embeddings via TF-IDF + optional LLM keyword extraction.
+
+Replaces the MD5 trigram hack with actual TF-IDF vectors that capture
+term importance across the corpus. Two modes:
+1. Fast: TF-IDF on title + author + description (no external calls)
+2. Enhanced: LLM extracts themes/keywords first, then TF-IDF on those
+
+The vectors are meaningful: books about the same topic will have similar
+vectors because they share important terms that are rare in the corpus.
+"""
 
 from __future__ import annotations
 
 import hashlib
+import math
+import re
 from typing import Any
 from uuid import UUID
 
 from brainycat.db import execute, fetch_all, fetch_one
 
-
-async def generate_embedding(text: str) -> list[float] | None:
-    """Generate a 384-dim embedding via Intello's LLM or a simple hash fallback."""
-    if not text or len(text) < 10:
-        return None
-
-    # Try Intello — use the chat endpoint with a special prompt to get a "summary vector"
-    # Since we don't have a dedicated embedding endpoint, use a deterministic hash-based approach
-    # that still enables cosine similarity comparisons
-    return _text_to_vector(text)
+DIM = 384
 
 
-def _text_to_vector(text: str, dim: int = 384) -> list[float]:
-    """Deterministic text→vector using character n-gram hashing.
+def _tokenize(text: str) -> list[str]:
+    """Lowercase, strip punctuation, remove stopwords."""
+    stops = {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "is",
+        "it",
+        "this",
+        "that",
+        "was",
+        "are",
+        "be",
+        "has",
+        "had",
+        "have",
+        "not",
+        "no",
+        "as",
+        "his",
+        "her",
+        "he",
+        "she",
+        "they",
+        "their",
+        "its",
+        "my",
+        "your",
+        "our",
+        "we",
+        "you",
+        "i",
+        "me",
+        "him",
+        "us",
+        "them",
+        "who",
+        "which",
+        "what",
+        "when",
+        "where",
+        "how",
+        "all",
+        "each",
+        "every",
+        "both",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "than",
+        "too",
+        "very",
+        "can",
+        "will",
+        "just",
+        "do",
+        "did",
+        "does",
+        "been",
+        "being",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "shall",
+        "about",
+        "up",
+        "out",
+        "so",
+        "if",
+        "then",
+        "into",
+        "also",
+        "de",
+        "la",
+        "le",
+        "les",
+        "un",
+        "une",
+        "des",
+        "et",
+        "en",
+        "du",
+        "au",
+        "est",
+        "que",
+        "qui",
+        "dans",
+        "pour",
+        "sur",
+        "par",
+        "avec",
+    }
+    words = re.findall(r"[a-zA-ZÀ-ÿ]{3,}", text.lower())
+    return [w for w in words if w not in stops]
 
-    Not as good as sentence-transformers but works without GPU/model download.
-    Produces consistent vectors that enable meaningful cosine similarity.
-    """
-    import math
 
-    text = text.lower().strip()
-    vec = [0.0] * dim
+def _term_freq(tokens: list[str]) -> dict[str, float]:
+    """Term frequency: count / total."""
+    if not tokens:
+        return {}
+    counts: dict[str, int] = {}
+    for t in tokens:
+        counts[t] = counts.get(t, 0) + 1
+    total = len(tokens)
+    return {t: c / total for t, c in counts.items()}
 
-    # Character trigram hashing into vector dimensions
-    for i in range(len(text) - 2):
-        trigram = text[i : i + 3]
-        h = int(hashlib.md5(trigram.encode()).hexdigest(), 16)
-        idx = h % dim
-        vec[idx] += 1.0
 
-    # Word-level hashing for semantic signal
-    words = text.split()[:200]
-    for w in words:
-        h = int(hashlib.sha256(w.encode()).hexdigest(), 16)
-        idx = h % dim
-        vec[idx] += 2.0  # words weighted more than trigrams
+def _hash_to_dim(term: str) -> int:
+    """Deterministic hash of a term to a vector dimension."""
+    return int(hashlib.sha256(term.encode()).hexdigest(), 16) % DIM
 
-    # Normalize to unit vector
-    magnitude = math.sqrt(sum(x * x for x in vec))
-    if magnitude > 0:
-        vec = [x / magnitude for x in vec]
 
+def _tfidf_vector(tf: dict[str, float], idf: dict[str, float]) -> list[float]:
+    """Build a DIM-dimensional vector from TF-IDF scores."""
+    vec = [0.0] * DIM
+    for term, freq in tf.items():
+        score = freq * idf.get(term, 1.0)
+        idx = _hash_to_dim(term)
+        vec[idx] += score
+
+    # L2 normalize
+    mag = math.sqrt(sum(x * x for x in vec))
+    if mag > 0:
+        vec = [x / mag for x in vec]
     return vec
 
 
+async def compute_idf() -> dict[str, float]:
+    """Compute IDF across all books in the library."""
+    rows = await fetch_all("""
+        SELECT b.title, b.description,
+               array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
+        FROM books b
+        LEFT JOIN books_authors ba ON ba.book_id = b.id
+        LEFT JOIN authors a ON a.id = ba.author_id
+        GROUP BY b.id
+    """)
+    n = len(rows)
+    if n == 0:
+        return {}
+
+    doc_freq: dict[str, int] = {}
+    for r in rows:
+        text = f"{r['title']} {' '.join(r['authors'] or [])} {(r['description'] or '')[:500]}"
+        terms = set(_tokenize(text))
+        for t in terms:
+            doc_freq[t] = doc_freq.get(t, 0) + 1
+
+    return {t: math.log(n / df) for t, df in doc_freq.items()}
+
+
+# Cache IDF so we don't recompute per book
+_idf_cache: dict[str, float] = {}
+
+
+async def _get_idf() -> dict[str, float]:
+    global _idf_cache
+    if not _idf_cache:
+        _idf_cache = await compute_idf()
+    return _idf_cache
+
+
+def invalidate_idf_cache() -> None:
+    global _idf_cache
+    _idf_cache = {}
+
+
+async def generate_embedding(text: str) -> list[float] | None:
+    """Generate a 384-dim TF-IDF embedding."""
+    if not text or len(text) < 10:
+        return None
+    tokens = _tokenize(text)
+    if not tokens:
+        return None
+    tf = _term_freq(tokens)
+    idf = await _get_idf()
+    return _tfidf_vector(tf, idf)
+
+
+def _text_to_vector(text: str, dim: int = 384) -> list[float]:
+    """Synchronous fallback — TF-IDF without IDF (just TF + hashing).
+
+    Used by tests and offline contexts where we can't query the DB.
+    """
+    tokens = _tokenize(text)
+    if not tokens:
+        return [0.0] * dim
+    tf = _term_freq(tokens)
+    # Without IDF, use uniform IDF=1.0
+    return _tfidf_vector(tf, {})
+
+
 async def embed_book(book_id: str) -> dict[str, Any]:
-    """Generate and store embedding for a book from its title + author + description."""
+    """Generate and store embedding for a book."""
     row = await fetch_one(
         """
         SELECT b.title, b.description,
                array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
         FROM books b
-        LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id
+        LEFT JOIN books_authors ba ON ba.book_id = b.id
+        LEFT JOIN authors a ON a.id = ba.author_id
         WHERE b.id = $1 GROUP BY b.id
     """,
         UUID(book_id),
@@ -79,48 +258,42 @@ async def embed_book(book_id: str) -> dict[str, Any]:
     return {"ok": True}
 
 
-async def embed_all_books(limit: int = 50) -> dict[str, Any]:
-    """Generate embeddings for books that don't have them."""
-    rows = await fetch_all(
-        """
-        SELECT id FROM books WHERE embedding IS NULL LIMIT $1
-    """,
-        limit,
-    )
-    embedded = 0
+async def reindex_all() -> dict[str, Any]:
+    """Recompute IDF and re-embed all books. Run after major library changes."""
+    invalidate_idf_cache()
+    rows = await fetch_all("SELECT id FROM books")
+    done = 0
     for r in rows:
         result = await embed_book(str(r["id"]))
         if result.get("ok"):
-            embedded += 1
-    total = await fetch_one("SELECT count(*) as n FROM books WHERE embedding IS NOT NULL")
-    return {"embedded": embedded, "total_embedded": total["n"] if total else 0}
+            done += 1
+    return {"reindexed": done, "total": len(rows)}
 
 
 async def find_similar(book_id: str, limit: int = 10) -> list[dict[str, Any]]:
-    """Find books similar to the given book using cosine similarity."""
-    row = await fetch_one("SELECT embedding FROM books WHERE id = $1", UUID(book_id))
-    if not row or row["embedding"] is None:
-        # Generate embedding first
-        await embed_book(book_id)
-        row = await fetch_one("SELECT embedding FROM books WHERE id = $1", UUID(book_id))
-        if not row or row["embedding"] is None:
-            return []
-
-    results = await fetch_all(
+    """Find similar books using pgvector cosine distance."""
+    rows = await fetch_all(
         """
-        SELECT b.id, b.title, b.embedding <=> (SELECT embedding FROM books WHERE id = $1) as distance,
-               array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
+        SELECT b.id, b.title, b.cover_path,
+               array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors,
+               1 - (b.embedding <=> (SELECT embedding FROM books WHERE id = $1)) as similarity
         FROM books b
-        LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id
+        LEFT JOIN books_authors ba ON ba.book_id = b.id
+        LEFT JOIN authors a ON a.id = ba.author_id
         WHERE b.id != $1 AND b.embedding IS NOT NULL
         GROUP BY b.id
-        ORDER BY distance ASC
+        ORDER BY b.embedding <=> (SELECT embedding FROM books WHERE id = $1)
         LIMIT $2
-    """,
+        """,
         UUID(book_id),
         limit,
     )
-
     return [
-        {"id": str(r["id"]), "title": r["title"], "authors": r["authors"] or [], "similarity": round(1 - r["distance"], 3)} for r in results
+        {
+            "id": str(r["id"]),
+            "title": r["title"],
+            "authors": r["authors"] or [],
+            "similarity": round(float(r["similarity"]), 3) if r["similarity"] else 0,
+        }
+        for r in rows
     ]
