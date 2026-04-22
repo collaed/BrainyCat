@@ -15,7 +15,60 @@ def extract_metadata(file_path: str) -> dict[str, Any]:
         return _extract_pdf(file_path)
     if ext in {".mp3", ".m4b", ".m4a", ".flac", ".ogg", ".opus"}:
         return _extract_audio(file_path)
+    if ext == ".mobi":
+        return _extract_mobi(file_path)
     return {"format": ext.lstrip(".")}
+
+
+def _extract_mobi(path: str) -> dict[str, Any]:
+    """Extract metadata from MOBI files by parsing the binary header."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read(500)
+
+        # MOBI header: PalmDB format
+        # Title is at offset 0, null-terminated, up to 32 bytes
+        title = data[:32].split(b"\x00")[0].decode(errors="replace").strip()
+
+        # Look for EXTH header which contains metadata
+        exth_pos = data.find(b"EXTH")
+        result: dict[str, Any] = {"format": "mobi", "title": title or None}
+
+        if exth_pos > 0:
+            # Read full EXTH for metadata
+            with open(path, "rb") as f:
+                full = f.read(min(os.path.getsize(path), 100000))
+
+            exth_pos = full.find(b"EXTH")
+            if exth_pos > 0:
+                # EXTH records: type(4) + length(4) + data
+                pos = exth_pos + 12  # skip header
+                num_records = int.from_bytes(full[exth_pos + 8 : exth_pos + 12], "big")
+                for _ in range(min(num_records, 50)):
+                    if pos + 8 > len(full):
+                        break
+                    rec_type = int.from_bytes(full[pos : pos + 4], "big")
+                    rec_len = int.from_bytes(full[pos + 4 : pos + 8], "big")
+                    if rec_len < 8 or pos + rec_len > len(full):
+                        break
+                    rec_data = full[pos + 8 : pos + rec_len].decode(errors="replace").strip()
+                    if rec_type == 100:
+                        result["author"] = rec_data
+                    elif rec_type == 101:
+                        result["publisher"] = rec_data
+                    elif rec_type == 103:
+                        result["description"] = rec_data
+                    elif rec_type == 104:
+                        result["isbn"] = rec_data
+                    elif rec_type == 105:
+                        result["genre"] = rec_data
+                    elif rec_type == 503:
+                        result["title"] = rec_data  # updated title
+                    pos += rec_len
+
+        return result
+    except Exception:
+        return {"format": "mobi"}
 
 
 def _extract_epub(path: str) -> dict[str, Any]:

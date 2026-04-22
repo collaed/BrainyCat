@@ -130,6 +130,17 @@ async def convert_to_audiobook(book_id: str, voice: str = "en", user_id: str | N
 
             ok = await _synthesize_chapter(ch["text"], mp3_path, language)
             if ok:
+                # Store sync map: chapter index → file, for text↔audio sync
+                import json as _json
+
+                await execute(
+                    """INSERT INTO sync_maps (book_id, text_file_id, audio_file_id, chapter_index, mappings)
+                       VALUES ($1, $1, $1, $2, $3::jsonb)
+                       ON CONFLICT (book_id, text_file_id, audio_file_id, chapter_index) DO UPDATE SET mappings = $3::jsonb""",
+                    UUID(book_id),
+                    i,
+                    _json.dumps({"chapter_title": ch["title"], "text_length": len(ch["text"]), "mp3_file": mp3_name}),
+                )
                 fid = uuid4()
                 await execute(
                     """INSERT INTO book_files (id, book_id, format, file_path, file_name, file_size, mime_type, metadata)

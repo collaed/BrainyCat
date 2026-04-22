@@ -66,6 +66,18 @@ async def transcribe_audiobook(book_id: str, model: str = "small", user_id: str 
 
             if result.get("text"):
                 chapters.append({"title": f["file_name"], "text": result["text"]})
+                # Store sync map for text↔audio alignment
+                import json as _json
+
+                await execute(
+                    """INSERT INTO sync_maps (book_id, text_file_id, audio_file_id, chapter_index, mappings)
+                       VALUES ($1, $1, $2, $3, $4::jsonb)
+                       ON CONFLICT (book_id, text_file_id, audio_file_id, chapter_index) DO UPDATE SET mappings = $4::jsonb""",
+                    UUID(book_id),
+                    f["id"],
+                    fi,
+                    _json.dumps({"text_length": len(result["text"]), "provider": result.get("provider", "unknown")}),
+                )
 
         if not chapters:
             await update_job(job_id, status="failed", error="No text transcribed")

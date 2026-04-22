@@ -1028,3 +1028,89 @@ async def efficiency_dashboard(_u: Any = Depends(get_current_user)) -> dict[str,
         "writeback": {"written_back": wb_stats["written_back"] if wb_stats else 0},
         "covers": dict(cover_stats) if cover_stats else {},
     }
+
+
+# ── Bilingual content ────────────────────────────────────────────────────
+@app.get("/api/v1/books/{book_id}/bilingual")
+async def bilingual_content(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get aligned original + translated paragraphs for bilingual reading."""
+    from uuid import UUID as _UUID
+
+    # Find translation link
+    trans = await db.fetch_one(
+        """
+        SELECT bt.*, bl.book_b_id as trans_book_id
+        FROM book_translations bt
+        JOIN book_links bl ON bl.book_a_id = bt.source_book_id AND bl.book_b_id = bt.target_book_id
+        WHERE bt.source_book_id = $1
+        LIMIT 1
+    """,
+        _UUID(book_id),
+    )
+
+    if not trans:
+        # Try reverse
+        trans = await db.fetch_one(
+            """
+            SELECT bt.*, bl.book_a_id as trans_book_id
+            FROM book_translations bt
+            JOIN book_links bl ON bl.book_a_id = bt.target_book_id AND bl.book_b_id = bt.source_book_id
+            WHERE bt.target_book_id = $1
+            LIMIT 1
+        """,
+            _UUID(book_id),
+        )
+
+    if not trans:
+        return {"error": "No translation found. Use the Translate feature first.", "paragraphs": []}
+
+    # Load both EPUBs and extract paragraphs
+    orig_file = await db.fetch_one("SELECT file_path FROM book_files WHERE book_id = $1 AND format = 'epub' LIMIT 1", _UUID(book_id))
+    trans_file = await db.fetch_one(
+        "SELECT file_path FROM book_files WHERE book_id = $1 AND format = 'epub' LIMIT 1", trans["trans_book_id"]
+    )
+
+    if not orig_file or not trans_file:
+        return {"error": "Missing EPUB files", "paragraphs": []}
+
+    orig_paras = _extract_paragraphs(orig_file["file_path"])
+    trans_paras = _extract_paragraphs(trans_file["file_path"])
+
+    # Align by index (translation preserves paragraph structure)
+    aligned = []
+    for i in range(max(len(orig_paras), len(trans_paras))):
+        aligned.append(
+            {
+                "index": i,
+                "original": orig_paras[i] if i < len(orig_paras) else "",
+                "translated": trans_paras[i] if i < len(trans_paras) else "",
+            }
+        )
+
+    return {
+        "source_language": trans["source_language"],
+        "target_language": trans["target_language"],
+        "backend": trans["backend"],
+        "total_paragraphs": len(aligned),
+        "paragraphs": aligned,
+    }
+
+
+def _extract_paragraphs(epub_path: str) -> list[str]:
+    """Extract all paragraphs from an EPUB."""
+    try:
+        import ebooklib
+        from bs4 import BeautifulSoup
+        from ebooklib import epub
+
+        book = epub.read_epub(epub_path, options={"ignore_ncx": True})
+        paragraphs = []
+        for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+            soup = BeautifulSoup(item.get_content(), "html.parser")
+            for p in soup.find_all("p"):
+                text = p.get_text(strip=True)
+                if text and len(text) > 5:
+                    paragraphs.append(text)
+        return paragraphs
+    except Exception:
+        return []
