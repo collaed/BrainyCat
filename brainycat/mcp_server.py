@@ -25,6 +25,8 @@ async def _api(method: str, path: str, body: dict | None = None) -> dict:
     async with httpx.AsyncClient(base_url=API_URL, headers=HEADERS, timeout=30) as c:
         if method == "GET":
             r = await c.get(path)
+        elif method == "PATCH":
+            r = await c.patch(path, json=body) if body else await c.patch(path)
         else:
             r = await c.post(path, json=body) if body else await c.post(path)
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
@@ -39,7 +41,15 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="search_books",
             description="Search the book library by title, author, ISBN, or tag",
-            inputSchema={"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "default": 20},
+                    "offset": {"type": "integer", "default": 0},
+                },
+                "required": ["query"],
+            },
         ),
         Tool(
             name="get_book",
@@ -166,6 +176,24 @@ async def list_tools() -> list[Tool]:
             description="Count pages and words in a book",
             inputSchema={"type": "object", "properties": {"book_id": {"type": "string"}}, "required": ["book_id"]},
         ),
+        Tool(
+            name="batch_enrich",
+            description="Enrich multiple books at once (trigger metadata fetch from all sources)",
+            inputSchema={
+                "type": "object",
+                "properties": {"book_ids": {"type": "array", "items": {"type": "string"}}},
+                "required": ["book_ids"],
+            },
+        ),
+        Tool(
+            name="convert_format",
+            description="Convert a book to another format (pdf, mobi, azw3, txt)",
+            inputSchema={
+                "type": "object",
+                "properties": {"book_id": {"type": "string"}, "target_format": {"type": "string"}},
+                "required": ["book_id", "target_format"],
+            },
+        ),
     ]
 
 
@@ -174,7 +202,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     result: dict[str, Any] = {}
 
     if name == "search_books":
-        result = await _api("GET", f"/books?q={arguments['query']}&limit=20")
+        limit = arguments.get("limit", 20)
+        offset = arguments.get("offset", 0)
+        result = await _api("GET", f"/books?q={arguments['query']}&limit={limit}&offset={offset}")
     elif name == "get_book":
         result = await _api("GET", f"/books/{arguments['book_id']}")
     elif name == "similar_books":
@@ -188,7 +218,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     elif name == "recap":
         result = await _api("GET", f"/ai/recap/{arguments['book_id']}")
     elif name == "ask_book":
-        result = await _api("POST", f"/ai/ask/{arguments['book_id']}?question={arguments['question']}")
+        result = await _api("POST", f"/ai/ask/{arguments['book_id']}", {"question": arguments["question"]})
     elif name == "library_stats":
         result = await _api("GET", "/stats/overview")
     elif name == "efficiency":
@@ -205,7 +235,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         )
     elif name == "edit_book":
         body = {k: v for k, v in arguments.items() if k != "book_id" and v}
-        result = await _api("POST", f"/books/{arguments['book_id']}", body)  # PATCH
+        result = await _api("PATCH", f"/books/{arguments['book_id']}", body)
     elif name == "delete_book":
         async with httpx.AsyncClient(base_url=API_URL, headers=HEADERS, timeout=10) as c:
             r = await c.delete(f"/books/{arguments['book_id']}")
@@ -220,7 +250,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         result = await _api("POST", f"/books/{arguments['book_id']}/epub-lint")
     elif name == "count_pages":
         result = await _api("POST", f"/books/{arguments['book_id']}/count-pages")
+    elif name == "batch_enrich":
+        result = await _api("POST", "/bulk/enrich", {"book_ids": arguments["book_ids"]})
+    elif name == "convert_format":
+        result = await _api("POST", f"/books/{arguments['book_id']}/convert/{arguments['target_format']}")
 
+    # Wrap errors for better AI client experience
+    if isinstance(result, dict) and result.get("detail"):
+        result = {"error": result["detail"], "tool": name}
     return [TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
 
 

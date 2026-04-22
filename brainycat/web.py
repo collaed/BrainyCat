@@ -1475,8 +1475,14 @@ async def run_calibre_import(path: str = Query(...), _a: Any = Depends(require_a
     books = read_calibre_db(path)
     imported = 0
     skipped = 0
+    annotations_imported = 0
     for b in books:
-        # Skip if already exists (by ISBN or title+author)
+        # Skip if already exists (by UUID, ISBN, or title)
+        if b.get("uuid"):
+            existing = await db.fetch_one("SELECT id FROM books WHERE calibre_uuid = $1", b["uuid"])
+            if existing:
+                skipped += 1
+                continue
         if b.get("isbn"):
             existing = await db.fetch_one("SELECT id FROM books WHERE isbn = $1", b["isbn"])
             if existing:
@@ -1487,7 +1493,7 @@ async def run_calibre_import(path: str = Query(...), _a: Any = Depends(require_a
             skipped += 1
             continue
 
-        # Import the book
+        import shutil
         import uuid
 
         book_id = uuid.uuid4()
@@ -1499,12 +1505,13 @@ async def run_calibre_import(path: str = Query(...), _a: Any = Depends(require_a
             b.get("description"),
             (b.get("rating") or 0) / 2,
         )
-        # Authors
-        for author_name in b.get("authors", []):
-            author_row = await db.fetch_one("SELECT id FROM authors WHERE name = $1", author_name)
+        # Authors (with sort names)
+        for author in b.get("authors", []):
+            name = author["name"] if isinstance(author, dict) else author
+            author_row = await db.fetch_one("SELECT id FROM authors WHERE name = $1", name)
             if not author_row:
                 aid = uuid.uuid4()
-                await db.execute("INSERT INTO authors (id, name) VALUES ($1,$2)", aid, author_name)
+                await db.execute("INSERT INTO authors (id, name) VALUES ($1,$2)", aid, name)
             else:
                 aid = author_row["id"]
             await db.execute("INSERT INTO books_authors (book_id, author_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", book_id, aid)
@@ -1514,9 +1521,31 @@ async def run_calibre_import(path: str = Query(...), _a: Any = Depends(require_a
             tag_row = await db.fetch_one("SELECT id FROM tags WHERE name = $1", tag_name)
             if tag_row:
                 await db.execute("INSERT INTO books_tags (book_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", book_id, tag_row["id"])
-        # Files — copy to /data/books/
-        import shutil
+        # Series with correct index
+        if b.get("series_name"):
+            await db.execute("INSERT INTO series (name) VALUES ($1) ON CONFLICT DO NOTHING", b["series_name"])
+            series_row = await db.fetch_one("SELECT id FROM series WHERE name = $1", b["series_name"])
+            if series_row:
+                await db.execute(
+                    "INSERT INTO books_series (book_id, series_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+                    book_id,
+                    series_row["id"],
+                )
+                await db.execute("UPDATE books SET series_index = $1 WHERE id = $2", b.get("series_index", 1), book_id)
+        # Identifiers (ASIN, DOI, Google Books, etc.)
+        for id_type, id_val in b.get("identifiers", {}).items():
+            if id_type == "isbn" and not b.get("isbn"):
+                await db.execute("UPDATE books SET isbn = $1 WHERE id = $2", id_val, book_id)
+            # Store all identifiers in extra_metadata
+        if b.get("identifiers"):
+            import json
 
+            await db.execute(
+                "UPDATE books SET extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || $1::jsonb WHERE id = $2",
+                json.dumps({"calibre_identifiers": b["identifiers"]}),
+                book_id,
+            )
+        # Files
         for f in b.get("files", []):
             dest = f"/data/books/{book_id}.{f['format']}"
             try:
@@ -1538,9 +1567,22 @@ async def run_calibre_import(path: str = Query(...), _a: Any = Depends(require_a
                 await db.execute("UPDATE books SET cover_path = $1 WHERE id = $2", dest, book_id)
             except Exception:
                 pass
+        # Annotations from Calibre
+        for ann in b.get("annotations", []):
+            try:
+                await db.execute(
+                    "INSERT INTO annotations (id, book_id, content, annotation_type) VALUES ($1,$2,$3,$4)",
+                    uuid.uuid4(),
+                    book_id,
+                    str(ann.get("data", "")),
+                    ann.get("type", "highlight"),
+                )
+                annotations_imported += 1
+            except Exception:
+                pass
         imported += 1
 
-    return {"imported": imported, "skipped": skipped, "total_in_calibre": len(books)}
+    return {"imported": imported, "skipped": skipped, "annotations": annotations_imported, "total_in_calibre": len(books)}
 
 
 # ── EPUB Lint ────────────────────────────────────────────────────────────
@@ -1616,3 +1658,10 @@ async def extract_cover(book_id: str, _u: Any = Depends(get_current_user)) -> di
         f.write(cover)
     await db.execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, _UUID(book_id))
     return {"ok": True, "size": len(cover)}
+
+
+@app.get("/api/v1/converters")
+async def converters(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.format_convert import list_converters
+
+    return await list_converters()

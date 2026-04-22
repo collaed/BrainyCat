@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     espeak-ng \
     fonts-dejavu-core \
     wget \
+    calibre \
     && rm -rf /var/lib/apt/lists/*
 
 # Piper TTS voice model
