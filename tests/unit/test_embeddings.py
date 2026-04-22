@@ -46,6 +46,20 @@ def test_tokenize_french_stopwords() -> None:
     assert "aventures" in tokens
 
 
+def test_tokenize_german_stopwords() -> None:
+    tokens = _tokenize("der schnelle braune Fuchs und der faule Hund")
+    assert "der" not in tokens
+    assert "und" not in tokens
+    assert "schnelle" in tokens
+
+
+def test_tokenize_spanish_stopwords() -> None:
+    tokens = _tokenize("el rápido zorro marrón sobre el perro perezoso")
+    assert "el" not in tokens
+    assert "sobre" not in tokens
+    assert "rápido" in tokens
+
+
 def test_term_freq() -> None:
     tf = _term_freq(["cat", "dog", "cat", "bird"])
     assert tf["cat"] == 0.5

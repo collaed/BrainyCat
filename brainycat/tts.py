@@ -14,13 +14,27 @@ from brainycat.db import execute, fetch_one
 from brainycat.jobs import create_job, run_in_background, update_job
 
 
-async def _tts_via_intello(text: str, language: str = "en") -> bytes | None:
-    """Call Intello TTS endpoint. Returns WAV bytes or None."""
+async def _tts_via_intello(text: str, language: str = "en", engine: str = "auto") -> bytes | None:
+    """Call Intello TTS endpoint. Supports Piper and Orpheus engines.
+
+    Orpheus supports emotion tags: [cheerful], [sad], [whisper], [angry], [neutral].
+    When engine='orpheus', we auto-detect appropriate emotion from text context.
+    """
     try:
         async with httpx.AsyncClient(timeout=120) as client:
+            # Try Orpheus first (expressive, human-like voices)
+            if engine in ("auto", "orpheus"):
+                resp = await client.post(
+                    f"{settings.intello_url}/api/v1/voice/tts",
+                    data={"text": text[:50000], "language": language, "engine": "orpheus"},
+                )
+                if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("audio/"):
+                    return resp.content
+
+            # Fallback to Piper
             resp = await client.post(
                 f"{settings.intello_url}/api/v1/voice/tts",
-                data={"text": text[:50000], "language": language},
+                data={"text": text[:50000], "language": language, "engine": "piper"},
             )
             if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("audio/"):
                 return resp.content
@@ -169,4 +183,7 @@ async def list_voices() -> list[dict[str, str]]:
                     return [{"id": v.get("language", v["id"])[:2], "language": v.get("language", "")[:2], "name": v["id"]} for v in voices]
     except Exception:
         pass
-    return [{"id": "en", "language": "en", "name": "Default (local espeak)"}]
+    return [
+        {"id": "en", "language": "en", "name": "Default (local espeak)"},
+        {"id": "orpheus-en", "language": "en", "name": "Orpheus (expressive, via Intello)"},
+    ]

@@ -4,10 +4,10 @@
   --text: #212529; --text-muted: #6c757d; --accent: #7c3aed;
   --font: system-ui, -apple-system, sans-serif; --font-size: 14px;
 }
-body { font-family: var(--font); font-size: var(--font-size); background: var(--bg); color: var(--text); margin: 0; overflow: hidden; }
-.skin-canvas { width: 100vw; height: 100vh; position: relative; }
+body { font-family: var(--font); font-size: var(--font-size); background: var(--bg); color: var(--text); margin: 0; overflow: auto; }
+.skin-canvas { width: 100%; min-height: 100vh; position: relative; }
 .skin-canvas .canvas-area {
-  width: 100%; height: 100%; overflow: auto; position: relative;
+  width: 100%; min-height: 100vh; position: relative; padding: 20px;
   background-image: radial-gradient(circle, #ddd 1px, transparent 1px);
   background-size: 24px 24px;
 }

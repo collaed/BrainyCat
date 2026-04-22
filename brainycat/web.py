@@ -1560,3 +1560,59 @@ async def import_goodreads(request: Request, user: Any = Depends(get_current_use
     body = await request.body()
     csv_content = body.decode("utf-8", errors="replace")
     return await import_goodreads_csv(csv_content, str(user["id"]))
+
+
+# ── Device annotation import ─────────────────────────────────────────────
+@app.post("/api/v1/import/kindle-clippings")
+async def import_kindle(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Import Kindle My Clippings.txt. Send file content as request body."""
+    from brainycat.device_import import import_kindle_clippings
+
+    body = await request.body()
+    return await import_kindle_clippings(body.decode("utf-8", errors="replace"), str(user["id"]))
+
+
+@app.post("/api/v1/import/kobo")
+async def import_kobo(path: str = Query(...), user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Import annotations from Kobo KoboReader.sqlite."""
+    from brainycat.device_import import import_kobo_annotations
+
+    return await import_kobo_annotations(path, str(user["id"]))
+
+
+# ── WordDumb (Word Wise + X-Ray) ─────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/word-wise")
+async def word_wise(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.worddumb import generate_word_wise
+
+    return await generate_word_wise(book_id)
+
+
+@app.post("/api/v1/books/{book_id}/xray")
+async def xray(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.worddumb import generate_xray
+
+    return await generate_xray(book_id)
+
+
+# ── AZW3 cover extraction ────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/extract-cover")
+async def extract_cover(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from uuid import UUID as _UUID
+
+    from brainycat.azw3 import extract_azw3_cover
+
+    row = await db.fetch_one(
+        "SELECT file_path, format FROM book_files WHERE book_id = $1 AND format IN ('azw3','mobi','kfx') LIMIT 1",
+        _UUID(book_id),
+    )
+    if not row:
+        return {"error": "no AZW3/MOBI/KFX file"}
+    cover = extract_azw3_cover(row["file_path"])
+    if not cover:
+        return {"error": "no cover found in file"}
+    cover_path = f"/data/covers/{book_id}.jpg"
+    with open(cover_path, "wb") as f:
+        f.write(cover)
+    await db.execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, _UUID(book_id))
+    return {"ok": True, "size": len(cover)}

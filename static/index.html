@@ -216,6 +216,7 @@ async function openBook(id){
     const b=await BC.get('/books/'+id);
     const hasEpub=(b.formats||[]).includes('epub'),hasPdf=(b.formats||[]).includes('pdf');
     const hasAudio=(b.formats||[]).some(f=>['mp3','m4b','m4a'].includes(f));
+    const canRead=hasEpub||hasPdf;
     const tags=(b.extra_metadata?.genres||[]).concat(b.formats||[]);
     document.getElementById('modal-content').innerHTML=`
         <h2>${b.title}</h2>
@@ -225,8 +226,8 @@ async function openBook(id){
         <div id="job-status"><span id="job-msg"></span><div class="bar"><div class="fill" id="job-bar"></div></div></div>
         <div id="similar" style="margin-top:.5rem"></div>
         <div class="actions">
-            ${hasEpub?`<button class="btn primary" onclick="location='reader.html?id=${id}'">📖 Read</button>`:''}
-            ${hasAudio?`<button class="btn primary" onclick="location='player.html?id=${id}'">🎧 Listen</button>`:''}
+            ${canRead?`<button class="btn primary" onclick="location='${hasEpub?'reader.html?id='+id:'api/v1/books/'+id+'/file/pdf'}'" style="font-size:1.1em;padding:.5em 1.2em">📖 Read</button>`:''}
+            ${hasAudio?`<button class="btn primary" onclick="location='player.html?id=${id}'" style="font-size:1.1em;padding:.5em 1.2em">🎧 Listen</button>`:''}
             ${hasEpub?`<button class="btn" onclick="location='bilingual.html?id=${id}'">🌐 Bilingual</button>`:''}
             <button class="btn success" id="btn-enrich" onclick="enrich('${id}')">✨ Enrich</button>
             <button class="btn" onclick="dlCover('${id}',this)">🖼️ Cover</button>
