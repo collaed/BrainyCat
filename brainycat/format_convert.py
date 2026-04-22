@@ -91,12 +91,14 @@ async def _register_file(book_id: str, fmt: str, path: str) -> None:
         fmt,
     )
     if not existing:
+        fname = os.path.basename(path)
         await execute(
-            "INSERT INTO book_files (id, book_id, format, file_path) VALUES ($1,$2,$3,$4)",
+            "INSERT INTO book_files (id, book_id, format, file_path, file_name) VALUES ($1,$2,$3,$4,$5)",
             uuid4(),
             UUID(book_id),
             fmt,
             path,
+            fname,
         )
 
 
