@@ -3664,3 +3664,130 @@ async def list_works(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]
         }
         for r in rows
     ]
+
+
+# ── Deterministic ISBN route (bypass search entirely) ─────────────────────
+@app.get("/api/v1/isbn/{isbn}")
+async def isbn_lookup(isbn: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Deterministic book lookup by ISBN — no fuzzy search, exact match."""
+    from brainycat.isbn import _clean_isbn, isbn_to_publisher, isbn_to_region
+
+    clean = _clean_isbn(isbn)
+    if not clean:
+        return {"error": "invalid ISBN"}
+
+    # Check our library first
+    book = await db.fetch_one(
+        """
+        SELECT b.id, b.title, b.isbn, b.description, b.cover_path, b.quality_score,
+               b.narrator, b.duration_seconds, b.extra_metadata,
+               array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
+        FROM books b
+        LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id
+        WHERE b.isbn = $1 GROUP BY b.id
+    """,
+        clean,
+    )
+
+    owned = bool(book)
+    region = isbn_to_region(clean)
+    publisher = isbn_to_publisher(clean)
+
+    result: dict[str, Any] = {
+        "isbn": clean,
+        "owned": owned,
+        "region": region,
+        "publisher": publisher,
+    }
+
+    if book:
+        result["book"] = {
+            "id": str(book["id"]),
+            "title": book["title"],
+            "authors": book["authors"] or [],
+            "description": (book["description"] or "")[:300],
+            "quality_score": book["quality_score"],
+            "narrator": book["narrator"],
+            "duration_seconds": book["duration_seconds"],
+        }
+
+    # Deep links
+    isbn10 = None
+    try:
+        import isbnlib
+
+        isbn10 = isbnlib.to_isbn10(clean)
+    except Exception:
+        pass
+    result["links"] = {
+        "open_library": f"https://openlibrary.org/isbn/{clean}",
+        "worldcat": f"https://worldcat.org/isbn/{clean}",
+        "google_books": f"https://books.google.com/books?vid=ISBN{clean}",
+        "amazon": f"https://amazon.com/dp/{isbn10}" if isbn10 else None,
+    }
+
+    return result
+
+
+# ── National identifier extraction (ARK, NBN, DOI from book text) ─────────
+@app.post("/api/v1/books/{book_id}/extract-identifiers")
+async def extract_identifiers(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Extract national identifiers (ARK, NBN, DOI, LCCN) from book content."""
+    import re
+    from uuid import UUID as _UUID
+
+    row = await db.fetch_one(
+        "SELECT file_path FROM book_files WHERE book_id=$1 AND format='epub' LIMIT 1",
+        _UUID(book_id),
+    )
+    if not row:
+        return {"error": "no epub"}
+
+    # Extract text from first/last pages (where identifiers live)
+    text = ""
+    try:
+        import ebooklib
+        from bs4 import BeautifulSoup
+        from ebooklib import epub
+
+        book = epub.read_epub(row["file_path"], options={"ignore_ncx": True})
+        items = list(book.get_items_of_type(ebooklib.ITEM_DOCUMENT))
+        for item in items[:3] + items[-3:]:
+            soup = BeautifulSoup(item.get_content(), "html.parser")
+            text += soup.get_text(separator=" ", strip=True) + "\n"
+    except Exception:
+        return {"error": "could not read epub"}
+
+    identifiers: dict[str, str] = {}
+
+    # BnF ARK
+    ark = re.search(r"ark:/12148/(\w+)", text)
+    if ark:
+        identifiers["bnf_ark"] = f"ark:/12148/{ark.group(1)}"
+
+    # DOI
+    doi = re.search(r"(10\.\d{4,}/[^\s]+)", text)
+    if doi:
+        identifiers["doi"] = doi.group(1).rstrip(".")
+
+    # LCCN
+    lccn = re.search(r"LCCN[:\s]+(\d{8,10})", text, re.IGNORECASE)
+    if lccn:
+        identifiers["lccn"] = lccn.group(1)
+
+    # Dépôt légal
+    depot = re.search(r"[Dd]épôt\s+légal\s*[:\s]+(.{5,30})", text)
+    if depot:
+        identifiers["depot_legal"] = depot.group(1).strip()
+
+    # Store found identifiers
+    if identifiers:
+        import json
+
+        await db.execute(
+            "UPDATE books SET extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || $1::jsonb WHERE id = $2",
+            json.dumps({"identifiers": identifiers}),
+            _UUID(book_id),
+        )
+
+    return {"identifiers": identifiers, "scanned_chars": len(text)}
