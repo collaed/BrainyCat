@@ -2113,3 +2113,62 @@ async def otl_search(q: str = Query(""), _u: Any = Depends(get_current_user)) ->
     from brainycat.sources.open_textbooks import search_open_textbook_library
 
     return await search_open_textbook_library(q)
+
+
+# ── Unified catalog search ────────────────────────────────────────────────
+@app.get("/api/v1/catalog/search")
+async def unified_catalog_search(q: str = Query(""), language: str = Query("en"), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search all catalog sources in parallel, grouped by type."""
+    import asyncio
+
+    from brainycat.catalog_cache import search_cached
+    from brainycat.sources.github_books import search_ebooks as gh_search
+    from brainycat.sources.gutendex import search as gut_search
+    from brainycat.sources.librivox import search as lv_search
+    from brainycat.sources.open_textbooks import search_oapen, search_openstax
+    from brainycat.sources.standard_ebooks import search as se_search
+
+    if not q:
+        return {"ebooks": [], "audiobooks": [], "textbooks": [], "github": []}
+
+    async def safe(coro):
+        try:
+            return await coro
+        except Exception:
+            return {"books": []}
+
+    # Try cache first for Gutenberg + LibriVox
+    cached_gut, cached_lv = await asyncio.gather(
+        search_cached(q, "gutenberg", language),
+        search_cached(q, "librivox", ""),
+    )
+
+    # If cache has results, use those; otherwise fan out to live APIs
+    if cached_gut.get("books"):
+        gut_result = cached_gut
+        lv_result = cached_lv
+        # Still fetch textbooks + github in parallel
+        se_result, oapen_result, openstax_result, gh_result = await asyncio.gather(
+            se_search(q),
+            search_oapen(q),
+            search_openstax(q),
+            gh_search(q, limit=10),
+        )
+    else:
+        # All live, in parallel
+        gut_raw, lv_result, se_result, oapen_result, openstax_result, gh_result = await asyncio.gather(
+            safe(gut_search(title=q, language=language)),
+            safe(lv_search(title=q)),
+            safe(se_search(q)),
+            safe(search_oapen(q)),
+            safe(search_openstax(q)),
+            safe(gh_search(q, limit=10)),
+        )
+        gut_result = gut_raw or {"books": []}
+
+    return {
+        "ebooks": (gut_result.get("books") or [])[:15] + (se_result.get("books") or [])[:5],
+        "audiobooks": (lv_result.get("books") or [])[:15],
+        "textbooks": (oapen_result.get("books") or [])[:10] + (openstax_result.get("books") or [])[:5],
+        "github": (gh_result.get("books") or [])[:10],
+    }

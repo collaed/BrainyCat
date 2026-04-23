@@ -29,11 +29,14 @@ nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(-
 </header>
 <div class="container">
 <div class="tabs">
-<button class="active" onclick="setTab('gutenberg',this)">📚 Gutenberg (Ebooks)</button>
-<button onclick="setTab('librivox',this)">🎧 LibriVox (Audiobooks)</button>
+<button class="active" onclick="setTab('all',this)">🔍 All Sources</button>
+<button onclick="setTab('gutenberg',this)">📚 Ebooks</button>
+<button onclick="setTab('librivox',this)">🎧 Audiobooks</button>
+<button onclick="setTab('textbooks',this)">🎓 Textbooks</button>
+<button onclick="setTab('github',this)">💻 GitHub</button>
 </div>
 <div class="search-row">
-<input type="text" id="q" placeholder="Search 60,000+ public domain ebooks..." oninput="clearTimeout(window._st);window._st=setTimeout(doSearch,400)">
+<input type="text" id="q" placeholder="Search 120,000+ free books across all sources..." oninput="clearTimeout(window._st);window._st=setTimeout(doSearch,500)">
 <select id="lang" onchange="doSearch()" title="Language">
 <option value="en">English</option>
 <option value="fr">Français</option>
@@ -56,26 +59,62 @@ nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(-
 </div>
 <script src="api.js"></script>
 <script>
-let tab='gutenberg';
-function setTab(t,btn){tab=t;document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');document.getElementById('q').placeholder=t==='gutenberg'?'Search 60,000+ public domain ebooks...':'Search 15,000+ free audiobooks...';doSearch();}
+let tab='all';
+function setTab(t,btn){tab=t;document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');doSearch();}
+
+function renderBooks(books, type) {
+    if (!books || !books.length) return '';
+    return books.map(b => {
+        const authors = (b.authors||[]).map(a => typeof a==='string'?a:a.name||'').join(', ');
+        const cover = b.cover_url ? `<img src="${b.cover_url}" onerror="this.style.display='none'">` : '';
+        let actions = '';
+        if (b.source === 'gutenberg' || b.epub_url) actions = `<button onclick="importGut(${b.gutenberg_id},this)">📥 Import ebook</button>`;
+        if (b.source === 'librivox') actions = `<button onclick="importLV('${b.librivox_id}',this)">📥 Import ${b.num_sections||''} ch.</button>`;
+        if (b.source === 'standard_ebooks') actions = `<a href="${b.url}" target="_blank" class="btn">🔗 Open</a>`;
+        if (b.source === 'oapen' || b.source === 'openstax') actions = `<a href="${b.url}" target="_blank" class="btn">🔗 Open</a>`;
+        if (b.source === 'github') actions = `<a href="${b.url}" target="_blank" class="btn">🔗 ${b.stars?'⭐'+b.stars:''}</a>`;
+        if (b.source === 'open_textbook_library') actions = `<a href="${b.url}" target="_blank" class="btn">🔗 Open</a>`;
+        const audioLink = b.audiobook ? `<div style="font-size:.8rem;color:#3b82f6;margin:4px 0">🎧 ${b.audiobook.title||''} (${b.audiobook.totaltime||'?'}) <button onclick="importLV('${b.audiobook.librivox_id}',this)" style="font-size:.75rem">📥 Audio</button></div>` : '';
+        const meta = [authors, b.language, b.totaltime, b.download_count ? b.download_count+' dl' : '', b.license||''].filter(Boolean).join(' · ');
+        return `<div class="item">${cover}<div class="info"><h3>${b.title||'?'}</h3><div class="meta">${meta}</div>${audioLink}${b.description?'<div style="font-size:.8rem;color:#94a3b8;margin:4px 0">'+b.description.slice(0,150)+'</div>':''}${actions}</div></div>`;
+    }).join('');
+}
+
 async function doSearch(){
     const q=document.getElementById('q').value;const el=document.getElementById('results');const st=document.getElementById('status');
-    el.innerHTML='<div class="empty">Searching...</div>';
-    if(tab==='gutenberg'){
-        const data=await BC.get('/catalog/gutenberg/search?q='+encodeURIComponent(q||'')+'&language='+document.getElementById('lang').value);
-        const books=data?.books||[];st.textContent=(data?.count||books.length)+' results';
-        if(!books.length){el.innerHTML='<div class="empty">No results</div>';return;}
-        el.innerHTML=books.map(b=>`<div class="item">${b.cover_url?`<img src="${b.cover_url}" onerror="this.style.display='none'">`:''}
-            <div class="info"><h3>${b.title}</h3><div class="meta">${(b.authors||[]).join(', ')} · ${b.language||'en'} · ${b.download_count||0} downloads</div>
-            ${b.audiobook?`<div style="font-size:.8rem;color:#3b82f6;margin:4px 0">🎧 Audiobook: ${b.audiobook.title} (${b.audiobook.totaltime||'?'}, ${b.audiobook.num_sections||'?'} ch.) <button onclick="importLV('${b.audiobook.librivox_id}',this)" style="font-size:.75rem">📥 Audio</button></div>`:''}
-            <button onclick="importGut(${b.gutenberg_id},this)">📥 Import ebook</button></div></div>`).join('');
-    } else {
-        const data=await BC.get('/catalog/librivox/search?title='+encodeURIComponent(q||''));
-        const books=data?.books||[];st.textContent=books.length+' results';
-        if(!books.length){el.innerHTML='<div class="empty">No results</div>';return;}
-        el.innerHTML=books.map(b=>`<div class="item"><div class="info"><h3>${b.title}</h3>
-            <div class="meta">${(b.authors||[]).map(a=>typeof a==='string'?a:a.name||'').join(', ')} · ${b.totaltime||''} · ${b.num_sections||'?'} ch</div>
-            <button onclick="importLV('${b.librivox_id}',this)">📥 Import ${b.num_sections||''} chapters</button></div></div>`).join('');
+    if (!q) { el.innerHTML='<div class="empty">Type to search 120,000+ free books</div>'; st.textContent=''; return; }
+    el.innerHTML='<div class="empty">Searching all sources...</div>';
+
+    if (tab === 'all') {
+        const data = await BC.get('/catalog/search?q='+encodeURIComponent(q)+'&language='+document.getElementById('lang').value);
+        const total = (data.ebooks||[]).length + (data.audiobooks||[]).length + (data.textbooks||[]).length + (data.github||[]).length;
+        st.textContent = total + ' results across all sources';
+        let html = '';
+        if (data.ebooks?.length) html += `<h3 style="margin:1rem 0 .5rem;color:#3b82f6">📚 Ebooks (${data.ebooks.length})</h3>` + renderBooks(data.ebooks);
+        if (data.audiobooks?.length) html += `<h3 style="margin:1rem 0 .5rem;color:#22c55e">🎧 Audiobooks (${data.audiobooks.length})</h3>` + renderBooks(data.audiobooks);
+        if (data.textbooks?.length) html += `<h3 style="margin:1rem 0 .5rem;color:#f59e0b">🎓 Textbooks (${data.textbooks.length})</h3>` + renderBooks(data.textbooks);
+        if (data.github?.length) html += `<h3 style="margin:1rem 0 .5rem;color:#a855f7">💻 GitHub (${data.github.length})</h3>` + renderBooks(data.github);
+        el.innerHTML = html || '<div class="empty">No results</div>';
+    } else if (tab === 'gutenberg') {
+        const data=await BC.get('/catalog/gutenberg/search?q='+encodeURIComponent(q)+'&language='+document.getElementById('lang').value);
+        st.textContent=(data?.count||0)+' ebooks';
+        el.innerHTML=renderBooks(data?.books)||'<div class="empty">No results</div>';
+    } else if (tab === 'librivox') {
+        const data=await BC.get('/catalog/librivox/search?title='+encodeURIComponent(q));
+        st.textContent=(data?.books||[]).length+' audiobooks';
+        el.innerHTML=renderBooks(data?.books)||'<div class="empty">No results</div>';
+    } else if (tab === 'textbooks') {
+        const [oapen, openstax] = await Promise.all([
+            BC.get('/catalog/oapen/search?q='+encodeURIComponent(q)),
+            BC.get('/catalog/openstax?q='+encodeURIComponent(q)),
+        ]);
+        const all = [...(oapen?.books||[]), ...(openstax?.books||[])];
+        st.textContent=all.length+' textbooks';
+        el.innerHTML=renderBooks(all)||'<div class="empty">No results</div>';
+    } else if (tab === 'github') {
+        const data=await BC.get('/catalog/github/search?q='+encodeURIComponent(q));
+        st.textContent=(data?.count||0)+' repos';
+        el.innerHTML=renderBooks(data?.books)||'<div class="empty">No results</div>';
     }
 }
 async function importGut(id,btn){btn.disabled=true;btn.textContent='⏳...';const r=await BC.post('/catalog/gutenberg/'+id+'/import');btn.textContent=r.title?'✅ '+r.title:'❌ '+(r.error||'');btn.classList.add('done');}
