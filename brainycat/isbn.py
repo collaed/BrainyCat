@@ -411,7 +411,12 @@ ISBN_GROUPS: dict[str, dict[str, Any]] = {
 
 
 def isbn_to_region(isbn: str) -> dict[str, Any] | None:
-    """Detect country/region from ISBN prefix using isbnlib + our source mapping."""
+    """Detect country/region from ISBN prefix.
+    Uses: 1) Official ISBN Range Message (285 groups), 2) isbnlib, 3) our static map."""
+    from brainycat.isbn_ranges import lookup as _range_lookup
+
+    range_info = _range_lookup(isbn)
+
     if not isbn or len(isbn) < 10:
         return None
     try:
@@ -434,6 +439,9 @@ def isbn_to_region(isbn: str) -> dict[str, Any] | None:
             result = dict(ISBN_GROUPS[prefix])
             if info:
                 result["language_info"] = info
+            if range_info:
+                result["official_agency"] = range_info["agency"]
+                result["official_prefix"] = range_info["prefix"]
             if masked:
                 result["masked"] = masked
             if publisher_prefix:
@@ -441,6 +449,16 @@ def isbn_to_region(isbn: str) -> dict[str, Any] | None:
             return result
 
     # Fallback: isbnlib info only
+    if range_info:
+        return {
+            "region": range_info["agency"],
+            "countries": [],
+            "best_sources": ["google_books"],
+            "official_agency": range_info["agency"],
+            "official_prefix": range_info["prefix"],
+            "language_info": info,
+            "masked": masked,
+        }
     if info:
         return {"region": info, "countries": [], "best_sources": ["google_books"], "language_info": info, "masked": masked}
     return None
