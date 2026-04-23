@@ -63,6 +63,24 @@ async def root() -> RedirectResponse:
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+
+@app.on_event("startup")
+async def startup() -> None:
+    from brainycat.http_client import get_client
+
+    get_client()  # Initialize shared client
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    from brainycat.http_client import close_client
+    from brainycat.log import info
+
+    info("Shutting down BrainyCat...")
+    await close_client()
+    info("Shutdown complete")
+
+
 # ABS mobile app compatibility
 from brainycat.abs_compat import router as abs_router  # noqa: E402
 
