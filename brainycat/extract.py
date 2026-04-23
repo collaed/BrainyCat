@@ -19,6 +19,10 @@ def extract_metadata(file_path: str) -> dict[str, Any]:
         return _extract_mobi(file_path)
     if ext in {".kfx", ".azw3"}:
         return _extract_kfx(file_path)
+    if ext in {".cbz", ".cbr"}:
+        return _extract_comic(file_path)
+    if ext in {".docx", ".odt", ".fb2", ".rtf", ".html", ".htm", ".txt", ".md", ".djvu"}:
+        return {"format": ext.lstrip("."), "convertible": True}
     return {"format": ext.lstrip(".")}
 
 
@@ -190,3 +194,28 @@ def _extract_kfx(path: str) -> dict[str, Any]:
         return result
     except Exception:
         return {"format": "kfx"}
+
+
+def _extract_comic(path: str) -> dict[str, Any]:
+    """Extract metadata from CBZ/CBR comic archives."""
+    import zipfile
+
+    ext = os.path.splitext(path)[1].lower()
+    result: dict[str, Any] = {"format": ext.lstrip(".")}
+    try:
+        if ext == ".cbz":
+            with zipfile.ZipFile(path) as zf:
+                images = [n for n in zf.namelist() if n.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp"))]
+                result["page_count"] = len(images)
+                # Try to extract ComicInfo.xml
+                if "ComicInfo.xml" in zf.namelist():
+                    from xml.etree import ElementTree as ET
+
+                    ci = ET.fromstring(zf.read("ComicInfo.xml"))
+                    result["title"] = ci.findtext("Title") or ""
+                    result["authors"] = [ci.findtext("Writer") or ""]
+                    result["series"] = ci.findtext("Series")
+                    result["series_index"] = ci.findtext("Number")
+    except Exception:
+        pass
+    return result

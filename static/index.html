@@ -128,7 +128,7 @@ nav a:hover{background:var(--surface);color:var(--text)}
 </select>
 <a href="api/v1/opds/catalog.xml" title="OPDS Feed — use with Moon+ Reader, KOReader, Calibre" style="text-decoration:none;font-size:.8rem;padding:.3rem .5rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">📡 OPDS</a>
 <span id="book-count"></span>
-<input type="file" id="file-input" hidden accept=".epub,.pdf,.mobi,.mp3,.m4b,.m4a,.flac,.opus,.ogg" multiple>
+<input type="file" id="file-input" hidden accept=".epub,.pdf,.mobi,.azw3,.kfx,.fb2,.docx,.odt,.txt,.rtf,.html,.htm,.md,.cbz,.cbr,.djvu,.mp3,.m4b,.m4a,.flac,.opus,.ogg,.acsm" multiple>
 </div>
 <div id="drop-zone">Drop files here to upload</div>
 <div id="content"></div>
@@ -303,7 +303,7 @@ dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.a
 dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop',async e=>{e.preventDefault();dropZone.classList.remove('dragover');await uploadFileList(Array.from(e.dataTransfer.files));});
 fileInput.addEventListener('change',async()=>{await uploadFileList(Array.from(fileInput.files));});
-const ALLOWED_EXT=new Set(['.epub','.pdf','.mobi','.mp3','.m4b','.m4a','.flac','.opus','.ogg']);
+const ALLOWED_EXT=new Set(['.epub','.pdf','.mobi','.azw3','.kfx','.fb2','.docx','.odt','.txt','.rtf','.html','.htm','.md','.cbz','.cbr','.djvu','.mp3','.m4b','.m4a','.flac','.opus','.ogg','.acsm']);
 async function uploadDirectory(){if('showDirectoryPicker' in window){try{const dh=await window.showDirectoryPicker();await uploadFileList(await collectFiles(dh));}catch(e){if(e.name!=='AbortError')console.error(e);}}else{const inp=document.createElement('input');inp.type='file';inp.webkitdirectory=true;inp.multiple=true;inp.onchange=async()=>{await uploadFileList(Array.from(inp.files).filter(f=>ALLOWED_EXT.has(f.name.slice(f.name.lastIndexOf('.')).toLowerCase())));};inp.click();}}
 async function collectFiles(dh){const f=[];for await(const e of dh.values()){if(e.kind==='file'){if(ALLOWED_EXT.has(e.name.slice(e.name.lastIndexOf('.')).toLowerCase()))f.push(await e.getFile());}else if(e.kind==='directory')f.push(...await collectFiles(e));}return f;}
 async function uploadFileList(files){
