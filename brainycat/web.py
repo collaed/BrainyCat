@@ -2687,3 +2687,11 @@ async def fetch_feed_endpoint(feed_id: str, _u: Any = Depends(get_current_user))
     from brainycat.reading_feed import fetch_feed
 
     return await fetch_feed(feed_id)
+
+
+# ── Title cleanup ─────────────────────────────────────────────────────────
+@app.post("/api/v1/intelligence/fix-titles")
+async def fix_titles(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.title_cleanup import run_title_cleanup_cycle
+
+    return await run_title_cleanup_cycle()
