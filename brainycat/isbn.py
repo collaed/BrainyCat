@@ -269,6 +269,25 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
             isbn = text_data.get("isbn") or text_data.get("isbn_10")
             extra.update(text_data)
 
+    # If no ISBN found, check if any extracted value is an ASIN
+    if not isbn and extra.get("isbn_10"):
+        asin = _extract_asin(extra["isbn_10"])
+        if asin:
+            await execute(
+                "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'), '{asin}', $1::jsonb) WHERE id = $2",
+                f'"{asin}"',
+                UUID(book_id),
+            )
+            # Try Amazon enrichment with the ASIN
+            try:
+                from brainycat.sources.amazon import search
+
+                amazon_data = await search(isbn=asin)
+                if amazon_data and amazon_data.get("isbn"):
+                    isbn = amazon_data["isbn"]  # Got real ISBN from Amazon via ASIN
+            except Exception:
+                pass
+
     if isbn:
         current = await fetch_one("SELECT isbn FROM books WHERE id = $1", UUID(book_id))
         if not current or not current["isbn"] or current["isbn"] in ("", "null"):
@@ -315,3 +334,11 @@ async def batch_extract_isbns(limit: int = 50) -> dict[str, Any]:
             found += 1
     total_missing = await fetch_one("SELECT count(*) as n FROM books WHERE isbn IS NULL OR isbn = ''")
     return {"extracted": found, "batch": len(rows), "still_missing": total_missing["n"] if total_missing else 0}
+
+
+def _extract_asin(raw: str) -> str | None:
+    """Extract ASIN from a string that looks like an Amazon ID."""
+    stripped = re.sub(r"[^A-Z0-9]", "", raw.upper().strip())
+    if stripped.startswith("B") and len(stripped) == 10 and stripped.isalnum():
+        return stripped
+    return None
