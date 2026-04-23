@@ -32,3 +32,26 @@ def test_extract_number_line() -> None:
     text = "10 9 8 7 6 5 4 3 2 1\nFirst printing\n" + "x " * 500
     result = extract_from_text(text)
     assert result.get("printing_number") == 1
+
+
+def test_verify_isbn13_valid() -> None:
+    from brainycat.isbn import _verify_isbn13
+    assert _verify_isbn13("9780452281431") is True
+
+def test_verify_isbn13_invalid() -> None:
+    from brainycat.isbn import _verify_isbn13
+    assert _verify_isbn13("9780452281432") is False  # Wrong check digit
+
+def test_verify_isbn10_valid() -> None:
+    from brainycat.isbn import _verify_isbn10
+    assert _verify_isbn10("0452281431") is True
+
+def test_clean_isbn_rejects_repeating() -> None:
+    assert _clean_isbn("1111111111") is None
+    assert _clean_isbn("0000000000000") is None
+
+def test_clean_isbn_valid_checksum() -> None:
+    assert _clean_isbn("978-0-452-28143-1") == "9780452281431"
+
+def test_clean_isbn_invalid_checksum() -> None:
+    assert _clean_isbn("978-0-452-28143-9") is None  # Wrong check digit

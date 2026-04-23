@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import zipfile
 from typing import Any
 from uuid import UUID
@@ -44,12 +45,42 @@ NUMBER_LINE_RE = re.compile(r"(?:^|\n)\s*((?:\d+\s+){3,}\d+)\s*(?:\n|$)")
 
 
 def _clean_isbn(raw: str) -> str | None:
+    """Clean and validate ISBN with checksum verification."""
     digits = re.sub(r"[^0-9Xx]", "", raw)
+
+    # Reject repeating digits (1111111111, 0000000000)
+    if len(set(digits.replace("X", "x"))) <= 2:
+        return None
+
     if len(digits) == 13 and digits.startswith(("978", "979")):
-        return digits
-    if len(digits) == 10:
+        if _verify_isbn13(digits):
+            return digits
+    elif len(digits) == 10 and _verify_isbn10(digits):
         return digits
     return None
+
+
+def _verify_isbn13(isbn: str) -> bool:
+    """Verify ISBN-13 checksum."""
+    try:
+        total = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(isbn[:12]))
+        check = (10 - total % 10) % 10
+        return check == int(isbn[12])
+    except (ValueError, IndexError):
+        return False
+
+
+def _verify_isbn10(isbn: str) -> bool:
+    """Verify ISBN-10 checksum."""
+    try:
+        total = 0
+        for i, ch in enumerate(isbn[:9]):
+            total += int(ch) * (10 - i)
+        check = (11 - total % 11) % 11
+        last = 10 if isbn[9] in ("X", "x") else int(isbn[9])
+        return check == last
+    except (ValueError, IndexError):
+        return False
 
 
 def extract_from_opf(epub_path: str) -> dict[str, Any]:
@@ -103,9 +134,10 @@ def extract_from_text(text: str) -> dict[str, Any]:
     if total < 500:
         return result
 
-    # Strategy: search front 10%, back 2%, and also around "Impressum"/"Achevé" markers
-    front = text[: int(total * 0.10)]
-    back = text[int(total * 0.98) :]
+    # Strategy: front ~10 pages + back ~5 pages (Calibre Extract ISBN style)
+    # Estimate ~2000 chars per page
+    front = text[:20000]  # ~10 pages
+    back = text[-10000:]  # ~5 pages
 
     # For German books: find Impressum section
     impressum_match = IMPRESSUM_RE.search(text[:5000])
@@ -181,8 +213,9 @@ def extract_from_text(text: str) -> dict[str, Any]:
 
 async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
     """Extract ISBN + metadata from a book's files and update the DB."""
+    # Try EPUB/PDF first, then any format via ebook-convert
     row = await fetch_one(
-        "SELECT bf.file_path, bf.format FROM book_files bf WHERE bf.book_id = $1 AND bf.format IN ('epub','pdf') LIMIT 1",
+        "SELECT bf.file_path, bf.format FROM book_files bf WHERE bf.book_id = $1 ORDER BY CASE bf.format WHEN 'epub' THEN 1 WHEN 'pdf' THEN 2 ELSE 3 END LIMIT 1",
         UUID(book_id),
     )
     if not row or not os.path.isfile(row["file_path"]):
@@ -201,7 +234,31 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
     if not isbn:
         from brainycat.fingerprints import _extract_full_text
 
-        text = _extract_full_text(row["file_path"], row["format"])
+        text = ""
+        if row["format"] in ("epub", "pdf"):
+            text = _extract_full_text(row["file_path"], row["format"])
+        elif shutil.which("ebook-convert"):
+            # Use ebook-convert for MOBI, AZW3, KFX, etc.
+            import asyncio
+            import tempfile
+
+            tmp = tempfile.mktemp(suffix=".txt")
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "ebook-convert",
+                    row["file_path"],
+                    tmp,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.communicate()
+                if os.path.isfile(tmp):
+                    with open(tmp) as f:
+                        text = f.read()
+            finally:
+                if os.path.isfile(tmp):
+                    os.unlink(tmp)
+
         if text:
             text_data = extract_from_text(text)
             isbn = text_data.get("isbn") or text_data.get("isbn_10")
