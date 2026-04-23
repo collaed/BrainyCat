@@ -45,8 +45,13 @@ NUMBER_LINE_RE = re.compile(r"(?:^|\n)\s*((?:\d+\s+){3,}\d+)\s*(?:\n|$)")
 
 
 def _clean_isbn(raw: str) -> str | None:
-    """Clean and validate ISBN with checksum verification."""
+    """Clean and validate ISBN with checksum verification.
+    Rejects ASINs (Amazon IDs starting with B) and other non-ISBN identifiers."""
     digits = re.sub(r"[^0-9Xx]", "", raw)
+
+    # Reject ASINs (Amazon IDs: start with B, 10 chars alphanumeric)
+    if raw.strip().startswith("B") and len(raw.strip()) == 10:
+        return None
 
     # Reject repeating digits (1111111111, 0000000000)
     if len(set(digits.replace("X", "x"))) <= 2:

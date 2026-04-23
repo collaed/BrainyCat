@@ -3204,3 +3204,93 @@ async def rate_limit_status(_u: Any = Depends(get_current_user)) -> dict[str, An
     from brainycat.rate_limit import rate_limiter
 
     return rate_limiter.get_status()
+
+
+# ── OCR + EPUB conversion pipeline ───────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/ocr-to-epub")
+async def ocr_to_epub(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Full pipeline: scanned PDF → OCR via Intello → EPUB3."""
+    from uuid import UUID as _UUID
+
+    # Step 1: Find the PDF
+    row = await db.fetch_one(
+        "SELECT file_path FROM book_files WHERE book_id=$1 AND format='pdf' LIMIT 1",
+        _UUID(book_id),
+    )
+    if not row:
+        return {"error": "no PDF file"}
+
+    # Step 2: Submit OCR job to Intello
+    from brainycat.async_jobs import submit_job
+
+    with open(row["file_path"], "rb") as fh:
+        result = await submit_job(book_id, "ocr", "/api/v1/ocr/jobs", files={"file": fh})
+    if not result.get("ok"):
+        return {"error": "OCR submission failed", "detail": result}
+
+    # Step 3: The OCR result will be a searchable PDF — convert to EPUB
+    # This happens asynchronously. The job status can be polled.
+    return {
+        "ok": True,
+        "job_id": result.get("job_id"),
+        "status": "submitted",
+        "next_steps": [
+            f"Poll: GET /api/v1/jobs?book_id={book_id}",
+            f"When complete: POST /api/v1/books/{book_id}/pdf-to-epub",
+            f"Compare: GET /api/v1/books/{book_id}/compare",
+        ],
+    }
+
+
+# ── Side-by-side comparison (PDF vs EPUB) ─────────────────────────────────
+@app.get("/api/v1/books/{book_id}/compare")
+async def compare_formats(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Compare PDF and EPUB versions of a book for human review."""
+    from uuid import UUID as _UUID
+
+    files = await db.fetch_all(
+        "SELECT id, format, file_path, file_name FROM book_files WHERE book_id=$1",
+        _UUID(book_id),
+    )
+    pdf = next((f for f in files if f["format"] == "pdf"), None)
+    epub = next((f for f in files if f["format"] == "epub"), None)
+
+    if not pdf or not epub:
+        return {"error": "need both PDF and EPUB to compare", "formats": [f["format"] for f in files]}
+
+    # Extract text samples from both
+    pdf_text = ""
+    try:
+        import fitz
+
+        doc = fitz.open(pdf["file_path"])
+        for page in doc[:3]:  # First 3 pages
+            pdf_text += page.get_text() + "\n---PAGE---\n"
+        doc.close()
+    except Exception:
+        pdf_text = "(could not extract PDF text)"
+
+    epub_text = ""
+    try:
+        import ebooklib
+        from bs4 import BeautifulSoup
+        from ebooklib import epub
+
+        book = epub.read_epub(epub["file_path"], options={"ignore_ncx": True})
+        for i, item in enumerate(book.get_items_of_type(ebooklib.ITEM_DOCUMENT)):
+            if i >= 3:
+                break
+            soup = BeautifulSoup(item.get_content(), "html.parser")
+            epub_text += soup.get_text(separator="\n", strip=True) + "\n---CHAPTER---\n"
+    except Exception:
+        epub_text = "(could not extract EPUB text)"
+
+    return {
+        "book_id": book_id,
+        "pdf": {"file_id": str(pdf["id"]), "file_name": pdf["file_name"], "text_sample": pdf_text[:3000]},
+        "epub": {"file_id": str(epub["id"]), "file_name": epub["file_name"], "text_sample": epub_text[:3000]},
+        "view_urls": {
+            "pdf": f"/api/v1/books/{book_id}/file/{pdf['id']}",
+            "epub_reader": f"/static/reader.html?id={book_id}",
+        },
+    }

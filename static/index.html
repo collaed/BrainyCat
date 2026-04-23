@@ -97,7 +97,7 @@ nav a:hover{background:var(--surface);color:var(--text)}
 <body>
 <header>
 <h1>🐱 BrainyCat</h1>
-<div class="search-box"><input id="search" type="text" placeholder="Search title, author, ISBN, tag..." autofocus></div>
+<div class="search-box" style="position:relative"><input id="search" type="text" placeholder="Search title, author, ISBN, tag..." autofocus><button id="search-clear" onclick="document.getElementById('search').value='';doSearch()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.1rem;display:none">✕</button></div>
 <input id="filter-author" placeholder="Author..." class="btn sm" style="width:100px;border:1px solid var(--border);background:var(--bg)">
 <nav>
 <a href="catalog.html">📖 Catalog</a>
@@ -148,6 +148,7 @@ nav a:hover{background:var(--surface);color:var(--text)}
 <script>
 let allBooks=[],view='grid',sortField='updated_at',sortOrder='desc',page=0,loading=false,hasMore=true,currentBookIdx=-1;
 const PAGE_SIZE=60,content=document.getElementById('content'),searchInput=document.getElementById('search');
+searchInput.addEventListener('input',()=>{document.getElementById('search-clear').style.display=searchInput.value?'':'none';});
 let selectedBooks=new Set();
 
 function setView(v){view=v;document.getElementById('btn-grid').classList.toggle('active',v==='grid');document.getElementById('btn-list').classList.toggle('active',v==='list');page=0;allBooks=[];hasMore=true;loadBooks();}
