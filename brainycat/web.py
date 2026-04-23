@@ -2074,10 +2074,25 @@ async def set_language_prefs(request: Request, user: Any = Depends(get_current_u
 
 
 # ── Book summaries (getAbstract-style) ────────────────────────────────────
-@app.post("/api/v1/books/{book_id}/summary")
-async def book_summary(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
-    from brainycat.summaries import generate_summary
+@app.get("/api/v1/books/{book_id}/summary")
+async def book_summary_l1(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.summaries import summary_level1
 
+    return await summary_level1(book_id)
+
+
+@app.post("/api/v1/books/{book_id}/summary")
+async def book_summary_l2(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.summaries import summary_level2
+
+    return await summary_level2(book_id)
+
+
+@app.post("/api/v1/books/{book_id}/goldmine")
+async def book_goldmine(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.summaries import goldmine
+
+    return await goldmine(book_id)
     return await generate_summary(book_id)
 
 
