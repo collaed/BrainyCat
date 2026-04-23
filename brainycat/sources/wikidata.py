@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+from brainycat.http_client import get_client
 
 SPARQL_URL = "https://query.wikidata.org/sparql"
 
@@ -21,11 +21,11 @@ async def search_by_isbn(isbn: str) -> dict[str, Any] | None:
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en" }}
     }} LIMIT 10
     """
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.get(SPARQL_URL, params={"query": query, "format": "json"})
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
+    client = get_client()
+    resp = await client.get(SPARQL_URL, params={"query": query, "format": "json"})
+    if resp.status_code != 200:
+        return None
+    data = resp.json()
 
     bindings = data.get("results", {}).get("bindings", [])
     if not bindings:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+from brainycat.http_client import get_client
 
 API_URL = "https://librivox.org/api/feed/audiobooks"
 
@@ -19,13 +19,13 @@ async def search(title: str | None = None, author: str | None = None, limit: int
     else:
         return {"books": []}
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            resp = await client.get(API_URL, params=params)
-            if resp.status_code == 200:
-                data = resp.json()
-                books_raw = data.get("books", [])
-                if isinstance(books_raw, list) and books_raw:
-                    return {"books": [_parse(b) for b in books_raw]}
+        client = get_client()
+        resp = await client.get(API_URL, params=params)
+        if resp.status_code == 200:
+            data = resp.json()
+            books_raw = data.get("books", [])
+            if isinstance(books_raw, list) and books_raw:
+                return {"books": [_parse(b) for b in books_raw]}
     except Exception:
         pass
     # Fallback: if title search failed, retry as author search
@@ -36,11 +36,11 @@ async def search(title: str | None = None, author: str | None = None, limit: int
 
 async def get_book(librivox_id: str) -> dict[str, Any] | None:
     try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            resp = await client.get(API_URL, params={"id": librivox_id, "format": "json"})
-            if resp.status_code != 200:
-                return None
-            data = resp.json()
+        client = get_client()
+        resp = await client.get(API_URL, params={"id": librivox_id, "format": "json"})
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
         books = data.get("books", [])
         return _parse(books[0]) if books else None
     except Exception:
@@ -50,10 +50,10 @@ async def get_book(librivox_id: str) -> dict[str, Any] | None:
 async def get_chapters(rss_url: str) -> list[dict[str, Any]]:
     """Parse RSS feed to get individual chapter MP3 URLs."""
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            resp = await client.get(rss_url)
-            if resp.status_code != 200:
-                return []
+        client = get_client()
+        resp = await client.get(rss_url)
+        if resp.status_code != 200:
+            return []
         from bs4 import BeautifulSoup
 
         soup = BeautifulSoup(resp.text, "html.parser")

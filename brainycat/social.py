@@ -17,9 +17,8 @@ from collections import Counter
 from typing import Any
 from uuid import UUID, uuid4
 
-import httpx
-
 from brainycat.db import execute, fetch_all, fetch_one
+from brainycat.http_client import get_client
 
 
 def generate_profile_hash(server_url: str, username: str) -> dict[str, str]:
@@ -211,16 +210,16 @@ async def refresh_follows(user_id: str) -> dict[str, Any]:
     for f in follows:
         try:
             url = f"https://{f['server_url']}/public/{f['username']}/feed.json"
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.get(url)
-                if resp.status_code == 200:
-                    feed = resp.json()
-                    await execute(
-                        "UPDATE follows SET cached_feed = $1, last_fetched = now() WHERE id = $2",
-                        json.dumps(feed, default=str),
-                        f["id"],
-                    )
-                    refreshed += 1
+            client = get_client()
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                feed = resp.json()
+                await execute(
+                    "UPDATE follows SET cached_feed = $1, last_fetched = now() WHERE id = $2",
+                    json.dumps(feed, default=str),
+                    f["id"],
+                )
+                refreshed += 1
         except Exception:
             pass
     return {"refreshed": refreshed, "total": len(follows)}

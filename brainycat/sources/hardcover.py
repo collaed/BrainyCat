@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+from brainycat.http_client import get_client
 
 API_URL = "https://hardcover.app/api/graphql"
 
@@ -47,11 +47,11 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
         key = os.environ.get("HARDCOVER_API_KEY", "")
         if key:
             headers["Authorization"] = key if key.startswith("Bearer") else f"Bearer {key}"
-        async with httpx.AsyncClient(timeout=10, headers=headers) as client:
-            resp = await client.post(API_URL, json=graphql)
-            if resp.status_code != 200:
-                return None
-            data = resp.json()
+        client = get_client()
+        resp = await client.post(API_URL, json=graphql)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
     except Exception:
         return None
 

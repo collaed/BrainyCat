@@ -32,6 +32,7 @@ from brainycat import (
     tts,
 )
 from brainycat.auth import get_current_user, require_admin
+from brainycat.http_client import get_client
 from brainycat.jobs import get_job
 from brainycat.logging import setup_logging
 
@@ -445,16 +446,14 @@ async def gutenberg_detail(gutenberg_id: int, _u: Any = Depends(get_current_user
 async def gutenberg_import(gutenberg_id: int, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
     from uuid import UUID, uuid4
 
-    import httpx
-
     from brainycat.sources.gutendex import get_book as gb
     from brainycat.storage import book_dir
 
     data = await gb(gutenberg_id)
     if not data or not data.get("epub_url"):
         return {"error": "No EPUB available"}
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(data["epub_url"])
+    client = get_client()
+    resp = await client.get(data["epub_url"])
     if resp.status_code != 200:
         return {"error": "Download failed"}
     bid = str(uuid4())
@@ -2486,24 +2485,22 @@ async def opds_import_search(url: str = Query(""), q: str = Query(""), _u: Any =
     """Search an external OPDS feed (calibre-server, Kavita, Komga, etc.)."""
     from xml.etree import ElementTree as ET
 
-    import httpx
-
     if not url:
         return {"error": "provide OPDS feed URL"}
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            search_url = f"{url.rstrip('/')}/search?q={q}" if q else url
-            resp = await client.get(search_url)
-            if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
-            root = ET.fromstring(resp.content)
-            ns = {"atom": "http://www.w3.org/2005/Atom", "opds": "http://opds-spec.org/2010/catalog"}
-            books = []
-            for entry in root.findall("atom:entry", ns):
-                title = entry.findtext("atom:title", "", ns)
-                author = entry.findtext("atom:author/atom:name", "", ns)
-                books.append({"title": title, "authors": [author] if author else [], "source": "opds_external"})
-            return {"books": books, "feed_title": root.findtext("atom:title", "", ns)}
+        client = get_client()
+        search_url = f"{url.rstrip('/')}/search?q={q}" if q else url
+        resp = await client.get(search_url)
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}"}
+        root = ET.fromstring(resp.content)
+        ns = {"atom": "http://www.w3.org/2005/Atom", "opds": "http://opds-spec.org/2010/catalog"}
+        books = []
+        for entry in root.findall("atom:entry", ns):
+            title = entry.findtext("atom:title", "", ns)
+            author = entry.findtext("atom:author/atom:name", "", ns)
+            books.append({"title": title, "authors": [author] if author else [], "source": "opds_external"})
+        return {"books": books, "feed_title": root.findtext("atom:title", "", ns)}
     except Exception as e:
         return {"error": str(e)[:100]}
 
@@ -2697,7 +2694,6 @@ async def fix_titles(_a: Any = Depends(require_admin)) -> dict[str, Any]:
 @app.post("/api/v1/notify")
 async def send_notification(request: Request, _a: Any = Depends(require_admin)) -> dict[str, Any]:
     """Send notification via Signal or Gotify."""
-    import httpx
 
     from brainycat.config import settings
 
@@ -2708,9 +2704,9 @@ async def send_notification(request: Request, _a: Any = Depends(require_admin)) 
     # Signal (existing)
     if settings.signal_api_url:
         try:
-            async with httpx.AsyncClient(timeout=10) as c:
-                r = await c.post(f"{settings.signal_api_url}/v2/send", json={"message": msg, "number": body.get("number", "")})
-                results["signal"] = r.status_code == 200
+            c = get_client()
+            r = await c.post(f"{settings.signal_api_url}/v2/send", json={"message": msg, "number": body.get("number", "")})
+            results["signal"] = r.status_code == 200
         except Exception:
             results["signal"] = False
 
@@ -2719,9 +2715,9 @@ async def send_notification(request: Request, _a: Any = Depends(require_admin)) 
     gotify_token = getattr(settings, "gotify_token", "") or ""
     if gotify_url and gotify_token:
         try:
-            async with httpx.AsyncClient(timeout=10) as c:
-                r = await c.post(f"{gotify_url}/message?token={gotify_token}", json={"title": "BrainyCat", "message": msg, "priority": 5})
-                results["gotify"] = r.status_code == 200
+            c = get_client()
+            r = await c.post(f"{gotify_url}/message?token={gotify_token}", json={"title": "BrainyCat", "message": msg, "priority": 5})
+            results["gotify"] = r.status_code == 200
         except Exception:
             results["gotify"] = False
 
@@ -2750,20 +2746,19 @@ async def book_reviews_aggregated(book_id: str, _u: Any = Depends(get_current_us
 @app.get("/api/v1/catalog/manybooks/search")
 async def manybooks_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Search ManyBooks (50K+ free ebooks)."""
-    import httpx
 
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
-            r = await c.get(f"https://manybooks.net/search-book?search={q}", headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code == 200:
-                import re
+        c = get_client()
+        r = await c.get(f"https://manybooks.net/search-book?search={q}", headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code == 200:
+            import re
 
-                books = []
-                for m in re.finditer(r'<a href="(/titles/[^"]+)"[^>]*>([^<]+)</a>', r.text):
-                    books.append({"source": "manybooks", "title": m.group(2).strip(), "url": f"https://manybooks.net{m.group(1)}"})
-                    if len(books) >= 20:
-                        break
-                return {"books": books}
+            books = []
+            for m in re.finditer(r'<a href="(/titles/[^"]+)"[^>]*>([^<]+)</a>', r.text):
+                books.append({"source": "manybooks", "title": m.group(2).strip(), "url": f"https://manybooks.net{m.group(1)}"})
+                if len(books) >= 20:
+                    break
+            return {"books": books}
     except Exception:
         pass
     return {"books": []}
@@ -2772,22 +2767,21 @@ async def manybooks_search(q: str = Query(""), _u: Any = Depends(get_current_use
 @app.get("/api/v1/catalog/free-computer-books/search")
 async def free_computer_books(q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Search Free Computer Books (technical/programming)."""
-    import httpx
 
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
-            r = await c.get(f"https://freecomputerbooks.com/search.html?cx=partner-pub-7&q={q}", headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code == 200:
-                import re
+        c = get_client()
+        r = await c.get(f"https://freecomputerbooks.com/search.html?cx=partner-pub-7&q={q}", headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code == 200:
+            import re
 
-                books = []
-                for m in re.finditer(r'<a href="(https?://freecomputerbooks\.com/[^"]+\.html)"[^>]*>([^<]+)</a>', r.text):
-                    title = m.group(2).strip()
-                    if len(title) > 5 and "search" not in title.lower():
-                        books.append({"source": "free_computer_books", "title": title, "url": m.group(1)})
-                        if len(books) >= 20:
-                            break
-                return {"books": books}
+            books = []
+            for m in re.finditer(r'<a href="(https?://freecomputerbooks\.com/[^"]+\.html)"[^>]*>([^<]+)</a>', r.text):
+                title = m.group(2).strip()
+                if len(title) > 5 and "search" not in title.lower():
+                    books.append({"source": "free_computer_books", "title": title, "url": m.group(1)})
+                    if len(books) >= 20:
+                        break
+            return {"books": books}
     except Exception:
         pass
     return {"books": []}

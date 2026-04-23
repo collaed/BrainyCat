@@ -161,10 +161,17 @@ async def list_books(
     idx = 1
 
     if q:
+        # Quoted phrases use phraseto_tsquery for exact phrase matching
+        if '"' in q:
+            clean_q = q.replace('"', "")
+            ts_fn = "phraseto_tsquery"
+        else:
+            clean_q = q
+            ts_fn = "plainto_tsquery"
         conditions.append(
-            f"(b.title ILIKE '%' || ${idx} || '%' OR EXISTS (SELECT 1 FROM books_authors ba2 JOIN authors a2 ON a2.id = ba2.author_id WHERE ba2.book_id = b.id AND a2.name ILIKE '%' || ${idx} || '%') OR b.search_vector @@ plainto_tsquery('simple', unaccent(${idx})) OR similarity(b.title, ${idx}) > 0.3)"
+            f"(b.title ILIKE '%' || ${idx} || '%' OR EXISTS (SELECT 1 FROM books_authors ba2 JOIN authors a2 ON a2.id = ba2.author_id WHERE ba2.book_id = b.id AND a2.name ILIKE '%' || ${idx} || '%') OR b.search_vector @@ {ts_fn}('simple', unaccent(${idx})) OR similarity(b.title, ${idx}) > 0.3)"
         )
-        params.append(q)
+        params.append(clean_q)
         idx += 1
 
     if book_format:

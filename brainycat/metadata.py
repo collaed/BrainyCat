@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from brainycat.db import execute, fetch_one
+from brainycat.http_client import get_client
 from brainycat.sources import amazon, google_books, gutendex, loc, open_library
 
 
@@ -111,8 +112,6 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     if not row["cover_path"]:
         import os
 
-        import httpx
-
         from brainycat.sources.covers import apple_cover, bookcover_api, is_dummy_cover
         from brainycat.storage import book_dir
 
@@ -123,13 +122,13 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
 
         if cover_url:
             try:
-                async with httpx.AsyncClient() as client:
-                    resp = await client.get(cover_url, timeout=15, follow_redirects=True)
-                    if resp.status_code == 200 and not is_dummy_cover(resp.content):
-                        cover_path = os.path.join(book_dir(book_id), "cover.jpg")
-                        with open(cover_path, "wb") as f:
-                            f.write(resp.content)
-                        await execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, UUID(book_id))
+                client = get_client()
+                resp = await client.get(cover_url, timeout=15, follow_redirects=True)
+                if resp.status_code == 200 and not is_dummy_cover(resp.content):
+                    cover_path = os.path.join(book_dir(book_id), "cover.jpg")
+                    with open(cover_path, "wb") as f:
+                        f.write(resp.content)
+                    await execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, UUID(book_id))
             except Exception:
                 pass
 
@@ -161,6 +160,14 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     # Update quality score
     score = _compute_quality(book_id, row, merged)
     await execute("UPDATE books SET quality_score = $1 WHERE id = $2", score, UUID(book_id))
+
+    # Post-enrichment: writeback metadata into EPUB
+    try:
+        from brainycat.writeback import writeback_metadata
+
+        await writeback_metadata(book_id)
+    except Exception:
+        pass
 
     return {"enriched": True, "quality_score": score, "sources": len(results)}
 
@@ -224,25 +231,23 @@ Text sample: {sample[:3000]}
 Return: {{"thema_code": "XX", "thema_label": "...", "fiction": true/false, "genre": "...", "subgenre": "...", "language": "en/fr/de/...", "confidence": 0.0-1.0}}"""
 
     try:
-        import httpx
-
         from brainycat.config import settings
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{settings.intello_url}/v1/chat/completions",
-                json={"model": "auto", "messages": [{"role": "user", "content": prompt}], "max_tokens": 200},
-            )
-            if resp.status_code == 200:
-                content = resp.json()["choices"][0]["message"]["content"]
-                import json
+        client = get_client()
+        resp = await client.post(
+            f"{settings.intello_url}/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": prompt}], "max_tokens": 200},
+        )
+        if resp.status_code == 200:
+            content = resp.json()["choices"][0]["message"]["content"]
+            import json
 
-                # Try to parse JSON from response
-                content = content.strip()
-                if content.startswith("```"):
-                    content = content.split("```")[1].strip("json\n ")
-                result = json.loads(content)
-                return {"classified": True, **result}
+            # Try to parse JSON from response
+            content = content.strip()
+            if content.startswith("```"):
+                content = content.split("```")[1].strip("json\n ")
+            result = json.loads(content)
+            return {"classified": True, **result}
     except Exception as e:
         return {"error": str(e)}
 

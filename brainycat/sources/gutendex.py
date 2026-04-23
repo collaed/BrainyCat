@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+from brainycat.http_client import get_client
 
 API_URL = "https://gutendex.com/books"
 
@@ -22,11 +22,11 @@ async def search(
     if not params.get("search") and not topic:
         return None
 
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-        resp = await client.get(API_URL, params=params)
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
+    client = get_client()
+    resp = await client.get(API_URL, params=params)
+    if resp.status_code != 200:
+        return None
+    data = resp.json()
 
     results = data.get("results", [])
     if not results:
@@ -38,18 +38,18 @@ async def browse(language: str = "en", topic: str | None = None, page: int = 1) 
     params: dict[str, Any] = {"languages": language, "page": page, "sort": "popular"}
     if topic:
         params["topic"] = topic
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-        resp = await client.get(API_URL, params=params)
-        data = resp.json() if resp.status_code == 200 else {}
+    client = get_client()
+    resp = await client.get(API_URL, params=params)
+    data = resp.json() if resp.status_code == 200 else {}
     return {"count": data.get("count", 0), "books": [_parse_book(b) for b in data.get("results", [])]}
 
 
 async def get_book(gutenberg_id: int) -> dict[str, Any] | None:
-    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        resp = await client.get(f"{API_URL}/{gutenberg_id}")
-        if resp.status_code != 200:
-            return None
-        return _parse_book(resp.json())
+    client = get_client()
+    resp = await client.get(f"{API_URL}/{gutenberg_id}")
+    if resp.status_code != 200:
+        return None
+    return _parse_book(resp.json())
 
 
 def _parse_book(data: dict[str, Any]) -> dict[str, Any]:

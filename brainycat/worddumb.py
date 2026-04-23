@@ -12,10 +12,9 @@ from collections import Counter
 from typing import Any
 from uuid import UUID
 
-import httpx
-
 from brainycat.config import settings
 from brainycat.db import execute, fetch_one
+from brainycat.http_client import get_client
 
 
 async def generate_word_wise(book_id: str) -> dict[str, Any]:
@@ -50,18 +49,18 @@ async def generate_word_wise(book_id: str) -> dict[str, Any]:
     prompt = f"Define these words simply (1 short sentence each, for a reader):\n{', '.join(difficult[:50])}"
     definitions: dict[str, str] = {}
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{settings.intello_url}/v1/chat/completions",
-                json={"model": "auto", "messages": [{"role": "user", "content": prompt}]},
-                headers={"Authorization": f"Bearer {settings.intello_api_key}"},
-            )
-            if resp.status_code == 200:
-                text = resp.json()["choices"][0]["message"]["content"]
-                for line in text.split("\n"):
-                    m = re.match(r"\*?\*?(\w+)\*?\*?\s*[-:\u2013]\s*(.+)", line.strip())
-                    if m:
-                        definitions[m.group(1).lower()] = m.group(2).strip()
+        client = get_client()
+        resp = await client.post(
+            f"{settings.intello_url}/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": prompt}]},
+            headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+        )
+        if resp.status_code == 200:
+            text = resp.json()["choices"][0]["message"]["content"]
+            for line in text.split("\n"):
+                m = re.match(r"\*?\*?(\w+)\*?\*?\s*[-:\u2013]\s*(.+)", line.strip())
+                if m:
+                    definitions[m.group(1).lower()] = m.group(2).strip()
     except Exception:
         pass
 
@@ -107,20 +106,20 @@ Text: {sample}"""
 
     xray: dict[str, Any] = {"characters": [], "locations": [], "terms": []}
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"{settings.intello_url}/v1/chat/completions",
-                json={"model": "auto", "messages": [{"role": "user", "content": prompt}]},
-                headers={"Authorization": f"Bearer {settings.intello_api_key}"},
-            )
-            if resp.status_code == 200:
-                import json
+        client = get_client()
+        resp = await client.post(
+            f"{settings.intello_url}/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": prompt}]},
+            headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+        )
+        if resp.status_code == 200:
+            import json
 
-                text = resp.json()["choices"][0]["message"]["content"]
-                # Extract JSON from response
-                json_match = re.search(r"\{.*\}", text, re.DOTALL)
-                if json_match:
-                    xray = json.loads(json_match.group())
+            text = resp.json()["choices"][0]["message"]["content"]
+            # Extract JSON from response
+            json_match = re.search(r"\{.*\}", text, re.DOTALL)
+            if json_match:
+                xray = json.loads(json_match.group())
     except Exception:
         pass
 

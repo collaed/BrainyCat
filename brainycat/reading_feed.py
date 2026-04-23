@@ -13,9 +13,8 @@ from typing import Any
 from uuid import UUID, uuid4
 from xml.etree import ElementTree as ET
 
-import httpx
-
 from brainycat.db import execute, fetch_all, fetch_one
+from brainycat.http_client import get_client
 
 
 async def add_feed(user_id: str, url: str, name: str = "") -> dict[str, Any]:
@@ -53,10 +52,10 @@ async def fetch_feed(feed_id: str) -> dict[str, Any]:
         return {"error": "feed not found"}
 
     try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            resp = await client.get(feed["url"])
-            if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
+        client = get_client()
+        resp = await client.get(feed["url"])
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}"}
     except Exception as e:
         return {"error": str(e)[:100]}
 

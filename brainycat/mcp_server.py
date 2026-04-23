@@ -6,10 +6,11 @@ import json
 import os
 from typing import Any
 
-import httpx
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
+
+from brainycat.http_client import get_client
 
 # BrainyCat API — configure via environment
 API_URL = os.environ.get("BRAINYCAT_URL", "http://localhost:8000") + "/api/v1"
@@ -22,14 +23,14 @@ else:
 
 
 async def _api(method: str, path: str, body: dict | None = None) -> dict:
-    async with httpx.AsyncClient(base_url=API_URL, headers=HEADERS, timeout=30) as c:
-        if method == "GET":
-            r = await c.get(path)
-        elif method == "PATCH":
-            r = await c.patch(path, json=body) if body else await c.patch(path)
-        else:
-            r = await c.post(path, json=body) if body else await c.post(path)
-        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+    c = get_client()
+    if method == "GET":
+        r = await c.get(path)
+    elif method == "PATCH":
+        r = await c.patch(path, json=body) if body else await c.patch(path)
+    else:
+        r = await c.post(path, json=body) if body else await c.post(path)
+    return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
 
 app = Server("brainycat")
@@ -237,9 +238,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         body = {k: v for k, v in arguments.items() if k != "book_id" and v}
         result = await _api("PATCH", f"/books/{arguments['book_id']}", body)
     elif name == "delete_book":
-        async with httpx.AsyncClient(base_url=API_URL, headers=HEADERS, timeout=10) as c:
-            r = await c.delete(f"/books/{arguments['book_id']}")
-            result = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+        c = get_client()
+        r = await c.delete(f"/books/{arguments['book_id']}")
+        result = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
     elif name == "taste_recommendations":
         result = await _api("GET", f"/recommendations/{arguments['user_id']}")
     elif name == "book_sources":

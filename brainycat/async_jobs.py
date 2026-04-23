@@ -13,6 +13,7 @@ import httpx
 
 from brainycat.config import settings
 from brainycat.db import execute, fetch_all, fetch_one
+from brainycat.http_client import get_client
 
 
 async def submit_job(
@@ -24,35 +25,35 @@ async def submit_job(
 ) -> dict[str, Any]:
     """Submit an async job to Intello and track it."""
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            if files:
-                resp = await client.post(
-                    f"{settings.intello_url}{endpoint}",
-                    files=files,
-                    data=payload or {},
-                    headers={"Authorization": f"Bearer {settings.intello_api_key}"},
-                )
-            else:
-                resp = await client.post(
-                    f"{settings.intello_url}{endpoint}",
-                    json=payload or {},
-                    headers={"Authorization": f"Bearer {settings.intello_api_key}"},
-                )
-            if resp.status_code in (200, 201, 202):
-                data = resp.json()
-                job_id = data.get("job_id") or data.get("id") or str(uuid4())
-                await execute(
-                    """
-                    INSERT INTO async_jobs (id, book_id, job_type, remote_job_id, status)
-                    VALUES ($1, $2, $3, $4, 'submitted')
-                """,
-                    uuid4(),
-                    UUID(book_id),
-                    job_type,
-                    job_id,
-                )
-                return {"ok": True, "job_id": job_id, "status": "submitted"}
-            return {"error": f"Intello returned {resp.status_code}", "body": resp.text[:200]}
+        client = get_client()
+        if files:
+            resp = await client.post(
+                f"{settings.intello_url}{endpoint}",
+                files=files,
+                data=payload or {},
+                headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+            )
+        else:
+            resp = await client.post(
+                f"{settings.intello_url}{endpoint}",
+                json=payload or {},
+                headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+            )
+        if resp.status_code in (200, 201, 202):
+            data = resp.json()
+            job_id = data.get("job_id") or data.get("id") or str(uuid4())
+            await execute(
+                """
+                INSERT INTO async_jobs (id, book_id, job_type, remote_job_id, status)
+                VALUES ($1, $2, $3, $4, 'submitted')
+            """,
+                uuid4(),
+                UUID(book_id),
+                job_type,
+                job_id,
+            )
+            return {"ok": True, "job_id": job_id, "status": "submitted"}
+        return {"error": f"Intello returned {resp.status_code}", "body": resp.text[:200]}
     except httpx.ConnectError:
         # Intello unavailable — queue for retry
         await execute(
@@ -73,20 +74,20 @@ async def submit_job(
 async def check_job(job_id: str, status_endpoint: str) -> dict[str, Any]:
     """Check status of an async job on Intello."""
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                f"{settings.intello_url}{status_endpoint}/{job_id}",
-                headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+        client = get_client()
+        resp = await client.get(
+            f"{settings.intello_url}{status_endpoint}/{job_id}",
+            headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            status = data.get("status", "unknown")
+            await execute(
+                "UPDATE async_jobs SET status=$1 WHERE remote_job_id=$2",
+                status,
+                job_id,
             )
-            if resp.status_code == 200:
-                data = resp.json()
-                status = data.get("status", "unknown")
-                await execute(
-                    "UPDATE async_jobs SET status=$1 WHERE remote_job_id=$2",
-                    status,
-                    job_id,
-                )
-                return data
+            return data
     except Exception as e:
         return {"status": "unreachable", "error": str(e)[:100]}
     return {"status": "unknown"}
@@ -95,20 +96,20 @@ async def check_job(job_id: str, status_endpoint: str) -> dict[str, Any]:
 async def get_job_result(job_id: str, result_endpoint: str) -> bytes | dict | None:
     """Retrieve the result of a completed async job."""
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.get(
-                f"{settings.intello_url}{result_endpoint}/{job_id}/result",
-                headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+        client = get_client()
+        resp = await client.get(
+            f"{settings.intello_url}{result_endpoint}/{job_id}/result",
+            headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+        )
+        if resp.status_code == 200:
+            await execute(
+                "UPDATE async_jobs SET status='completed' WHERE remote_job_id=$1",
+                job_id,
             )
-            if resp.status_code == 200:
-                await execute(
-                    "UPDATE async_jobs SET status='completed' WHERE remote_job_id=$1",
-                    job_id,
-                )
-                ct = resp.headers.get("content-type", "")
-                if ct.startswith("application/json"):
-                    return resp.json()
-                return resp.content
+            ct = resp.headers.get("content-type", "")
+            if ct.startswith("application/json"):
+                return resp.json()
+            return resp.content
     except Exception:
         pass
     return None

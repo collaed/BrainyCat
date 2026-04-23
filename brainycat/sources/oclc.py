@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+from brainycat.http_client import get_client
 
 API_URL = "http://classify.oclc.org/classify2/Classify"
 
@@ -20,42 +20,42 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
         return None
 
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            # JSON endpoint
-            params["jsonp"] = ""
-            resp = await client.get(API_URL, params=params)
-            if resp.status_code != 200:
+        client = get_client()
+        # JSON endpoint
+        params["jsonp"] = ""
+        resp = await client.get(API_URL, params=params)
+        if resp.status_code != 200:
+            return None
+
+        # OCLC returns JSONP or XML — try to parse
+        text = resp.text.strip()
+        if text.startswith("(") or text.startswith("{"):
+            # Try JSON
+            import json
+
+            text = text.strip("();")
+            json.loads(text)
+        else:
+            # Parse XML
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(text, "html.parser")
+            work = soup.find("work")
+            if not work:
                 return None
 
-            # OCLC returns JSONP or XML — try to parse
-            text = resp.text.strip()
-            if text.startswith("(") or text.startswith("{"):
-                # Try JSON
-                import json
+            ddc = soup.find("mostpopular", {"sfa": True})
+            lcc = soup.find("mostpopular", {"nsfa": True})
 
-                text = text.strip("();")
-                json.loads(text)
-            else:
-                # Parse XML
-                from bs4 import BeautifulSoup
-
-                soup = BeautifulSoup(text, "html.parser")
-                work = soup.find("work")
-                if not work:
-                    return None
-
-                ddc = soup.find("mostpopular", {"sfa": True})
-                lcc = soup.find("mostpopular", {"nsfa": True})
-
-                return {
-                    "source": "oclc",
-                    "title": work.get("title"),
-                    "ddc": ddc.get("sfa") if ddc else None,
-                    "lcc": lcc.get("nsfa") if lcc else None,
-                    "authors": [work.get("author")] if work.get("author") else [],
-                    "genres": _ddc_to_thema(ddc.get("sfa") if ddc else None),
-                    "owi": work.get("owi"),
-                }
+            return {
+                "source": "oclc",
+                "title": work.get("title"),
+                "ddc": ddc.get("sfa") if ddc else None,
+                "lcc": lcc.get("nsfa") if lcc else None,
+                "authors": [work.get("author")] if work.get("author") else [],
+                "genres": _ddc_to_thema(ddc.get("sfa") if ddc else None),
+                "owi": work.get("owi"),
+            }
     except Exception:
         pass
     return None

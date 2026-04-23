@@ -11,9 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
-
 from brainycat.db import execute, fetch_all, fetch_one
+from brainycat.http_client import get_client
 
 GUTENDEX_URL = "https://gutendex.com/books"
 LIBRIVOX_URL = "https://librivox.org/api/feed/audiobooks"
@@ -22,73 +21,73 @@ LIBRIVOX_URL = "https://librivox.org/api/feed/audiobooks"
 async def sync_gutenberg(max_pages: int = 50, languages: list[str] | None = None) -> dict[str, int]:
     """Download Gutenberg catalog into local cache. ~70K books, paginated 32/page."""
     inserted = 0
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        lang_param = ",".join(languages) if languages else ""
-        url: str | None = GUTENDEX_URL + "?page=1" + (f"&languages={lang_param}" if lang_param else "")
-        page = 0
-        while url and page < max_pages:
-            page += 1
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                break
-            data = resp.json()
-            for b in data.get("results", []):
-                gid = f"gut_{b['id']}"
-                authors = [a["name"] for a in b.get("authors", [])]
-                formats = b.get("formats", {})
-                await execute(
-                    """
-                    INSERT INTO catalog_cache (id, source, title, authors, language, genres, cover_url, epub_url, download_count)
-                    VALUES ($1, 'gutenberg', $2, $3, $4, $5, $6, $7, $8)
-                    ON CONFLICT (id) DO UPDATE SET title=$2, authors=$3, download_count=$8, cached_at=now()
-                """,
-                    gid,
-                    b.get("title"),
-                    authors,
-                    next(iter(b.get("languages", [])), "en"),
-                    b.get("subjects", []),
-                    formats.get("image/jpeg"),
-                    formats.get("application/epub+zip"),
-                    b.get("download_count", 0),
-                )
-                inserted += 1
-            url = data.get("next")
+    client = get_client()
+    lang_param = ",".join(languages) if languages else ""
+    url: str | None = GUTENDEX_URL + "?page=1" + (f"&languages={lang_param}" if lang_param else "")
+    page = 0
+    while url and page < max_pages:
+        page += 1
+        resp = await client.get(url)
+        if resp.status_code != 200:
+            break
+        data = resp.json()
+        for b in data.get("results", []):
+            gid = f"gut_{b['id']}"
+            authors = [a["name"] for a in b.get("authors", [])]
+            formats = b.get("formats", {})
+            await execute(
+                """
+                INSERT INTO catalog_cache (id, source, title, authors, language, genres, cover_url, epub_url, download_count)
+                VALUES ($1, 'gutenberg', $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT (id) DO UPDATE SET title=$2, authors=$3, download_count=$8, cached_at=now()
+            """,
+                gid,
+                b.get("title"),
+                authors,
+                next(iter(b.get("languages", [])), "en"),
+                b.get("subjects", []),
+                formats.get("image/jpeg"),
+                formats.get("application/epub+zip"),
+                b.get("download_count", 0),
+            )
+            inserted += 1
+        url = data.get("next")
     return {"inserted": inserted, "pages": page}
 
 
 async def sync_librivox(max_pages: int = 50, languages: list[str] | None = None) -> dict[str, int]:
     """Download LibriVox catalog into local cache. ~20K audiobooks."""
     inserted = 0
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        offset = 0
-        limit = 50
-        for _page in range(max_pages):
-            resp = await client.get(LIBRIVOX_URL, params={"format": "json", "limit": limit, "offset": offset})
-            if resp.status_code != 200:
-                break
-            data = resp.json()
-            books = data.get("books", [])
-            if not isinstance(books, list) or not books:
-                break
-            for b in books:
-                lid = f"lv_{b['id']}"
-                authors = [f"{a.get('first_name', '')} {a.get('last_name', '')}".strip() for a in b.get("authors", [])]
-                await execute(
-                    """
-                    INSERT INTO catalog_cache (id, source, title, authors, language, rss_url, totaltime, num_sections)
-                    VALUES ($1, 'librivox', $2, $3, $4, $5, $6, $7)
-                    ON CONFLICT (id) DO UPDATE SET title=$2, authors=$3, cached_at=now()
-                """,
-                    lid,
-                    b.get("title"),
-                    authors,
-                    b.get("language", ""),
-                    b.get("url_rss"),
-                    b.get("totaltime"),
-                    int(b.get("num_sections") or 0),
-                )
-                inserted += 1
-            offset += limit
+    client = get_client()
+    offset = 0
+    limit = 50
+    for _page in range(max_pages):
+        resp = await client.get(LIBRIVOX_URL, params={"format": "json", "limit": limit, "offset": offset})
+        if resp.status_code != 200:
+            break
+        data = resp.json()
+        books = data.get("books", [])
+        if not isinstance(books, list) or not books:
+            break
+        for b in books:
+            lid = f"lv_{b['id']}"
+            authors = [f"{a.get('first_name', '')} {a.get('last_name', '')}".strip() for a in b.get("authors", [])]
+            await execute(
+                """
+                INSERT INTO catalog_cache (id, source, title, authors, language, rss_url, totaltime, num_sections)
+                VALUES ($1, 'librivox', $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (id) DO UPDATE SET title=$2, authors=$3, cached_at=now()
+            """,
+                lid,
+                b.get("title"),
+                authors,
+                b.get("language", ""),
+                b.get("url_rss"),
+                b.get("totaltime"),
+                int(b.get("num_sections") or 0),
+            )
+            inserted += 1
+        offset += limit
     return {"inserted": inserted, "pages": max_pages}
 
 

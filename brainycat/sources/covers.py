@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-import httpx
+from brainycat.http_client import get_client
 
 # Known dummy/placeholder cover MD5s (Google Books returns these instead of 404)
 DUMMY_COVER_MD5S = {
@@ -21,13 +21,13 @@ DUMMY_COVER_MD5S = {
 async def apple_cover(isbn: str) -> str | None:
     """Get high-res cover from Apple Books. Free, no auth."""
     try:
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.get(f"https://itunes.apple.com/lookup?isbn={isbn}&entity=ebook")
-            if r.status_code == 200:
-                results = r.json().get("results", [])
-                if results:
-                    art = results[0].get("artworkUrl100", "")
-                    return art.replace("100x100", "600x600") if art else None
+        c = get_client()
+        r = await c.get(f"https://itunes.apple.com/lookup?isbn={isbn}&entity=ebook")
+        if r.status_code == 200:
+            results = r.json().get("results", [])
+            if results:
+                art = results[0].get("artworkUrl100", "")
+                return art.replace("100x100", "600x600") if art else None
     except Exception:
         pass
     return None
@@ -36,10 +36,10 @@ async def apple_cover(isbn: str) -> str | None:
 async def bookcover_api(isbn: str) -> str | None:
     """Aggregated cover search from bookcover.longitood.com. Free, no auth."""
     try:
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.get(f"https://bookcover.longitood.com/bookcover/{isbn}")
-            if r.status_code == 200:
-                return r.json().get("url")
+        c = get_client()
+        r = await c.get(f"https://bookcover.longitood.com/bookcover/{isbn}")
+        if r.status_code == 200:
+            return r.json().get("url")
     except Exception:
         pass
     return None
@@ -49,10 +49,10 @@ async def open_library_cover(isbn: str) -> str | None:
     """Get cover from Open Library by ISBN."""
     url = f"https://covers.openlibrary.org/b/isbn/{isbn}-L.jpg?default=false"
     try:
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.head(url, follow_redirects=True)
-            if r.status_code == 200:
-                return url
+        c = get_client()
+        r = await c.head(url, follow_redirects=True)
+        if r.status_code == 200:
+            return url
     except Exception:
         pass
     return None
@@ -70,20 +70,20 @@ async def google_images_cover(title: str, author: str = "") -> str | None:
     """Search Google Images for book covers (like Calibre's Google Images source)."""
     query = f"{title} {author} book cover".strip()
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
-            resp = await c.get(
-                "https://www.google.com/search",
-                params={"q": query, "tbm": "isch", "tbs": "isz:m"},  # Medium size images
-                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
-            )
-            if resp.status_code == 200:
-                import re
+        c = get_client()
+        resp = await c.get(
+            "https://www.google.com/search",
+            params={"q": query, "tbm": "isch", "tbs": "isz:m"},  # Medium size images
+            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
+        )
+        if resp.status_code == 200:
+            import re
 
-                # Find image URLs in the response
-                for m in re.finditer(r'"(https://[^"]+\.(?:jpg|jpeg|png))"', resp.text):
-                    url = m.group(1)
-                    if "gstatic" not in url and "google" not in url:
-                        return url
+            # Find image URLs in the response
+            for m in re.finditer(r'"(https://[^"]+\.(?:jpg|jpeg|png))"', resp.text):
+                url = m.group(1)
+                if "gstatic" not in url and "google" not in url:
+                    return url
     except Exception:
         pass
     return None

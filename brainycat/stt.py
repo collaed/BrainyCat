@@ -5,28 +5,27 @@ from __future__ import annotations
 import os
 from uuid import UUID, uuid4
 
-import httpx
-
 from brainycat.config import settings
 from brainycat.db import execute, fetch_all, fetch_one
+from brainycat.http_client import get_client
 from brainycat.jobs import create_job, run_in_background, update_job
 
 
 async def _stt_via_intello(audio_path: str, language: str = "") -> dict | None:
     """Call Intello STT endpoint. Returns {text, provider} or None."""
     try:
-        async with httpx.AsyncClient(timeout=300) as client:
-            with open(audio_path, "rb") as f:
-                data = {"language": language} if language else {}
-                resp = await client.post(
-                    f"{settings.intello_url}/api/v1/voice/transcribe",
-                    files={"file": (os.path.basename(audio_path), f, "audio/mpeg")},
-                    data=data,
-                )
-            if resp.status_code == 200:
-                result = resp.json()
-                if result.get("text"):
-                    return result
+        client = get_client()
+        with open(audio_path, "rb") as f:
+            data = {"language": language} if language else {}
+            resp = await client.post(
+                f"{settings.intello_url}/api/v1/voice/transcribe",
+                files={"file": (os.path.basename(audio_path), f, "audio/mpeg")},
+                data=data,
+            )
+        if resp.status_code == 200:
+            result = resp.json()
+            if result.get("text"):
+                return result
     except Exception:
         pass
     return None

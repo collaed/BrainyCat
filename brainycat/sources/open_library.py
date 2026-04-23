@@ -4,24 +4,24 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+from brainycat.http_client import get_client
 
 API_URL = "https://openlibrary.org"
 
 
 async def search(title: str | None = None, isbn: str | None = None) -> dict[str, Any] | None:
     """Search Open Library by ISBN or title."""
-    async with httpx.AsyncClient(timeout=10) as client:
-        if isbn:
-            resp = await client.get(f"{API_URL}/isbn/{isbn}.json")
-            if resp.status_code == 200:
-                return _parse_edition(resp.json())
-        if title:
-            resp = await client.get(f"{API_URL}/search.json", params={"title": title, "limit": 1})
-            if resp.status_code == 200:
-                docs = resp.json().get("docs", [])
-                if docs:
-                    return _parse_search(docs[0])
+    client = get_client()
+    if isbn:
+        resp = await client.get(f"{API_URL}/isbn/{isbn}.json")
+        if resp.status_code == 200:
+            return _parse_edition(resp.json())
+    if title:
+        resp = await client.get(f"{API_URL}/search.json", params={"title": title, "limit": 1})
+        if resp.status_code == 200:
+            docs = resp.json().get("docs", [])
+            if docs:
+                return _parse_search(docs[0])
     return None
 
 

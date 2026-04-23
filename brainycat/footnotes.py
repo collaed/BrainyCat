@@ -11,10 +11,9 @@ import re
 from typing import Any
 from uuid import UUID
 
-import httpx
-
 from brainycat.config import settings
 from brainycat.db import execute, fetch_one
+from brainycat.http_client import get_client
 
 
 async def generate_footnotes(book_id: str, chapter_text: str, chapter_idx: int = 0) -> list[dict[str, Any]]:
@@ -42,17 +41,17 @@ Text:
 
     footnotes: list[dict[str, Any]] = []
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{settings.intello_url}/v1/chat/completions",
-                json={"model": "auto", "messages": [{"role": "user", "content": prompt}]},
-                headers={"Authorization": f"Bearer {settings.intello_api_key}"},
-            )
-            if resp.status_code == 200:
-                content = resp.json()["choices"][0]["message"]["content"]
-                m = re.search(r"\[.*\]", content, re.DOTALL)
-                if m:
-                    footnotes = json.loads(m.group())
+        client = get_client()
+        resp = await client.post(
+            f"{settings.intello_url}/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": prompt}]},
+            headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+        )
+        if resp.status_code == 200:
+            content = resp.json()["choices"][0]["message"]["content"]
+            m = re.search(r"\[.*\]", content, re.DOTALL)
+            if m:
+                footnotes = json.loads(m.group())
     except Exception:
         pass
 

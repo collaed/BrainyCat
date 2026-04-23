@@ -15,10 +15,9 @@ import re
 from typing import Any
 from uuid import UUID
 
-import httpx
-
 from brainycat.config import settings
 from brainycat.db import execute, fetch_one
+from brainycat.http_client import get_client
 
 # Few-shot examples using public domain books (our own writing)
 NONFICTION_EXAMPLE = """{
@@ -69,14 +68,14 @@ def _is_fiction(tags: list[str], description: str) -> bool:
 async def _llm_call(prompt: str) -> str | None:
     """Call any OpenAI-compatible API (Intello, Ollama, OpenRouter)."""
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"{settings.intello_url}/v1/chat/completions",
-                json={"model": "auto", "messages": [{"role": "user", "content": prompt}]},
-                headers={"Authorization": f"Bearer {settings.intello_api_key}"},
-            )
-            if resp.status_code == 200:
-                return resp.json()["choices"][0]["message"]["content"]
+        client = get_client()
+        resp = await client.post(
+            f"{settings.intello_url}/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": prompt}]},
+            headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+        )
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"]
     except Exception:
         pass
     return None

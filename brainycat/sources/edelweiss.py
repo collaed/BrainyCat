@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-import httpx
+from brainycat.http_client import get_client
 
 SEARCH_URL = "https://www.edelweiss.plus/GetTitlesBySearch"
 
@@ -22,36 +22,36 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
     if not query:
         return None
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            resp = await client.get(
-                "https://www.edelweiss.plus/browse",
-                params={"term": query},
-                headers={"User-Agent": "Mozilla/5.0"},
+        client = get_client()
+        resp = await client.get(
+            "https://www.edelweiss.plus/browse",
+            params={"term": query},
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        if resp.status_code != 200:
+            return None
+
+        # Parse results from HTML
+        text = resp.text
+        results = []
+        for m in re.finditer(
+            r'data-isbn="(\d{13})".*?data-title="([^"]*)".*?data-author="([^"]*)"',
+            text,
+            re.DOTALL,
+        ):
+            results.append(
+                {
+                    "source": "edelweiss",
+                    "isbn": m.group(1),
+                    "title": m.group(2),
+                    "authors": [m.group(3)] if m.group(3) else [],
+                }
             )
-            if resp.status_code != 200:
-                return None
+            if len(results) >= 5:
+                break
 
-            # Parse results from HTML
-            text = resp.text
-            results = []
-            for m in re.finditer(
-                r'data-isbn="(\d{13})".*?data-title="([^"]*)".*?data-author="([^"]*)"',
-                text,
-                re.DOTALL,
-            ):
-                results.append(
-                    {
-                        "source": "edelweiss",
-                        "isbn": m.group(1),
-                        "title": m.group(2),
-                        "authors": [m.group(3)] if m.group(3) else [],
-                    }
-                )
-                if len(results) >= 5:
-                    break
-
-            if results:
-                return results[0]  # Return best match
+        if results:
+            return results[0]  # Return best match
     except Exception:
         pass
     return None

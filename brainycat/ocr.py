@@ -5,10 +5,9 @@ from __future__ import annotations
 import os
 from uuid import UUID
 
-import httpx
-
 from brainycat.config import settings
 from brainycat.db import fetch_one
+from brainycat.http_client import get_client
 from brainycat.jobs import create_job, run_in_background, update_job
 
 
@@ -49,21 +48,21 @@ async def ocr_pdf(book_id: str, user_id: str | None = None) -> str:
 
         # Step 1: Submit OCR job to Intello
         try:
-            async with httpx.AsyncClient(timeout=300) as client:
-                with open(src, "rb") as f:
-                    resp = await client.post(
-                        f"{settings.intello_url}/api/v1/ocr/jobs",
-                        files={"file": (os.path.basename(src), f, "application/pdf")},
-                        data={"language": "fra+eng+deu", "output": "searchable_pdf"},
-                    )
-                if resp.status_code != 200:
-                    await update_job(job_id, status="failed", error=f"Intello rejected: {resp.status_code}")
-                    return
-                intello_job = resp.json()
-                intello_job_id = intello_job.get("job_id")
-                if not intello_job_id:
-                    await update_job(job_id, status="failed", error=f"No job ID: {intello_job}")
-                    return
+            client = get_client()
+            with open(src, "rb") as f:
+                resp = await client.post(
+                    f"{settings.intello_url}/api/v1/ocr/jobs",
+                    files={"file": (os.path.basename(src), f, "application/pdf")},
+                    data={"language": "fra+eng+deu", "output": "searchable_pdf"},
+                )
+            if resp.status_code != 200:
+                await update_job(job_id, status="failed", error=f"Intello rejected: {resp.status_code}")
+                return
+            intello_job = resp.json()
+            intello_job_id = intello_job.get("job_id")
+            if not intello_job_id:
+                await update_job(job_id, status="failed", error=f"No job ID: {intello_job}")
+                return
         except Exception as e:
             await update_job(job_id, status="failed", error=f"Submit failed: {e}")
             return
@@ -76,44 +75,44 @@ async def ocr_pdf(book_id: str, user_id: str | None = None) -> str:
         for _ in range(600):  # max 10 minutes
             await asyncio.sleep(3)
             try:
-                async with httpx.AsyncClient(timeout=30) as client:
-                    resp = await client.get(f"{settings.intello_url}/api/v1/ocr/jobs/{intello_job_id}")
-                    if resp.status_code != 200:
-                        continue
-                    status = resp.json()
-                    pct = status.get("progress", 0)
-                    await update_job(job_id, progress=10 + pct * 0.8)
+                client = get_client()
+                resp = await client.get(f"{settings.intello_url}/api/v1/ocr/jobs/{intello_job_id}")
+                if resp.status_code != 200:
+                    continue
+                status = resp.json()
+                pct = status.get("progress", 0)
+                await update_job(job_id, progress=10 + pct * 0.8)
 
-                    if status.get("status") == "complete":
-                        break
-                    if status.get("status") == "failed":
-                        await update_job(job_id, status="failed", error=status.get("error", "Intello OCR failed"))
-                        return
+                if status.get("status") == "complete":
+                    break
+                if status.get("status") == "failed":
+                    await update_job(job_id, status="failed", error=status.get("error", "Intello OCR failed"))
+                    return
             except Exception:
                 continue
 
         # Step 3: Download the searchable PDF result
         await update_job(job_id, progress=92)
         try:
-            async with httpx.AsyncClient(timeout=120) as client:
-                resp = await client.get(f"{settings.intello_url}/api/v1/ocr/jobs/{intello_job_id}/result")
-                if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("application/pdf"):
-                    # Replace original with searchable PDF
-                    with open(src, "wb") as out:
-                        out.write(resp.content)
-                    await update_job(job_id, progress=100)
-                else:
-                    # Maybe it returned JSON with text
+            client = get_client()
+            resp = await client.get(f"{settings.intello_url}/api/v1/ocr/jobs/{intello_job_id}/result")
+            if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("application/pdf"):
+                # Replace original with searchable PDF
+                with open(src, "wb") as out:
+                    out.write(resp.content)
+                await update_job(job_id, progress=100)
+            else:
+                # Maybe it returned JSON with text
 
-                    try:
-                        data = resp.json()
-                        await update_job(
-                            job_id,
-                            progress=100,
-                            result={"pages": data.get("pages", 0), "chars": data.get("total_chars", 0)},
-                        )
-                    except Exception:
-                        await update_job(job_id, status="failed", error="Could not download result")
+                try:
+                    data = resp.json()
+                    await update_job(
+                        job_id,
+                        progress=100,
+                        result={"pages": data.get("pages", 0), "chars": data.get("total_chars", 0)},
+                    )
+                except Exception:
+                    await update_job(job_id, status="failed", error="Could not download result")
         except Exception as e:
             await update_job(job_id, status="failed", error=f"Download failed: {e}")
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+from brainycat.http_client import get_client
 
 API_URL = "https://www.googleapis.com/books/v1/volumes"
 
@@ -14,11 +14,11 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
     q = f"isbn:{isbn}" if isbn else title
     if not q:
         return None
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(API_URL, params={"q": q, "maxResults": 1})
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
+    client = get_client()
+    resp = await client.get(API_URL, params={"q": q, "maxResults": 1})
+    if resp.status_code != 200:
+        return None
+    data = resp.json()
     items = data.get("items", [])
     if not items:
         return None

@@ -5,27 +5,26 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-import httpx
-
 from brainycat.config import settings
 from brainycat.db import execute, fetch_all, fetch_one
+from brainycat.http_client import get_client
 
 
 async def _llm(
     prompt: str, system: str = "You are a helpful book companion. Never reveal spoilers beyond the reader's current position."
 ) -> str:
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{settings.intello_url}/v1/chat/completions",
-                json={
-                    "model": "auto",
-                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-                    "max_tokens": 1024,
-                },
-            )
-            if resp.status_code == 200:
-                return resp.json()["choices"][0]["message"]["content"]
+        client = get_client()
+        resp = await client.post(
+            f"{settings.intello_url}/v1/chat/completions",
+            json={
+                "model": "auto",
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                "max_tokens": 1024,
+            },
+        )
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"]
     except Exception:
         pass
     return "LLM unavailable"

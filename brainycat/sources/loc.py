@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+from brainycat.http_client import get_client
 
 API_URL = "https://www.loc.gov/books"
 
@@ -20,11 +20,11 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
         return None
 
     try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            resp = await client.get(API_URL, params=params)
-            if resp.status_code != 200:
-                return None
-            data = resp.json()
+        client = get_client()
+        resp = await client.get(API_URL, params=params)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
     except Exception:
         return None
 

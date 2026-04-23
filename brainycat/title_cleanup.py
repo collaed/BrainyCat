@@ -11,9 +11,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-import httpx
-
 from brainycat.db import execute, fetch_all, fetch_one
+from brainycat.http_client import get_client
 from brainycat.isbn import _clean_isbn
 from brainycat.rate_limit import rate_limiter
 
@@ -67,50 +66,50 @@ async def fix_titles_from_api(limit: int = 10) -> dict[str, int]:
     )
 
     fixed = 0
-    async with httpx.AsyncClient(timeout=10) as client:
-        for r in rows:
-            await rate_limiter.wait("google")
-            try:
-                resp = await client.get(f"https://www.googleapis.com/books/v1/volumes?q=isbn:{r['isbn']}&maxResults=1")
-                if resp.status_code == 200:
-                    items = resp.json().get("items", [])
-                    if items:
-                        vi = items[0]["volumeInfo"]
-                        api_title = vi.get("title", "")
-                        sub = vi.get("subtitle", "")
-                        full = f"{api_title}: {sub}" if sub else api_title
+    client = get_client()
+    for r in rows:
+        await rate_limiter.wait("google")
+        try:
+            resp = await client.get(f"https://www.googleapis.com/books/v1/volumes?q=isbn:{r['isbn']}&maxResults=1")
+            if resp.status_code == 200:
+                items = resp.json().get("items", [])
+                if items:
+                    vi = items[0]["volumeInfo"]
+                    api_title = vi.get("title", "")
+                    sub = vi.get("subtitle", "")
+                    full = f"{api_title}: {sub}" if sub else api_title
 
-                        if len(full) > 3 and full != r["title"]:
-                            await execute("UPDATE books SET title = $1 WHERE id = $2", full, r["id"])
-                            fixed += 1
+                    if len(full) > 3 and full != r["title"]:
+                        await execute("UPDATE books SET title = $1 WHERE id = $2", full, r["id"])
+                        fixed += 1
 
-                        # Also grab any extra metadata while we're here
-                        desc = vi.get("description")
-                        if desc:
-                            await execute(
-                                "UPDATE books SET description = $1 WHERE id = $2 AND (description IS NULL OR description = '')",
-                                desc[:2000],
-                                r["id"],
-                            )
-                        cats = vi.get("categories", [])
-                        if cats:
-                            for cat in cats[:5]:
-                                await execute("INSERT INTO tags (name) VALUES ($1) ON CONFLICT DO NOTHING", cat)
-                                tag = await fetch_one("SELECT id FROM tags WHERE name = $1", cat)
-                                if tag:
-                                    await execute(
-                                        "INSERT INTO books_tags (book_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
-                                        r["id"],
-                                        tag["id"],
-                                    )
+                    # Also grab any extra metadata while we're here
+                    desc = vi.get("description")
+                    if desc:
+                        await execute(
+                            "UPDATE books SET description = $1 WHERE id = $2 AND (description IS NULL OR description = '')",
+                            desc[:2000],
+                            r["id"],
+                        )
+                    cats = vi.get("categories", [])
+                    if cats:
+                        for cat in cats[:5]:
+                            await execute("INSERT INTO tags (name) VALUES ($1) ON CONFLICT DO NOTHING", cat)
+                            tag = await fetch_one("SELECT id FROM tags WHERE name = $1", cat)
+                            if tag:
+                                await execute(
+                                    "INSERT INTO books_tags (book_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+                                    r["id"],
+                                    tag["id"],
+                                )
 
-                # Mark as checked so we don't retry
-                await execute(
-                    "UPDATE books SET extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || '{\"title_fixed\": true}'::jsonb WHERE id = $1",
-                    r["id"],
-                )
-            except Exception:
-                pass
+            # Mark as checked so we don't retry
+            await execute(
+                "UPDATE books SET extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || '{\"title_fixed\": true}'::jsonb WHERE id = $1",
+                r["id"],
+            )
+        except Exception:
+            pass
     return {"fixed": fixed, "checked": len(rows)}
 
 
