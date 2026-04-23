@@ -31,7 +31,20 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
         return None
 
     # Try multiple Amazon domains — more chances of finding metadata
-    domains = ["amazon.com", "amazon.co.uk", "amazon.de", "amazon.fr", "amazon.es", "amazon.it"]
+    domains = [
+        "amazon.com",
+        "amazon.co.uk",
+        "amazon.de",
+        "amazon.fr",
+        "amazon.es",
+        "amazon.it",
+        "amazon.co.jp",
+        "amazon.com.br",
+        "amazon.in",
+        "amazon.nl",
+        "amazon.cn",
+        "amazon.se",
+    ]
     results: list[dict[str, Any]] = []
 
     for domain in domains:

@@ -66,6 +66,29 @@ def is_dummy_cover(data: bytes) -> bool:
     return md5 in DUMMY_COVER_MD5S
 
 
+async def google_images_cover(title: str, author: str = "") -> str | None:
+    """Search Google Images for book covers (like Calibre's Google Images source)."""
+    query = f"{title} {author} book cover".strip()
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
+            resp = await c.get(
+                "https://www.google.com/search",
+                params={"q": query, "tbm": "isch", "tbs": "isz:m"},  # Medium size images
+                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
+            )
+            if resp.status_code == 200:
+                import re
+
+                # Find image URLs in the response
+                for m in re.finditer(r'"(https://[^"]+\.(?:jpg|jpeg|png))"', resp.text):
+                    url = m.group(1)
+                    if "gstatic" not in url and "google" not in url:
+                        return url
+    except Exception:
+        pass
+    return None
+
+
 async def find_best_cover(isbn: str | None, title: str | None = None) -> dict[str, Any]:
     """Try all cover sources in parallel, return the best one."""
     import asyncio
@@ -77,10 +100,11 @@ async def find_best_cover(isbn: str | None, title: str | None = None) -> dict[st
         apple_cover(isbn),
         bookcover_api(isbn),
         open_library_cover(isbn),
+        google_images_cover(title or "", ""),
         return_exceptions=True,
     )
 
-    sources = ["apple_books", "bookcover_api", "open_library"]
+    sources = ["apple_books", "bookcover_api", "open_library", "google_images"]
     for url, source in zip(results, sources, strict=False):
         if isinstance(url, str) and url:
             return {"url": url, "source": source}

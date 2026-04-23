@@ -2217,6 +2217,10 @@ async def enrichment_sources(_u: Any = Depends(get_current_user)) -> list[dict[s
         {"id": "isni", "name": "ISNI (author IDs)", "type": "author_disambiguation", "auth": "none"},
         {"id": "inventaire", "name": "Inventaire (Wikidata-backed)", "type": "metadata", "auth": "none"},
         {"id": "bookbrainz", "name": "BookBrainz", "type": "metadata+identifiers", "auth": "none"},
+        {"id": "edelweiss", "name": "Edelweiss (publisher catalog)", "type": "metadata+covers", "auth": "none"},
+        {"id": "google_images", "name": "Google Images (covers)", "type": "covers", "auth": "none"},
+        {"id": "apple_books", "name": "Apple Books (covers)", "type": "covers", "auth": "none"},
+        {"id": "bookcover_api", "name": "Bookcover API (aggregator)", "type": "covers", "auth": "none"},
     ]
 
 
