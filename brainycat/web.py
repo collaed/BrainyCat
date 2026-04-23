@@ -2069,3 +2069,25 @@ async def standard_ebooks_search(q: str = Query(""), _u: Any = Depends(get_curre
     from brainycat.sources.standard_ebooks import search
 
     return await search(q)
+
+
+# ── GitHub ebook discovery ────────────────────────────────────────────────
+@app.get("/api/v1/catalog/github/search")
+async def github_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.sources.github_books import search_ebooks
+
+    return await search_ebooks(q)
+
+
+@app.get("/api/v1/catalog/github/awesome")
+async def github_awesome(topic: str = Query("books"), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.sources.github_books import search_awesome_lists
+
+    return await search_awesome_lists(topic)
+
+
+@app.get("/api/v1/catalog/github/{owner}/{repo}/files")
+async def github_files(owner: str, repo: str, _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.sources.github_books import find_epub_files
+
+    return await find_epub_files(owner, repo)
