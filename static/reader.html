@@ -25,12 +25,14 @@
 <a href="index.html">← Library</a>
 <button onclick="toggleToc()">☰</button>
 <span class="title" id="book-title">Loading...</span>
-<select id="theme" onchange="setTheme(this.value)"><option value="dark">Dark</option><option value="light">Light</option><option value="sepia">Sepia</option></select>
+<select id="theme" onchange="setTheme(this.value)"><option value="dark">Dark</option><option value="light">Light</option><option value="sepia">Sepia</option><option value="night">🌙 Night</option></select>
 <button onclick="changeFontSize(-2)">A-</button>
 <button onclick="changeFontSize(2)">A+</button>
 <button onclick="prevPage()">◀</button>
 <button onclick="nextPage()">▶</button>
+<button onclick="toggleAutoScroll()" id="auto-scroll-btn" title="Auto-scroll">⏬</button>
 <button id="sync-btn" style="display:none" onclick="switchToAudio()">🎧</button>
+<span id="reading-speed" style="font-size:.7rem;color:#94a3b8;margin-left:auto"></span>
 </div>
 <div id="toc"><h3>Table of Contents</h3></div>
 
@@ -38,6 +40,16 @@
 <div class="genre-margin right"><div class="strip" id="margin-right"></div></div>
 <div id="viewer"></div>
 <div class="progress-bar" id="progress-bar"></div>
+
+<!-- Dictionary popup -->
+<div id="dict-popup" style="display:none;position:fixed;z-index:100;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px 16px;max-width:320px;box-shadow:0 8px 30px rgba(0,0,0,0.4);font-size:.85rem;color:#e2e8f0">
+<div id="dict-word" style="font-weight:700;font-size:1rem;margin-bottom:6px;color:#3b82f6"></div>
+<div id="dict-def" style="line-height:1.5"></div>
+<div style="text-align:right;margin-top:8px"><button onclick="document.getElementById('dict-popup').style.display='none'" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:.8rem">✕ Close</button></div>
+</div>
+
+<!-- Night mode overlay (blue light filter) -->
+<div id="night-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,140,0,0.08);pointer-events:none;z-index:50"></div>
 <div id="status">Loading...</div>
 
 <script src="api.js"></script>
@@ -110,6 +122,7 @@ async function init() {
                 BC.post('/progress/' + bookId, { position: loc.start.cfi, percentage: pct });
             }
             statusEl.textContent = Math.round(pct) + '%';
+            trackPageTurn();
         });
 
         // TOC
@@ -129,6 +142,9 @@ async function init() {
             if (e.clientX < w * 0.3) rendition.prev();
             else if (e.clientX > w * 0.7) rendition.next();
         });
+
+        // Setup dictionary (tap-to-define)
+        setupDictionary();
 
     } catch (e) {
         log('Error: ' + e.message);
@@ -150,9 +166,13 @@ function setTheme(t) {
         dark: { body: { background: '#1a1a2e !important', color: '#e2e8f0 !important' }, 'p,div,span,h1,h2,h3,h4,h5,h6,li,a': { color: '#e2e8f0 !important' } },
         light: { body: { background: '#ffffff !important', color: '#1a1a1a !important' }, 'p,div,span,h1,h2,h3,h4,h5,h6,li,a': { color: '#1a1a1a !important' } },
         sepia: { body: { background: '#f4ecd8 !important', color: '#5b4636 !important' }, 'p,div,span,h1,h2,h3,h4,h5,h6,li,a': { color: '#5b4636 !important' } },
+        night: { body: { background: '#0a0a0a !important', color: '#c4a882 !important' }, 'p,div,span,h1,h2,h3,h4,h5,h6,li,a': { color: '#c4a882 !important' } },
     };
     if (rendition && themes[t]) rendition.themes.default(themes[t]);
-    document.body.style.background = t === 'light' ? '#fff' : t === 'sepia' ? '#f4ecd8' : '#1a1a2e';
+    const bgs = { light: '#fff', sepia: '#f4ecd8', night: '#0a0a0a', dark: '#1a1a2e' };
+    document.body.style.background = bgs[t] || '#1a1a2e';
+    // Blue light filter for night mode
+    document.getElementById('night-overlay').style.display = t === 'night' ? '' : 'none';
 }
 function switchToAudio() { location = 'player.html?id=' + bookId; }
 
@@ -223,4 +243,67 @@ function scrollMargins(pct) {
 }
 
 init().catch(e => { log('Init error: ' + e.message); console.error(e); });
+// ── Tap-to-define dictionary ──────────────────────────────────────────────
+function setupDictionary() {
+    if (!rendition) return;
+    rendition.on('selected', async (cfiRange, contents) => {
+        const text = rendition.getRange(cfiRange)?.toString().trim();
+        if (!text || text.includes(' ') || text.length < 2 || text.length > 30) return;
+        const popup = document.getElementById('dict-popup');
+        document.getElementById('dict-word').textContent = text;
+        document.getElementById('dict-def').textContent = 'Looking up...';
+        popup.style.display = '';
+        popup.style.top = '100px'; popup.style.left = '50%'; popup.style.transform = 'translateX(-50%)';
+        try {
+            const resp = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(text.toLowerCase())}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                const meanings = data[0]?.meanings || [];
+                let html = '';
+                for (const m of meanings.slice(0, 2)) {
+                    html += `<div style="margin-bottom:6px"><em style="color:#94a3b8">${m.partOfSpeech}</em>`;
+                    for (const d of m.definitions.slice(0, 2)) {
+                        html += `<div style="margin-left:8px">• ${d.definition}</div>`;
+                    }
+                    html += '</div>';
+                }
+                document.getElementById('dict-def').innerHTML = html || 'No definition found';
+            } else {
+                document.getElementById('dict-def').textContent = 'No definition found for "' + text + '"';
+            }
+        } catch(e) { document.getElementById('dict-def').textContent = 'Dictionary unavailable'; }
+    });
+}
+
+// ── Auto-scroll ──────────────────────────────────────────────────────────
+let autoScrollInterval = null;
+function toggleAutoScroll() {
+    const btn = document.getElementById('auto-scroll-btn');
+    if (autoScrollInterval) {
+        clearInterval(autoScrollInterval);
+        autoScrollInterval = null;
+        btn.style.background = '#0f172a';
+        return;
+    }
+    btn.style.background = '#3b82f6';
+    autoScrollInterval = setInterval(() => {
+        if (rendition) rendition.next();
+    }, 15000); // Turn page every 15 seconds
+}
+
+// ── Reading speed tracking ───────────────────────────────────────────────
+let readingStart = Date.now(), pagesRead = 0;
+function trackPageTurn() {
+    pagesRead++;
+    const elapsed = (Date.now() - readingStart) / 60000; // minutes
+    if (elapsed > 1 && pagesRead > 2) {
+        const ppm = (pagesRead / elapsed).toFixed(1);
+        const totalPages = book?.locations?.total || 100;
+        const remaining = totalPages - (rendition?.location?.start?.displayed?.page || 0);
+        const eta = remaining > 0 ? Math.round(remaining / (pagesRead / elapsed)) : 0;
+        const etaStr = eta > 60 ? `${Math.floor(eta/60)}h${eta%60}m` : `${eta}m`;
+        document.getElementById('reading-speed').textContent = `${ppm} pg/min · ~${etaStr} left`;
+    }
+}
+
 </script></body></html>
