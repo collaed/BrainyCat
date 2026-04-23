@@ -2093,7 +2093,6 @@ async def book_goldmine(book_id: str, _u: Any = Depends(get_current_user)) -> di
     from brainycat.summaries import goldmine
 
     return await goldmine(book_id)
-    return await generate_summary(book_id)
 
 
 # ── Standard Ebooks catalog ──────────────────────────────────────────────
@@ -2604,3 +2603,87 @@ async def list_epub_styles() -> list[dict[str, str]]:
         {"id": "modern", "name": "Modern", "description": "System sans-serif, left-aligned, clean"},
         {"id": "academic", "name": "Academic", "description": "Times New Roman, compact, reference-friendly"},
     ]
+
+
+# ── Ambient quotes ────────────────────────────────────────────────────────
+@app.get("/api/v1/quotes/random")
+async def random_quote(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get a random quote from books the user has read. For ambient display."""
+    row = await db.fetch_one(
+        """
+        SELECT b.title, b.extra_metadata->'summary'->'quotable_passages' as quotes,
+               b.extra_metadata->'summary'->'takeaways' as takeaways,
+               b.extra_metadata->'summary'->'key_insight' as insight,
+               array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
+        FROM reading_progress rp
+        JOIN books b ON b.id = rp.book_id
+        LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id
+        WHERE rp.user_id = $1 AND rp.is_finished = true
+          AND b.extra_metadata IS NOT NULL AND b.extra_metadata != '{}'::jsonb
+        GROUP BY b.id ORDER BY random() LIMIT 1
+    """,
+        user["id"],
+    )
+    if not row:
+        # Fallback: any book with a description
+        row = await db.fetch_one("""
+            SELECT b.title, b.description,
+                   array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
+            FROM books b
+            LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id
+            WHERE b.description IS NOT NULL AND length(b.description) > 100
+            GROUP BY b.id ORDER BY random() LIMIT 1
+        """)
+        if row:
+            return {"quote": (row["description"] or "")[:200] + "...", "book": row["title"], "authors": row["authors"] or []}
+        return {"quote": "Start reading to see quotes from your library here.", "book": "BrainyCat", "authors": []}
+
+    # Pick from available quote sources
+    import json
+    import random
+
+    quotes = []
+    for field in ["quotes", "takeaways"]:
+        val = row.get(field)
+        if val:
+            parsed = json.loads(val) if isinstance(val, str) else val
+            if isinstance(parsed, list):
+                quotes.extend(parsed)
+    if row.get("insight"):
+        val = row["insight"]
+        quotes.append(json.loads(val) if isinstance(val, str) else val)
+
+    if quotes:
+        q = random.choice(quotes)
+        return {"quote": q if isinstance(q, str) else str(q), "book": row["title"], "authors": row["authors"] or []}
+    return {"quote": row["title"], "book": row["title"], "authors": row["authors"] or []}
+
+
+# ── Reading feeds (web-to-ebook) ──────────────────────────────────────────
+@app.get("/api/v1/feeds")
+async def get_feeds(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.reading_feed import list_feeds
+
+    return await list_feeds(str(user["id"]))
+
+
+@app.post("/api/v1/feeds")
+async def add_feed_endpoint(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.reading_feed import add_feed
+
+    body = await request.json()
+    return await add_feed(str(user["id"]), body["url"], body.get("name", ""))
+
+
+@app.delete("/api/v1/feeds/{feed_id}")
+async def remove_feed_endpoint(feed_id: str, user: Any = Depends(get_current_user)) -> dict[str, bool]:
+    from brainycat.reading_feed import remove_feed
+
+    return await remove_feed(feed_id, str(user["id"]))
+
+
+@app.post("/api/v1/feeds/{feed_id}/fetch")
+async def fetch_feed_endpoint(feed_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.reading_feed import fetch_feed
+
+    return await fetch_feed(feed_id)
