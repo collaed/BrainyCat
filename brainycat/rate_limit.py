@@ -69,9 +69,26 @@ class RateLimiter:
         failures = self._consecutive_failures.get(key, 0) + 1
         self._consecutive_failures[key] = failures
 
-        if failures >= 5:
-            # Exponential backoff: 30s, 60s, 120s, 240s, 300s (cap)
-            delay = min(30 * (2 ** (failures - 5)), 300)
+        if failures >= 3:
+            # Fail2ban-style escalation:
+            #   3 fails → 30s
+            #   5 fails → 2 min
+            #   8 fails → 10 min
+            #  12 fails → 30 min
+            #  20 fails → 1 hour
+            #  50+ fails → 6 hours (likely permanently blocked, try once per 6h)
+            if failures < 5:
+                delay = 30
+            elif failures < 8:
+                delay = 120
+            elif failures < 12:
+                delay = 600
+            elif failures < 20:
+                delay = 1800
+            elif failures < 50:
+                delay = 3600
+            else:
+                delay = 21600
             self._backoff_until[key] = time.monotonic() + delay
 
     def get_status(self) -> dict[str, dict]:
