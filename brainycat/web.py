@@ -391,7 +391,29 @@ async def gutenberg_search(
     from brainycat.sources.gutendex import browse, search
 
     if q:
-        return await search(title=q, language=language)
+        result = await search(title=q, language=language)
+        # Cross-link: find matching LibriVox audiobooks
+        if result and result.get("books"):
+            from brainycat.sources.librivox import search as lv_search
+
+            for book in result["books"][:10]:
+                authors = book.get("authors", [])
+                author_query = authors[0].split(",")[0].split()[-1] if authors else ""
+                if author_query:
+                    lv = await lv_search(author=author_query)
+                    lv_books = (lv or {}).get("books", [])
+                    # Match by title similarity
+                    title_lower = (book.get("title") or "").lower()
+                    for lb in lv_books:
+                        if any(w in (lb.get("title") or "").lower() for w in title_lower.split()[:3] if len(w) > 3):
+                            book["audiobook"] = {
+                                "librivox_id": lb.get("librivox_id"),
+                                "title": lb.get("title"),
+                                "totaltime": lb.get("totaltime"),
+                                "num_sections": lb.get("num_sections"),
+                            }
+                            break
+        return result
     return await browse(language=language, page=page)
 
 
@@ -1948,3 +1970,33 @@ async def edition_diff(request: Request, _u: Any = Depends(get_current_user)) ->
 
     body = await request.json()
     return await diff_editions(body["book_a"], body["book_b"])
+
+
+# ── Gutenberg ↔ LibriVox cross-linking ────────────────────────────────────
+@app.get("/api/v1/catalog/crosslink")
+async def catalog_crosslink(title: str = Query(""), author: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Find matching ebook + audiobook across Gutenberg and LibriVox."""
+    from brainycat.sources.gutendex import search as gut_search
+    from brainycat.sources.librivox import search as lv_search
+
+    ebook = await gut_search(title=title or None) if title else None
+    audiobook = await lv_search(title=title or None, author=author or None)
+
+    # Match by normalized author name
+    matches = []
+    gut_books = (ebook or {}).get("books", [])
+    lv_books = (audiobook or {}).get("books", [])
+
+    for gb in gut_books:
+        gb_authors = {a.lower().split(",")[0].split()[-1] for a in (gb.get("authors") or [])}
+        for lb in lv_books:
+            lb_authors = {a.lower().split()[-1] for a in (lb.get("authors") or [])}
+            if gb_authors & lb_authors:
+                matches.append({"ebook": gb, "audiobook": lb})
+                break
+
+    return {
+        "matches": matches,
+        "ebooks_only": [b for b in gut_books if not any(m["ebook"] == b for m in matches)],
+        "audiobooks_only": [b for b in lv_books if not any(m["audiobook"] == b for m in matches)],
+    }

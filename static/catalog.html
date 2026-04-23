@@ -67,7 +67,8 @@ async function doSearch(){
         if(!books.length){el.innerHTML='<div class="empty">No results</div>';return;}
         el.innerHTML=books.map(b=>`<div class="item">${b.cover_url?`<img src="${b.cover_url}" onerror="this.style.display='none'">`:''}
             <div class="info"><h3>${b.title}</h3><div class="meta">${(b.authors||[]).join(', ')} · ${b.language||'en'} · ${b.download_count||0} downloads</div>
-            <button onclick="importGut(${b.gutenberg_id},this)">📥 Import</button></div></div>`).join('');
+            ${b.audiobook?`<div style="font-size:.8rem;color:#3b82f6;margin:4px 0">🎧 Audiobook: ${b.audiobook.title} (${b.audiobook.totaltime||'?'}, ${b.audiobook.num_sections||'?'} ch.) <button onclick="importLV('${b.audiobook.librivox_id}',this)" style="font-size:.75rem">📥 Audio</button></div>`:''}
+            <button onclick="importGut(${b.gutenberg_id},this)">📥 Import ebook</button></div></div>`).join('');
     } else {
         const data=await BC.get('/catalog/librivox/search?title='+encodeURIComponent(q||''));
         const books=data?.books||[];st.textContent=books.length+' results';
