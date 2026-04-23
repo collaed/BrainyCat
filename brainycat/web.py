@@ -3049,3 +3049,42 @@ async def hyphenate_epub(book_id: str, language: str = Query("en"), _u: Any = De
         if os.path.isfile(tmp):
             os.unlink(tmp)
         return {"error": str(e)[:100]}
+
+
+# ── Regional metadata sources ─────────────────────────────────────────────
+@app.get("/api/v1/enrichment/regional/{source}")
+async def regional_search(
+    source: str, title: str = Query(""), isbn: str = Query(""), author: str = Query(""), _u: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    """Search a regional metadata source. Sources: babelio, dnb, fantastic_fiction, thalia, bol_nl, skoob, casa_del_libro, rakuten, douban, myanimelist, comicvine, worldcat."""
+    from brainycat.sources import regional
+
+    fn_map = {
+        "babelio": regional.search_babelio,
+        "dnb": regional.search_dnb,
+        "fantastic_fiction": regional.search_fantastic_fiction,
+        "thalia": regional.search_thalia,
+        "bol_nl": regional.search_bol_nl,
+        "skoob": regional.search_skoob,
+        "casa_del_libro": regional.search_casa_del_libro,
+        "rakuten": regional.search_rakuten,
+        "douban": regional.search_douban,
+        "myanimelist": regional.search_myanimelist,
+        "comicvine": regional.search_comicvine,
+        "worldcat": regional.search_worldcat,
+    }
+    fn = fn_map.get(source)
+    if not fn:
+        return {"error": f"unknown source: {source}", "available": list(fn_map.keys())}
+    import inspect
+
+    sig = inspect.signature(fn)
+    kwargs = {}
+    for p in sig.parameters:
+        if p == "title":
+            kwargs["title"] = title
+        elif p == "isbn":
+            kwargs["isbn"] = isbn
+        elif p == "author":
+            kwargs["author"] = author
+    return await fn(**kwargs) or {"result": None}
