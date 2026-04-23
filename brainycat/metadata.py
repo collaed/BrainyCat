@@ -8,7 +8,6 @@ from typing import Any
 from uuid import UUID
 
 from brainycat.db import execute, fetch_one
-from brainycat.logging import log
 from brainycat.sources import amazon, google_books, gutendex, loc, open_library
 
 
@@ -21,28 +20,42 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     title = row["title"]
     isbn = row["isbn"]
 
-    # Query sources in parallel-ish
-    results = []
-    for source_fn in [google_books.search, open_library.search, loc.search, amazon.search, gutendex.search]:
-        source_name = source_fn.__module__.split(".")[-1]
+    # Query ALL sources in parallel (Calibre-style)
+    import asyncio
+
+    source_fns = [
+        ("google_books", google_books.search),
+        ("open_library", open_library.search),
+        ("loc", loc.search),
+        ("amazon", amazon.search),
+        ("gutendex", gutendex.search),
+    ]
+
+    async def _fetch(name: str, fn: Any) -> tuple[str, dict[str, Any] | None]:
         try:
-            r = await source_fn(title=title, isbn=isbn)
-            if r:
-                results.append(r)
-                await execute(
-                    "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, $2, true, $3::jsonb)",
-                    UUID(book_id),
-                    source_name,
-                    json.dumps({"fields": list(r.keys())}),
-                )
-            else:
-                await execute(
-                    "INSERT INTO enrichment_log (book_id, method, success) VALUES ($1, $2, false)",
-                    UUID(book_id),
-                    source_name,
-                )
-        except Exception as e:
-            await log.awarning("enrichment_source_failed", source=source_name, error=str(e))
+            r = await fn(title=title, isbn=isbn)
+            return name, r
+        except Exception:
+            return name, None
+
+    raw_results = await asyncio.gather(*[_fetch(n, fn) for n, fn in source_fns])
+
+    results = []
+    for source_name, r in raw_results:
+        if r:
+            results.append(r)
+            await execute(
+                "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, $2, true, $3::jsonb)",
+                UUID(book_id),
+                source_name,
+                json.dumps({"fields": list(r.keys())}),
+            )
+        else:
+            await execute(
+                "INSERT INTO enrichment_log (book_id, method, success) VALUES ($1, $2, false)",
+                UUID(book_id),
+                source_name,
+            )
 
     if not results:
         return {"enriched": False, "reason": "no results"}
@@ -94,24 +107,31 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
         vals.append(UUID(book_id))
         await execute(f"UPDATE books SET {', '.join(sets)}, updated_at = now() WHERE id = ${idx}", *vals)
 
-    # Download cover
-    if merged.get("cover_url") and not row["cover_path"]:
-        try:
-            import os
+    # Cover chain: source results → Apple Books → Bookcover API → OL → Generate
+    if not row["cover_path"]:
+        import os
 
-            import httpx
+        import httpx
 
-            from brainycat.storage import book_dir
+        from brainycat.sources.covers import apple_cover, bookcover_api, is_dummy_cover
+        from brainycat.storage import book_dir
 
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(merged["cover_url"], timeout=15)
-                if resp.status_code == 200:
-                    cover_path = os.path.join(book_dir(book_id), "cover.jpg")
-                    with open(cover_path, "wb") as f:
-                        f.write(resp.content)
-                    await execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, UUID(book_id))
-        except Exception:
-            pass
+        cover_url = merged.get("cover_url")
+        # If no cover from enrichment sources, try dedicated cover APIs
+        if not cover_url and isbn:
+            cover_url = await apple_cover(isbn) or await bookcover_api(isbn)
+
+        if cover_url:
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(cover_url, timeout=15, follow_redirects=True)
+                    if resp.status_code == 200 and not is_dummy_cover(resp.content):
+                        cover_path = os.path.join(book_dir(book_id), "cover.jpg")
+                        with open(cover_path, "wb") as f:
+                            f.write(resp.content)
+                        await execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, UUID(book_id))
+            except Exception:
+                pass
 
     # Auto-apply series info from sources
     for r in results:
