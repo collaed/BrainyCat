@@ -306,4 +306,26 @@ function trackPageTurn() {
     }
 }
 
+
+// Pinch-to-zoom → font size (tablet support)
+let pinchStartDist = 0;
+let pinchStartSize = fontSize;
+document.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+        pinchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        pinchStartSize = fontSize;
+    }
+}, {passive: true});
+document.addEventListener('touchmove', e => {
+    if (e.touches.length === 2) {
+        const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        const scale = dist / pinchStartDist;
+        const newSize = Math.max(12, Math.min(32, Math.round(pinchStartSize * scale)));
+        if (newSize !== fontSize) {
+            fontSize = newSize;
+            if (rendition) rendition.themes.fontSize(fontSize + 'px');
+        }
+    }
+}, {passive: true});
+
 </script></body></html>

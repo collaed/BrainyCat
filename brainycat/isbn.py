@@ -161,15 +161,33 @@ def extract_from_text(text: str) -> dict[str, Any]:
     # Combine all search zones
     search_zones = front + "\n" + back + "\n" + impressum_section + "\n" + acheve_section
 
-    # ISBN-13
-    for m in ISBN13_RE.finditer(search_zones):
-        isbn = _clean_isbn(m.group())
-        if isbn:
-            result["isbn"] = isbn
-            break
+    # Find all ISBN-like sequences near "ISBN" anchors, prefer 13 over 10
+    isbn_anchor_re = re.compile(r"ISBN[-:\s]*(\d[\d\s-]{9,20}[\dXx])", re.IGNORECASE)
+    for m in isbn_anchor_re.finditer(search_zones):
+        raw = m.group(1)
+        digits = re.sub(r"[^0-9Xx]", "", raw)
+        # Try ISBN-13 first (first 13 digits)
+        if len(digits) >= 13:
+            isbn = _clean_isbn(digits[:13])
+            if isbn:
+                result["isbn"] = isbn
+                break
+        # Then ISBN-10 (first 10 digits)
+        if "isbn" not in result and len(digits) >= 10:
+            isbn = _clean_isbn(digits[:10])
+            if isbn:
+                result["isbn_10"] = isbn
+                break
 
-    # ISBN-10 fallback
-    if "isbn" not in result:
+    # Fallback: regex scan without anchor
+    if "isbn" not in result and "isbn_10" not in result:
+        for m in ISBN13_RE.finditer(search_zones):
+            isbn = _clean_isbn(m.group())
+            if isbn:
+                result["isbn"] = isbn
+                break
+
+    if "isbn" not in result and "isbn_10" not in result:
         for m in ISBN10_RE.finditer(search_zones):
             isbn = _clean_isbn(m.group())
             if isbn:
