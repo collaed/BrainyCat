@@ -2347,6 +2347,30 @@ async def check_owned(title: str = Query(""), isbn: str = Query(""), _u: Any = D
                 book_words = {w.lower() for w in (r["title"] or "").split() if len(w) > 3}
                 if words and book_words and len(words & book_words) / len(words) > 0.6:
                     return {"owned": True, "book_id": str(r["id"]), "title": r["title"], "match": "fuzzy"}
+    # Check by Open Library Work ID (catches different editions)
+    if isbn:
+        try:
+            cl = get_client()
+            resp = await cl.get(f"https://openlibrary.org/isbn/{isbn}.json", timeout=5)
+            if resp.status_code == 200:
+                works = resp.json().get("works", [])
+                if works:
+                    work_key = works[0].get("key", "").replace("/works/", "")
+                    if work_key:
+                        owned = await db.fetch_one(
+                            "SELECT id, title FROM books WHERE extra_metadata->>'ol_work_id' = $1 LIMIT 1",
+                            work_key,
+                        )
+                        if owned:
+                            return {
+                                "owned": True,
+                                "book_id": str(owned["id"]),
+                                "title": owned["title"],
+                                "match": "work_id",
+                                "work_id": work_key,
+                            }
+        except Exception:
+            pass
     return {"owned": False}
 
 
@@ -3432,4 +3456,107 @@ async def isbn_region_stats(_u: Any = Depends(get_current_user)) -> dict[str, An
     return {
         "total": len(rows),
         "regions": [{"region": k, "count": v, "pct": round(v / max(len(rows), 1) * 100, 1)} for k, v in sorted_regions],
+    }
+
+
+# ── Open Library Work ID resolution ───────────────────────────────────────
+@app.post("/api/v1/intelligence/resolve-work-ids")
+async def resolve_work_ids(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Resolve Open Library Work IDs for books with ISBNs. Enables edition detection."""
+    rows = await db.fetch_all("""
+        SELECT id, isbn FROM books
+        WHERE isbn IS NOT NULL AND length(isbn) >= 10
+          AND (extra_metadata IS NULL OR NOT extra_metadata ? 'ol_work_id')
+        LIMIT 10
+    """)
+    resolved = 0
+    for r in rows:
+        try:
+            from brainycat.rate_limit import rate_limiter
+
+            await rate_limiter.wait("openlibrary")
+            c = get_client()
+            resp = await c.get(f"https://openlibrary.org/isbn/{r['isbn']}.json")
+            if resp.status_code == 200:
+                data = resp.json()
+                works = data.get("works", [])
+                if works:
+                    work_key = works[0].get("key", "").replace("/works/", "")
+                    if work_key:
+                        import json
+
+                        await db.execute(
+                            "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'), '{ol_work_id}', $1::jsonb) WHERE id = $2",
+                            json.dumps(work_key),
+                            r["id"],
+                        )
+                        resolved += 1
+                        rate_limiter.report_success("openlibrary")
+                else:
+                    rate_limiter.report_failure("openlibrary")
+            else:
+                rate_limiter.report_failure("openlibrary")
+        except Exception:
+            pass
+    return {"resolved": resolved, "checked": len(rows)}
+
+
+@app.get("/api/v1/books/{book_id}/editions")
+async def book_editions(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Find other editions of the same book using Open Library Work ID."""
+    book = await db.fetch_one(
+        "SELECT title, isbn, extra_metadata FROM books WHERE id = $1",
+        __import__("uuid").UUID(book_id),
+    )
+    if not book:
+        return {"error": "not found"}
+
+    import json as _j
+
+    em = book["extra_metadata"]
+    if isinstance(em, str):
+        try:
+            em = _j.loads(em)
+        except Exception:
+            em = {}
+    work_id = (em or {}).get("ol_work_id")
+    if not work_id:
+        return {"error": "no Work ID — run resolve-work-ids first", "isbn": book["isbn"]}
+
+    # Check library for same Work ID
+    owned = await db.fetch_all(
+        """
+        SELECT id, title, isbn, extra_metadata->>'ol_work_id' as work_id
+        FROM books WHERE extra_metadata->>'ol_work_id' = $1 AND id != $2
+    """,
+        work_id,
+        __import__("uuid").UUID(book_id),
+    )
+
+    # Fetch all editions from Open Library
+    editions = []
+    try:
+        c = get_client()
+        resp = await c.get(f"https://openlibrary.org/works/{work_id}/editions.json?limit=20")
+        if resp.status_code == 200:
+            for ed in resp.json().get("entries", []):
+                editions.append(
+                    {
+                        "title": ed.get("title"),
+                        "isbn": (ed.get("isbn_13") or ed.get("isbn_10") or [None])[0],
+                        "publisher": (ed.get("publishers") or [None])[0],
+                        "publish_date": ed.get("publish_date"),
+                        "language": (ed.get("languages") or [{}])[0].get("key", "").replace("/languages/", ""),
+                    }
+                )
+    except Exception:
+        pass
+
+    return {
+        "work_id": work_id,
+        "title": book["title"],
+        "owned_editions": [{"id": str(o["id"]), "title": o["title"], "isbn": o["isbn"]} for o in owned],
+        "all_editions": editions,
+        "you_own": len(owned) + 1,
+        "total_editions": len(editions),
     }

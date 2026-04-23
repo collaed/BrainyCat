@@ -177,6 +177,19 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     score = _compute_quality(book_id, row, merged)
     await execute("UPDATE books SET quality_score = $1 WHERE id = $2", score, UUID(book_id))
 
+    # Store Open Library Work ID + edition IDs for "you already own this" detection
+    for r in results:
+        work_key = r.get("ol_work_key")
+        if work_key:
+            import json as _json
+
+            await execute(
+                "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'), '{ol_work_id}', $1::jsonb) WHERE id = $2",
+                _json.dumps(work_key),
+                UUID(book_id),
+            )
+            break  # One work ID is enough
+
     # Post-enrichment: writeback metadata into EPUB
     try:
         from brainycat.writeback import writeback_metadata
