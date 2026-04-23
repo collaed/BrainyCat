@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, FastAPI, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
@@ -2218,3 +2218,76 @@ async def enrichment_sources(_u: Any = Depends(get_current_user)) -> list[dict[s
         {"id": "inventaire", "name": "Inventaire (Wikidata-backed)", "type": "metadata", "auth": "none"},
         {"id": "bookbrainz", "name": "BookBrainz", "type": "metadata+identifiers", "auth": "none"},
     ]
+
+
+# ── Calibre plugin sync endpoints ─────────────────────────────────────────
+@app.get("/api/v1/calibre/pending")
+async def calibre_pending(library_path: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get pending enrichments to push back to Calibre."""
+    rows = await db.fetch_all("""
+        SELECT b.id, b.title, b.isbn, b.description, b.rating,
+               b.extra_metadata,
+               array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) as tags
+        FROM books b
+        LEFT JOIN books_tags bt ON bt.book_id = b.id LEFT JOIN tags t ON t.id = bt.tag_id
+        WHERE b.extra_metadata ? 'enriched_fields'
+        GROUP BY b.id LIMIT 100
+    """)
+    return {
+        "pending": [
+            {
+                "id": str(r["id"]),
+                "title": r["title"],
+                "isbn": r["isbn"],
+                "description": (r["description"] or "")[:2000],
+                "rating": r["rating"],
+                "tags": r["tags"] or [],
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.post("/api/v1/calibre/push")
+async def calibre_push(request: Request, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Receive books pushed from Calibre plugin."""
+    body = await request.json()
+    books = body.get("books", [])
+    received = 0
+    for b in books:
+        import uuid as _uuid
+
+        existing = await db.fetch_one("SELECT id FROM books WHERE title = $1", b.get("title", ""))
+        if existing:
+            # Update with Calibre data
+            if b.get("isbn"):
+                await db.execute("UPDATE books SET isbn = $1 WHERE id = $2 AND isbn IS NULL", b["isbn"], existing["id"])
+            received += 1
+        else:
+            # Create new book from Calibre push
+            bid = _uuid.uuid4()
+            await db.execute(
+                "INSERT INTO books (id, title, isbn, description) VALUES ($1,$2,$3,$4)",
+                bid,
+                b.get("title"),
+                b.get("isbn"),
+                b.get("description"),
+            )
+            received += 1
+    return {"received": received}
+
+
+@app.post("/api/v1/calibre/ack")
+async def calibre_ack(request: Request, _u: Any = Depends(get_current_user)) -> dict[str, bool]:
+    """Acknowledge that enrichments were applied in Calibre."""
+    body = await request.json()
+    # Mark enrichments as synced
+    for bid in body.get("ids", []):
+        from uuid import UUID as _UUID
+
+        with suppress(Exception):
+            await db.execute(
+                "UPDATE books SET extra_metadata = extra_metadata - 'enriched_fields' WHERE id = $1",
+                _UUID(bid),
+            )
+    return {"ok": True}
