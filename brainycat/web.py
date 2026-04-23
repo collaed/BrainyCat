@@ -2511,3 +2511,34 @@ async def delivery_format(
     is_wb = (book["is_workbook"] if book else False) or False
     fmt = choose_delivery_format(device, formats, is_wb)
     return {"device": device, "format": fmt, "available": formats, "is_workbook": is_wb}
+
+
+# ── Smart PDF conversion ──────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/pdf-to-epub")
+async def smart_pdf_convert(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Convert PDF to EPUB3 using best available AI tool."""
+    from brainycat.pdf_convert import pdf_to_epub3
+
+    row = await db.fetch_one(
+        "SELECT file_path FROM book_files WHERE book_id = $1 AND format = 'pdf' LIMIT 1",
+        __import__("uuid").UUID(book_id),
+    )
+    if not row:
+        return {"error": "no PDF file"}
+    result = await pdf_to_epub3(row["file_path"])
+    if result.get("ok"):
+        await db.execute(
+            "INSERT INTO book_files (id, book_id, format, file_path, file_name) VALUES ($1,$2,'epub',$3,$4) ON CONFLICT DO NOTHING",
+            __import__("uuid").uuid4(),
+            __import__("uuid").UUID(book_id),
+            result["path"],
+            __import__("os").path.basename(result["path"]),
+        )
+    return result
+
+
+@app.get("/api/v1/pdf-converters")
+async def pdf_converters(_u: Any = Depends(get_current_user)) -> dict[str, bool]:
+    from brainycat.pdf_convert import available_converters
+
+    return available_converters()
