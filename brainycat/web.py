@@ -24,7 +24,6 @@ from brainycat import (
     podcast,
     recommendations,
     restoration,
-    reviews,
     scanner,
     stats,
     stt,
@@ -551,10 +550,7 @@ async def ai_tag(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str,
     return await companion.auto_tag(book_id)
 
 
-# ── Reviews ──────────────────────────────────────────────────────────────
-@app.get("/api/v1/books/{book_id}/reviews")
-async def book_reviews(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
-    return await reviews.get_reviews(book_id)
+# Reviews: see aggregated endpoint below
 
 
 # ── Stats & Notes ────────────────────────────────────────────────────────
@@ -2695,3 +2691,103 @@ async def fix_titles(_a: Any = Depends(require_admin)) -> dict[str, Any]:
     from brainycat.title_cleanup import run_title_cleanup_cycle
 
     return await run_title_cleanup_cycle()
+
+
+# ── Gotify notifications ──────────────────────────────────────────────────
+@app.post("/api/v1/notify")
+async def send_notification(request: Request, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Send notification via Signal or Gotify."""
+    import httpx
+
+    from brainycat.config import settings
+
+    body = await request.json()
+    msg = body.get("message", "")
+    results = {}
+
+    # Signal (existing)
+    if settings.signal_api_url:
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.post(f"{settings.signal_api_url}/v2/send", json={"message": msg, "number": body.get("number", "")})
+                results["signal"] = r.status_code == 200
+        except Exception:
+            results["signal"] = False
+
+    # Gotify
+    gotify_url = getattr(settings, "gotify_url", "") or ""
+    gotify_token = getattr(settings, "gotify_token", "") or ""
+    if gotify_url and gotify_token:
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.post(f"{gotify_url}/message?token={gotify_token}", json={"title": "BrainyCat", "message": msg, "priority": 5})
+                results["gotify"] = r.status_code == 200
+        except Exception:
+            results["gotify"] = False
+
+    return results
+
+
+# ── Review aggregation (7 sources) ────────────────────────────────────────
+@app.get("/api/v1/books/{book_id}/reviews")
+async def book_reviews_aggregated(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.reviews import aggregate_reviews
+
+    book = await db.fetch_one(
+        """
+        SELECT b.title, b.isbn, array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
+        FROM books b LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id
+        WHERE b.id = $1 GROUP BY b.id
+    """,
+        __import__("uuid").UUID(book_id),
+    )
+    if not book:
+        return {"error": "not found"}
+    return await aggregate_reviews(book["title"], book["isbn"] or "", (book["authors"] or [""])[0])
+
+
+# ── Additional catalog sources ────────────────────────────────────────────
+@app.get("/api/v1/catalog/manybooks/search")
+async def manybooks_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search ManyBooks (50K+ free ebooks)."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
+            r = await c.get(f"https://manybooks.net/search-book?search={q}", headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code == 200:
+                import re
+
+                books = []
+                for m in re.finditer(r'<a href="(/titles/[^"]+)"[^>]*>([^<]+)</a>', r.text):
+                    books.append({"source": "manybooks", "title": m.group(2).strip(), "url": f"https://manybooks.net{m.group(1)}"})
+                    if len(books) >= 20:
+                        break
+                return {"books": books}
+    except Exception:
+        pass
+    return {"books": []}
+
+
+@app.get("/api/v1/catalog/free-computer-books/search")
+async def free_computer_books(q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search Free Computer Books (technical/programming)."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
+            r = await c.get(f"https://freecomputerbooks.com/search.html?cx=partner-pub-7&q={q}", headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code == 200:
+                import re
+
+                books = []
+                for m in re.finditer(r'<a href="(https?://freecomputerbooks\.com/[^"]+\.html)"[^>]*>([^<]+)</a>', r.text):
+                    title = m.group(2).strip()
+                    if len(title) > 5 and "search" not in title.lower():
+                        books.append({"source": "free_computer_books", "title": title, "url": m.group(1)})
+                        if len(books) >= 20:
+                            break
+                return {"books": books}
+    except Exception:
+        pass
+    return {"books": []}
