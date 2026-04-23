@@ -2053,3 +2053,19 @@ async def set_language_prefs(request: Request, user: Any = Depends(get_current_u
         user["id"],
     )
     return {"languages": langs}
+
+
+# ── Book summaries (getAbstract-style) ────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/summary")
+async def book_summary(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.summaries import generate_summary
+
+    return await generate_summary(book_id)
+
+
+# ── Standard Ebooks catalog ──────────────────────────────────────────────
+@app.get("/api/v1/catalog/standard-ebooks/search")
+async def standard_ebooks_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> Any:
+    from brainycat.sources.standard_ebooks import search
+
+    return await search(q)
