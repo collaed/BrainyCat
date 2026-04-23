@@ -21,7 +21,7 @@ async def _enrichment_loop() -> None:
             from brainycat.db import fetch_all
             from brainycat.metadata import enrich_book
 
-            rows = await fetch_all("SELECT id, title FROM books WHERE quality_score < 50 ORDER BY updated_at ASC LIMIT 5")
+            rows = await fetch_all("SELECT id, title FROM books WHERE quality_score < 50 ORDER BY updated_at ASC LIMIT 3")
             enriched = 0
             for row in rows:
                 result = await enrich_book(str(row["id"]))
@@ -35,7 +35,7 @@ async def _enrichment_loop() -> None:
                 await log.ainfo("auto_enriched", count=enriched, batch=len(rows))
         except Exception as e:
             await log.awarning("enrichment_error", error=str(e))
-        await asyncio.sleep(15)  # 15s between batches to respect API rate limits
+        await asyncio.sleep(60)  # 60s between batches — adaptive rate limiter handles per-source delays
 
 
 async def _fingerprint_loop() -> None:

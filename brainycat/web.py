@@ -3193,3 +3193,11 @@ async def stats_dashboard(_u: Any = Depends(get_current_user)) -> dict[str, Any]
         "authors": {"total": author_stats["total"] if author_stats else 0, "duplicate_groups": dup_authors["count"] if dup_authors else 0},
         "series": [{"name": s["name"], "books": s["books"]} for s in series_stats],
     }
+
+
+# ── Rate limiter status ───────────────────────────────────────────────────
+@app.get("/api/v1/stats/rate-limits")
+async def rate_limit_status(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.rate_limit import rate_limiter
+
+    return rate_limiter.get_status()
