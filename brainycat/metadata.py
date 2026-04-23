@@ -33,11 +33,10 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     ]
 
     async def _fetch(name: str, fn: Any) -> tuple[str, dict[str, Any] | None]:
-        try:
-            r = await fn(title=title, isbn=isbn)
-            return name, r
-        except Exception:
-            return name, None
+        from brainycat.retry import with_retry
+
+        r = await with_retry(fn, title=title, isbn=isbn, retries=1, delay=2.0)
+        return name, r
 
     raw_results = await asyncio.gather(*[_fetch(n, fn) for n, fn in source_fns])
 
