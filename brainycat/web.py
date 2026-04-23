@@ -2000,3 +2000,56 @@ async def catalog_crosslink(title: str = Query(""), author: str = Query(""), _u:
         "ebooks_only": [b for b in gut_books if not any(m["ebook"] == b for m in matches)],
         "audiobooks_only": [b for b in lv_books if not any(m["audiobook"] == b for m in matches)],
     }
+
+
+# ── Catalog cache ─────────────────────────────────────────────────────────
+@app.post("/api/v1/catalog/sync/gutenberg")
+async def sync_gut(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.catalog_cache import sync_gutenberg
+
+    return await sync_gutenberg()
+
+
+@app.post("/api/v1/catalog/sync/librivox")
+async def sync_lv(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.catalog_cache import sync_librivox
+
+    return await sync_librivox()
+
+
+@app.post("/api/v1/catalog/sync/crosslinks")
+async def sync_crosslinks(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.catalog_cache import compute_crosslinks
+
+    return await compute_crosslinks()
+
+
+@app.get("/api/v1/catalog/cached")
+async def cached_search(
+    q: str = Query(""), source: str = Query("gutenberg"), language: str = Query("en"), _u: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    from brainycat.catalog_cache import search_cached
+
+    return await search_cached(q, source, language)
+
+
+# ── User language preferences ─────────────────────────────────────────────
+@app.get("/api/v1/settings/languages")
+async def get_language_prefs(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    row = await db.fetch_one("SELECT preferences FROM users WHERE id = $1", user["id"])
+    prefs = (row["preferences"] or {}) if row else {}
+    return {"languages": prefs.get("catalog_languages", ["en", "fr"])}
+
+
+@app.post("/api/v1/settings/languages")
+async def set_language_prefs(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    body = await request.json()
+    langs = body.get("languages", ["en", "fr"])
+    import json
+
+    await db.execute(
+        "UPDATE users SET preferences = jsonb_set(COALESCE(preferences, '{}'), '{catalog_languages}', $1::jsonb) WHERE id = $2",
+        json.dumps(langs),
+        user["id"],
+    )
+    return {"languages": langs}

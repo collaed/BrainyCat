@@ -67,7 +67,9 @@ async def create_column(name: str, label: str, datatype: str = "text") -> dict[s
         return {"error": "name must be a valid identifier (letters, digits, underscores)"}
     await execute(
         "INSERT INTO custom_columns (name, label, datatype) VALUES ($1, $2, $3) ON CONFLICT (name) DO NOTHING",
-        name, label, datatype,
+        name,
+        label,
+        datatype,
     )
     return {"ok": True, "name": name, "label": label, "datatype": datatype}
 
@@ -88,14 +90,18 @@ async def set_value(book_id: str, column_name: str, value: Any) -> dict[str, Any
 
     await execute(
         "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'), $1, $2::jsonb) WHERE id = $3",
-        f"{{{column_name}}}", json.dumps(validated), UUID(book_id),
+        f"{{{column_name}}}",
+        json.dumps(validated),
+        UUID(book_id),
     )
     return {"ok": True, "value": validated}
 
 
 async def get_value(book_id: str, column_name: str) -> Any:
     row = await fetch_one(
-        "SELECT extra_metadata->>$1 as val FROM books WHERE id = $2", column_name, UUID(book_id),
+        "SELECT extra_metadata->>$1 as val FROM books WHERE id = $2",
+        column_name,
+        UUID(book_id),
     )
     return row["val"] if row else None
 
@@ -109,11 +115,15 @@ async def search_by_column(column_name: str, value: str, limit: int = 50) -> lis
     if col["datatype"] in ("text", "tags"):
         rows = await fetch_all(
             "SELECT id, title, extra_metadata->>$1 as col_value FROM books WHERE extra_metadata->>$1 ILIKE '%' || $2 || '%' LIMIT $3",
-            column_name, value, limit,
+            column_name,
+            value,
+            limit,
         )
     else:
         rows = await fetch_all(
             "SELECT id, title, extra_metadata->>$1 as col_value FROM books WHERE extra_metadata->>$1 = $2 LIMIT $3",
-            column_name, value, limit,
+            column_name,
+            value,
+            limit,
         )
     return [{"id": str(r["id"]), "title": r["title"], "value": r["col_value"]} for r in rows]

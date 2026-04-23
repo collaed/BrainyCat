@@ -46,8 +46,12 @@ async def extract_kfx_metadata(path: str) -> dict[str, Any]:
         tmp = tempfile.mktemp(suffix=".epub")
         try:
             proc = await asyncio.create_subprocess_exec(
-                "ebook-convert", path, tmp, "--no-default-epub-cover",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                "ebook-convert",
+                path,
+                tmp,
+                "--no-default-epub-cover",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
             await proc.communicate()
             if os.path.isfile(tmp):
