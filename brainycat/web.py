@@ -2843,3 +2843,209 @@ async def classify_batch(_a: Any = Depends(require_admin)) -> dict[str, Any]:
         except Exception:
             pass
     return {"classified": classified, "checked": len(rows)}
+
+
+# ── KOReader Sync ─────────────────────────────────────────────────────────
+@app.post("/api/v1/sync/koreader")
+async def koreader_sync(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Sync reading progress from KOReader. KOReader sends progress via its sync plugin."""
+    body = await request.json()
+    doc = body.get("document", "")
+    progress = body.get("progress", 0)
+    percentage = body.get("percentage", 0)
+    body.get("device", "koreader")
+
+    # Match by document hash or title
+    book = await db.fetch_one("SELECT id FROM books WHERE title ILIKE $1 LIMIT 1", f"%{doc}%") if doc else None
+    if not book:
+        return {"error": "book not found", "document": doc}
+
+    await db.execute(
+        """
+        INSERT INTO reading_progress (id, user_id, book_id, percentage, position, is_finished, updated_at)
+        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, now())
+        ON CONFLICT (user_id, book_id) DO UPDATE SET percentage=$3, position=$4, is_finished=$5, updated_at=now()
+    """,
+        user["id"],
+        book["id"],
+        percentage / 100.0,
+        str(progress),
+        percentage >= 99,
+    )
+    return {"ok": True, "book_id": str(book["id"]), "progress": percentage}
+
+
+@app.get("/api/v1/sync/koreader/progress/{document}")
+async def koreader_get_progress(document: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get reading progress for KOReader to resume."""
+    book = await db.fetch_one("SELECT id FROM books WHERE title ILIKE $1 LIMIT 1", f"%{document}%")
+    if not book:
+        return {"document": document, "progress": 0, "percentage": 0}
+    rp = await db.fetch_one("SELECT percentage, position FROM reading_progress WHERE user_id=$1 AND book_id=$2", user["id"], book["id"])
+    if not rp:
+        return {"document": document, "progress": 0, "percentage": 0}
+    return {"document": document, "progress": float(rp["position"] or 0), "percentage": round((rp["percentage"] or 0) * 100)}
+
+
+# ── ISFDB (Sci-Fi/Fantasy metadata) ──────────────────────────────────────
+@app.get("/api/v1/enrichment/isfdb")
+async def isfdb_search(title: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search ISFDB for sci-fi/fantasy series, awards, publication history."""
+    import re
+
+    c = get_client()
+    try:
+        resp = await c.get(f"https://isfdb.org/cgi-bin/se.cgi?arg={title}&type=All+Titles", headers={"User-Agent": "Mozilla/5.0"})
+        if resp.status_code != 200:
+            return {"results": []}
+        results = []
+        for m in re.finditer(r'<a href="(https://isfdb\.org/cgi-bin/title\.cgi\?\d+)">([^<]+)</a>', resp.text):
+            results.append({"url": m.group(1), "title": m.group(2).strip()})
+            if len(results) >= 10:
+                break
+        # Get details for first result
+        if results:
+            detail_resp = await c.get(results[0]["url"], headers={"User-Agent": "Mozilla/5.0"})
+            if detail_resp.status_code == 200:
+                series_m = re.search(r'<a href="[^"]*series\.cgi[^"]*">([^<]+)</a>', detail_resp.text)
+                award_matches = re.findall(r'<a href="[^"]*award_details[^"]*">([^<]+)</a>', detail_resp.text)
+                year_m = re.search(r"Date:\s*</td>\s*<td[^>]*>(\d{4})", detail_resp.text)
+                results[0]["series"] = series_m.group(1) if series_m else None
+                results[0]["awards"] = award_matches[:5]
+                results[0]["year"] = year_m.group(1) if year_m else None
+        return {"results": results}
+    except Exception:
+        return {"results": []}
+
+
+# ── Zotero Import ─────────────────────────────────────────────────────────
+@app.post("/api/v1/import/zotero")
+async def import_zotero(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Import books from Zotero library via API key."""
+    body = await request.json()
+    api_key = body.get("api_key", "")
+    user_id = body.get("zotero_user_id", "")
+    if not api_key or not user_id:
+        return {"error": "provide api_key and zotero_user_id"}
+
+    c = get_client()
+    imported = 0
+    try:
+        resp = await c.get(
+            f"https://api.zotero.org/users/{user_id}/items?format=json&itemType=book&limit=50",
+            headers={"Zotero-API-Key": api_key},
+        )
+        if resp.status_code != 200:
+            return {"error": f"Zotero API: {resp.status_code}"}
+        for item in resp.json():
+            data = item.get("data", {})
+            title = data.get("title", "")
+            if not title:
+                continue
+            existing = await db.fetch_one("SELECT id FROM books WHERE title = $1", title)
+            if existing:
+                continue
+            import uuid
+
+            bid = uuid.uuid4()
+            isbn = data.get("ISBN", "")
+            authors = [
+                f"{c.get('firstName', '')} {c.get('lastName', '')}".strip()
+                for c in data.get("creators", [])
+                if c.get("creatorType") == "author"
+            ]
+            await db.execute(
+                "INSERT INTO books (id, title, isbn, description) VALUES ($1,$2,$3,$4)", bid, title, isbn or None, data.get("abstractNote")
+            )
+            for author in authors:
+                if author:
+                    await db.execute("INSERT INTO authors (name) VALUES ($1) ON CONFLICT DO NOTHING", author)
+                    arow = await db.fetch_one("SELECT id FROM authors WHERE name=$1", author)
+                    if arow:
+                        await db.execute(
+                            "INSERT INTO books_authors (book_id, author_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", bid, arow["id"]
+                        )
+            imported += 1
+    except Exception as e:
+        return {"error": str(e)[:100]}
+    return {"imported": imported}
+
+
+# ── Series Management ─────────────────────────────────────────────────────
+@app.get("/api/v1/series")
+async def list_series(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    rows = await db.fetch_all("""
+        SELECT s.id, s.name, count(bs.book_id) as book_count,
+               array_agg(b.series_index ORDER BY b.series_index) FILTER (WHERE b.series_index IS NOT NULL) as indices
+        FROM series s
+        LEFT JOIN books_series bs ON bs.series_id = s.id
+        LEFT JOIN books b ON b.id = bs.book_id
+        GROUP BY s.id ORDER BY s.name
+    """)
+    result = []
+    for r in rows:
+        indices = sorted([i for i in (r["indices"] or []) if i])
+        gaps = [i for i in range(1, int(max(indices, default=0)) + 1) if i not in indices] if indices else []
+        result.append({"id": str(r["id"]), "name": r["name"], "book_count": r["book_count"], "indices": indices, "gaps": gaps})
+    return result
+
+
+@app.post("/api/v1/series/{series_id}/reorder")
+async def reorder_series(series_id: str, request: Request, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Reorder books in a series. Body: {"books": [{"book_id": "...", "index": 1}, ...]}"""
+    body = await request.json()
+    from uuid import UUID as _UUID
+
+    for item in body.get("books", []):
+        await db.execute("UPDATE books SET series_index = $1 WHERE id = $2", float(item["index"]), _UUID(item["book_id"]))
+    return {"ok": True}
+
+
+@app.post("/api/v1/series/merge")
+async def merge_series(request: Request, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Merge two series. Body: {"keep_id": "...", "merge_id": "..."}"""
+    body = await request.json()
+    from uuid import UUID as _UUID
+
+    await db.execute("UPDATE books_series SET series_id = $1 WHERE series_id = $2", _UUID(body["keep_id"]), _UUID(body["merge_id"]))
+    await db.execute("DELETE FROM series WHERE id = $1", _UUID(body["merge_id"]))
+    return {"ok": True}
+
+
+# ── EPUB Hyphenation ──────────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/hyphenate")
+async def hyphenate_epub(book_id: str, language: str = Query("en"), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Add CSS hyphenation to an EPUB for better justified text."""
+    from uuid import UUID as _UUID
+
+    row = await db.fetch_one("SELECT file_path FROM book_files WHERE book_id=$1 AND format='epub' LIMIT 1", _UUID(book_id))
+    if not row:
+        return {"error": "no epub"}
+    import os
+    import shutil
+    import tempfile
+    import zipfile
+
+    src = row["file_path"]
+    tmp = tempfile.mktemp(suffix=".epub")
+    hyphen_css = f"""
+    body {{ -webkit-hyphens: auto; -moz-hyphens: auto; hyphens: auto; }}
+    p {{ -webkit-hyphens: auto; hyphens: auto; }}
+    html {{ -webkit-locale: "{language}"; }}
+    """
+    try:
+        with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(tmp, "w") as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                if item.filename.endswith((".xhtml", ".html", ".htm")):
+                    text = data.decode("utf-8", errors="replace")
+                    if "</head>" in text:
+                        text = text.replace("</head>", f"<style>{hyphen_css}</style></head>")
+                    data = text.encode("utf-8")
+                zout.writestr(item, data)
+        shutil.move(tmp, src)
+        return {"ok": True, "language": language}
+    except Exception as e:
+        if os.path.isfile(tmp):
+            os.unlink(tmp)
+        return {"error": str(e)[:100]}
