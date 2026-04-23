@@ -3075,6 +3075,7 @@ async def regional_search(
         "myanimelist": regional.search_myanimelist,
         "comicvine": regional.search_comicvine,
         "worldcat": regional.search_worldcat,
+        "bnf": regional.search_bnf,
     }
     fn = fn_map.get(source)
     if not fn:

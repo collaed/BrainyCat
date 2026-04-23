@@ -80,6 +80,40 @@ async def search_dnb(title: str = "", isbn: str = "") -> dict[str, Any] | None:
     return None
 
 
+async def search_bnf(title: str = "", isbn: str = "") -> dict[str, Any] | None:
+    """BnF 🇫🇷 — Bibliothèque nationale de France via SPARQL. Authoritative French metadata."""
+    query = isbn or title
+    if not query:
+        return None
+    try:
+        c = get_client()
+        await rate_limiter.wait("default")
+        sparql = f"""SELECT ?title ?author ?date ?publisher WHERE {{
+            ?book dcterms:title ?title .
+            OPTIONAL {{ ?book dcterms:creator/foaf:name ?author }}
+            OPTIONAL {{ ?book dcterms:date ?date }}
+            OPTIONAL {{ ?book dcterms:publisher/foaf:name ?publisher }}
+            FILTER(CONTAINS(LCASE(?title), LCASE("{query}")))
+        }} LIMIT 3"""
+        r = await c.get(
+            "https://data.bnf.fr/sparql", params={"query": sparql, "format": "json"}, headers={"Accept": "application/sparql-results+json"}
+        )
+        if r.status_code == 200:
+            bindings = r.json().get("results", {}).get("bindings", [])
+            if bindings:
+                b = bindings[0]
+                return {
+                    "source": "bnf",
+                    "title": b.get("title", {}).get("value"),
+                    "authors": [b["author"]["value"]] if "author" in b else [],
+                    "publisher": b.get("publisher", {}).get("value"),
+                    "date": b.get("date", {}).get("value"),
+                }
+    except Exception:
+        pass
+    return None
+
+
 async def search_fantastic_fiction(title: str = "", author: str = "") -> dict[str, Any] | None:
     """Fantastic Fiction 🇬🇧 — best series ordering for English fiction."""
     q = f"{title} {author}".strip()

@@ -31,13 +31,13 @@ async def submit_job(
                 f"{settings.intello_url}{endpoint}",
                 files=files,
                 data=payload or {},
-                headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+                headers={"Authorization": f"Bearer {settings.intello_api_key}"} if settings.intello_api_key else {},
             )
         else:
             resp = await client.post(
                 f"{settings.intello_url}{endpoint}",
                 json=payload or {},
-                headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+                headers={"Authorization": f"Bearer {settings.intello_api_key}"} if settings.intello_api_key else {},
             )
         if resp.status_code in (200, 201, 202):
             data = resp.json()
@@ -77,7 +77,7 @@ async def check_job(job_id: str, status_endpoint: str) -> dict[str, Any]:
         client = get_client()
         resp = await client.get(
             f"{settings.intello_url}{status_endpoint}/{job_id}",
-            headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+            headers={"Authorization": f"Bearer {settings.intello_api_key}"} if settings.intello_api_key else {},
         )
         if resp.status_code == 200:
             data = resp.json()
@@ -99,7 +99,7 @@ async def get_job_result(job_id: str, result_endpoint: str) -> bytes | dict | No
         client = get_client()
         resp = await client.get(
             f"{settings.intello_url}{result_endpoint}/{job_id}/result",
-            headers={"Authorization": f"Bearer {settings.intello_api_key}"},
+            headers={"Authorization": f"Bearer {settings.intello_api_key}"} if settings.intello_api_key else {},
         )
         if resp.status_code == 200:
             await execute(

@@ -411,13 +411,36 @@ ISBN_GROUPS: dict[str, dict[str, Any]] = {
 
 
 def isbn_to_region(isbn: str) -> dict[str, Any] | None:
-    """Detect country/region from ISBN prefix. Returns best metadata sources."""
+    """Detect country/region from ISBN prefix using isbnlib + our source mapping."""
     if not isbn or len(isbn) < 10:
         return None
-    # Try longest prefix first (978-950 before 978-9)
+    try:
+        import isbnlib
+
+        info = isbnlib.info(isbn)  # Offline — no API call
+        masked = isbnlib.mask(isbn)  # e.g. "978-2-7417-0468-3"
+        # Extract publisher from masked form
+        parts = masked.split("-") if masked else []
+        publisher_prefix = f"{parts[0]}-{parts[1]}-{parts[2]}" if len(parts) >= 3 else None
+    except Exception:
+        info = None
+        masked = None
+        publisher_prefix = None
+
+    # Match against our source mapping
     for prefix in sorted(ISBN_GROUPS.keys(), key=len, reverse=True):
-        # Convert "978-2" to "9782" for matching
         flat = prefix.replace("-", "")
         if isbn.startswith(flat):
-            return ISBN_GROUPS[prefix]
+            result = dict(ISBN_GROUPS[prefix])
+            if info:
+                result["language_info"] = info
+            if masked:
+                result["masked"] = masked
+            if publisher_prefix:
+                result["publisher_prefix"] = publisher_prefix
+            return result
+
+    # Fallback: isbnlib info only
+    if info:
+        return {"region": info, "countries": [], "best_sources": ["google_books"], "language_info": info, "masked": masked}
     return None
