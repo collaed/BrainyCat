@@ -2131,7 +2131,7 @@ async def unified_catalog_search(q: str = Query(""), language: str = Query("en")
     if not q:
         return {"ebooks": [], "audiobooks": [], "textbooks": [], "github": []}
 
-    async def safe(coro):
+    async def safe(coro: Any) -> dict[str, Any]:
         try:
             return await coro
         except Exception:
@@ -2172,3 +2172,49 @@ async def unified_catalog_search(q: str = Query(""), language: str = Query("en")
         "textbooks": (oapen_result.get("books") or [])[:10] + (openstax_result.get("books") or [])[:5],
         "github": (gh_result.get("books") or [])[:10],
     }
+
+
+# ── Enhanced enrichment sources ───────────────────────────────────────────
+@app.get("/api/v1/enrichment/open-library-enhanced")
+async def ol_enhanced(title: str = Query(""), isbn: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.sources.open_library_enhanced import search_enhanced
+
+    return await search_enhanced(title=title or None, isbn=isbn or None) or {}
+
+
+@app.get("/api/v1/enrichment/viaf")
+async def viaf_search(name: str = Query(""), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.sources.authority import search_viaf
+
+    return await search_viaf(name)
+
+
+@app.get("/api/v1/enrichment/inventaire")
+async def inventaire_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.sources.authority import search_inventaire
+
+    return await search_inventaire(q)
+
+
+@app.get("/api/v1/enrichment/bookbrainz")
+async def bookbrainz_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.sources.authority import search_bookbrainz
+
+    return await search_bookbrainz(q)
+
+
+@app.get("/api/v1/enrichment/sources")
+async def enrichment_sources(_u: Any = Depends(get_current_user)) -> list[dict[str, str]]:
+    """List all available enrichment sources."""
+    return [
+        {"id": "google_books", "name": "Google Books", "type": "metadata", "auth": "none"},
+        {"id": "open_library", "name": "Open Library (basic)", "type": "metadata", "auth": "none"},
+        {"id": "open_library_enhanced", "name": "Open Library (Works + Ratings)", "type": "metadata+ratings", "auth": "none"},
+        {"id": "gutendex", "name": "Gutendex (Gutenberg)", "type": "metadata", "auth": "none"},
+        {"id": "loc", "name": "Library of Congress", "type": "metadata", "auth": "none"},
+        {"id": "amazon", "name": "Amazon (via Google proxy)", "type": "metadata+covers", "auth": "none"},
+        {"id": "viaf", "name": "VIAF (author authority)", "type": "author_disambiguation", "auth": "none"},
+        {"id": "isni", "name": "ISNI (author IDs)", "type": "author_disambiguation", "auth": "none"},
+        {"id": "inventaire", "name": "Inventaire (Wikidata-backed)", "type": "metadata", "auth": "none"},
+        {"id": "bookbrainz", "name": "BookBrainz", "type": "metadata+identifiers", "auth": "none"},
+    ]
