@@ -3602,3 +3602,65 @@ def _enrichment_priority(region: dict | None) -> list[str]:
     if "google_books" not in sources:
         sources.append("google_books")
     return sources
+
+
+# ── ISBN Deep Links (deterministic, no search needed) ─────────────────────
+@app.get("/api/v1/isbn/{isbn}/links")
+async def isbn_deep_links(isbn: str) -> dict[str, Any]:
+    """Generate deterministic URLs for an ISBN across all major services."""
+    from brainycat.isbn import _clean_isbn
+
+    isbn13 = _clean_isbn(isbn)
+    if not isbn13:
+        return {"error": "invalid ISBN"}
+    # Convert to ISBN-10 for Amazon
+    isbn10 = None
+    try:
+        import isbnlib
+
+        isbn10 = isbnlib.to_isbn10(isbn13)
+    except Exception:
+        pass
+
+    return {
+        "isbn13": isbn13,
+        "isbn10": isbn10,
+        "links": {
+            "open_library": f"https://openlibrary.org/isbn/{isbn13}",
+            "worldcat": f"https://worldcat.org/isbn/{isbn13}",
+            "google_books": f"https://books.google.com/books?vid=ISBN{isbn13}",
+            "amazon": f"https://amazon.com/dp/{isbn10}" if isbn10 else None,
+            "abebooks": f"https://abebooks.com/servlet/BookDetailsPL?isbn={isbn13}",
+            "bookshop": f"https://bookshop.org/a/0/{isbn13}",
+            "goodreads": f"https://www.goodreads.com/search?q={isbn13}",
+            "bnf": f"https://catalogue.bnf.fr/rechercher.do?critere1=ISBN&index1=NUM&recherche=simple&nbResultParPage=1&motRecherche={isbn13}",
+        },
+    }
+
+
+# ── FRBR Work-level view (collapse editions) ─────────────────────────────
+@app.get("/api/v1/works")
+async def list_works(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Group books by Open Library Work ID — FRBR Work-level view."""
+    rows = await db.fetch_all("""
+        SELECT extra_metadata->>'ol_work_id' as work_id,
+               array_agg(DISTINCT b.title) as titles,
+               array_agg(DISTINCT b.isbn) FILTER (WHERE b.isbn IS NOT NULL) as isbns,
+               array_agg(DISTINCT b.id) as book_ids,
+               count(*) as edition_count
+        FROM books b
+        WHERE extra_metadata->>'ol_work_id' IS NOT NULL
+        GROUP BY extra_metadata->>'ol_work_id'
+        HAVING count(*) > 1
+        ORDER BY count(*) DESC
+    """)
+    return [
+        {
+            "work_id": r["work_id"],
+            "titles": r["titles"],
+            "isbns": r["isbns"],
+            "edition_count": r["edition_count"],
+            "book_ids": [str(i) for i in r["book_ids"]],
+        }
+        for r in rows
+    ]
