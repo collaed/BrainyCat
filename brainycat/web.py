@@ -69,6 +69,9 @@ async def startup() -> None:
     from brainycat.http_client import get_client
 
     get_client()  # Initialize shared client
+    from brainycat.rate_limit import seed_from_db
+
+    await seed_from_db()  # Pre-set backoffs from recent failure history
 
 
 @app.on_event("shutdown")

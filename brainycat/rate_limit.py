@@ -108,3 +108,24 @@ class RateLimiter:
 
 
 rate_limiter = RateLimiter()
+
+
+async def seed_from_db() -> None:
+    """Check recent failure rates from enrichment_log and pre-set backoffs."""
+    try:
+        from brainycat.db import fetch_all
+
+        rows = await fetch_all("""
+            SELECT method,
+                count(*) FILTER (WHERE NOT success) as recent_fails,
+                count(*) FILTER (WHERE success) as recent_ok
+            FROM enrichment_log
+            WHERE created_at > now() - interval '1 hour'
+            GROUP BY method
+        """)
+        for r in rows:
+            if r["recent_fails"] > 10 and r["recent_ok"] == 0:
+                rate_limiter._consecutive_failures[r["method"]] = min(r["recent_fails"], 20)
+                rate_limiter.report_failure(r["method"])
+    except Exception:
+        pass
