@@ -2482,3 +2482,32 @@ async def exact_duplicates(_u: Any = Depends(get_current_user)) -> list[dict[str
     from brainycat.fingerprints import find_exact_duplicates
 
     return await find_exact_duplicates()
+
+
+# ── Ingest pipeline ───────────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/ingest")
+async def run_ingest(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.ingest import ingest_book
+
+    return await ingest_book(book_id)
+
+
+@app.get("/api/v1/delivery/format")
+async def delivery_format(
+    device: str = Query("kindle"),
+    book_id: str = Query(""),
+    _u: Any = Depends(get_current_user),
+) -> dict[str, str]:
+    """Determine the best delivery format for a device."""
+    from uuid import UUID as _UUID
+
+    from brainycat.ingest import choose_delivery_format
+
+    formats = []
+    if book_id:
+        rows = await db.fetch_all("SELECT format FROM book_files WHERE book_id = $1", _UUID(book_id))
+        formats = [r["format"] for r in rows]
+    book = await db.fetch_one("SELECT is_workbook FROM books WHERE id = $1", _UUID(book_id)) if book_id else None
+    is_wb = (book["is_workbook"] if book else False) or False
+    fmt = choose_delivery_format(device, formats, is_wb)
+    return {"device": device, "format": fmt, "available": formats, "is_workbook": is_wb}
