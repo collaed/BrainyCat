@@ -3294,3 +3294,111 @@ async def compare_formats(book_id: str, _u: Any = Depends(get_current_user)) -> 
             "epub_reader": f"/static/reader.html?id={book_id}",
         },
     }
+
+
+# ── Scraper diagnostics — human-in-the-loop ───────────────────────────────
+@app.get("/api/v1/stats/scraper-diagnostics")
+async def scraper_diagnostics(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """For each failing source, show the last query URL so a human can test it."""
+    from brainycat.rate_limit import rate_limiter
+
+    status = rate_limiter.get_status()
+    diagnostics = []
+
+    for source, info in status.items():
+        if info["consecutive_failures"] < 3:
+            continue
+
+        # Get the last failed book for this source
+        row = await db.fetch_one(
+            """
+            SELECT el.book_id, b.title, b.isbn
+            FROM enrichment_log el JOIN books b ON b.id = el.book_id
+            WHERE el.method = $1 AND NOT el.success
+            ORDER BY el.created_at DESC LIMIT 1
+        """,
+            source,
+        )
+
+        if not row:
+            continue
+
+        # Build the URL a human would visit
+        title = row["title"] or ""
+        isbn = row["isbn"] or ""
+        test_urls = {
+            "google": f"https://www.googleapis.com/books/v1/volumes?q=isbn:{isbn}"
+            if isbn
+            else f"https://www.googleapis.com/books/v1/volumes?q={title}",
+            "amazon": f"https://www.amazon.com/s?k={isbn or title}",
+            "openlibrary": f"https://openlibrary.org/search.json?isbn={isbn}"
+            if isbn
+            else f"https://openlibrary.org/search.json?title={title}",
+            "loc": f"https://www.loc.gov/books/?q={isbn or title}&fo=json",
+            "gutendex": f"https://gutendex.com/books?search={title}",
+        }
+
+        diagnostics.append(
+            {
+                "source": source,
+                "failures": info["consecutive_failures"],
+                "backoff_sec": info["backoff_remaining_sec"],
+                "last_query": {"book": title, "isbn": isbn, "book_id": str(row["book_id"])},
+                "test_url": test_urls.get(source, f"https://www.google.com/search?q={title}+{isbn}"),
+                "help": "Click the URL. If it works, we're IP-blocked. Paste any data below to help.",
+            }
+        )
+
+    return diagnostics
+
+
+@app.post("/api/v1/stats/scraper-diagnostics/submit")
+async def submit_diagnostic(request: Request, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Human submits data they found manually — bypasses the blocked scraper."""
+    body = await request.json()
+    book_id = body.get("book_id")
+    source = body.get("source", "")
+    data = body.get("data", {})
+
+    if not book_id or not data:
+        return {"error": "provide book_id and data"}
+
+    import json
+    from uuid import UUID as _UUID
+
+    from brainycat.rate_limit import rate_limiter
+
+    # Apply whatever data the human provided
+    updates = []
+    if data.get("title"):
+        await db.execute("UPDATE books SET title = $1 WHERE id = $2", data["title"], _UUID(book_id))
+        updates.append("title")
+    if data.get("isbn"):
+        await db.execute("UPDATE books SET isbn = $1 WHERE id = $2", data["isbn"], _UUID(book_id))
+        updates.append("isbn")
+    if data.get("description"):
+        await db.execute("UPDATE books SET description = $1 WHERE id = $2", data["description"][:2000], _UUID(book_id))
+        updates.append("description")
+    if data.get("authors"):
+        updates.append("authors")
+    if data.get("cover_url"):
+        updates.append("cover_url")
+
+    # Log as successful enrichment
+    await db.execute(
+        "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, $2, true, $3::jsonb)",
+        _UUID(book_id),
+        f"human_{source}",
+        json.dumps({"fields": updates}),
+    )
+
+    # If the human could access the URL, the source is working — we're just blocked
+    if body.get("source_accessible"):
+        # Jump to max cooldown — we're definitely IP-blocked
+        rate_limiter._consecutive_failures[source] = 50
+        rate_limiter.report_failure(source)
+        return {"ok": True, "updates": updates, "note": f"{source} confirmed IP-blocked, cooldown set to 6 hours"}
+    # Source might be down — moderate cooldown
+    rate_limiter._consecutive_failures[source] = 20
+    rate_limiter.report_failure(source)
+    return {"ok": True, "updates": updates, "note": f"{source} may be down, cooldown set to 1 hour"}
