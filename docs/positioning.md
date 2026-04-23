@@ -102,6 +102,28 @@ These features exist nowhere else in the self-hosted book space:
 | Newspaper recipes | Unique to Calibre, niche use case. |
 | 3D bookshelf view | Visual polish, not intelligence. Skins handle UI variety. |
 
+## The Audiobook Market
+
+The self-hosted audiobook space is dominated by Audiobookshelf (10K⭐). Here's where BrainyCat fits:
+
+| Capability | ABS | Calibre | Storyteller | BrainyCat |
+|---|---|---|---|---|
+| Mobile apps | ✅ Native iOS/Android | ❌ | ❌ | ✅ Via ABS compat shim |
+| Audiobook playback | ✅ Best-in-class | ❌ | ✅ Basic | ✅ Smart sleep mode |
+| Ebook reading | ⚠️ Basic | ✅ Desktop viewer | ✅ Synced | ✅ Full reader + dictionary |
+| Text↔audio sync | ❌ | ❌ | ✅ Forced alignment | ✅ Whisper STT sync maps |
+| Format conversion | ❌ | ✅ 40+ formats | ❌ | ✅ 10 paths via ebook-convert |
+| Metadata quality | ⚠️ Basic | ✅ 100+ sources | ❌ | ✅ 10 sources, parallel |
+| AI features | ❌ | ❌ | ❌ | ✅ 28 MCP tools, taste engine, footnotes |
+| Discovery | ❌ | ❌ | ❌ | ✅ 8 catalog sources, 120K+ free books |
+| Social | ❌ | ❌ | ❌ | ✅ Federated profiles, clubs |
+
+**Our strategic position**: We don't compete with ABS on mobile apps — we make their apps work with our backend (ABS compat shim). We don't compete with Calibre on format conversion — we use ebook-convert. We don't compete with Storyteller on sync — we use Whisper STT.
+
+We compete on intelligence, discovery, and social — the layer nobody else builds.
+
+**The convergence play**: BrainyCat is the only self-hosted platform that handles ebooks AND audiobooks with AI features, connects to ABS mobile apps, uses Calibre's conversion engine, and adds discovery + social on top. That's the winning combination the market is heading toward.
+
 ## Technical Stack
 
 - **Backend**: Python 3.12, FastAPI, asyncpg, PostgreSQL 16 + pgvector
