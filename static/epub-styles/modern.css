@@ -1,0 +1,30 @@
+/* BrainyCat Modern — Clean sans-serif for contemporary reading */
+
+body {
+  max-width: 38em;
+  margin: 0 auto;
+  padding: 1.2em 1.5em;
+  font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  line-height: 1.7;
+  color: #222;
+}
+
+h1 { font-size: 1.6em; margin: 2em 0 0.6em; font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: 1.3em; margin: 1.5em 0 0.4em; font-weight: 600; }
+h3 { font-size: 1.1em; margin: 1.2em 0 0.3em; font-weight: 600; }
+
+p { margin: 0 0 0.8em; text-indent: 0; text-align: left; }
+
+blockquote { margin: 1em 0; padding: 0.8em 1.2em; background: #f9f9f9; border-left: 4px solid #3b82f6; border-radius: 0 4px 4px 0; }
+
+figure { text-align: center; margin: 1.5em 0; }
+img { max-width: 100%; height: auto; border-radius: 4px; }
+figcaption { font-size: 0.85em; color: #888; margin-top: 0.5em; }
+
+table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+th { background: #f0f0f0; font-weight: 600; }
+th, td { padding: 0.5em 0.8em; border: 1px solid #e5e5e5; }
+
+pre, code { font-family: "SF Mono", "Fira Code", monospace; font-size: 0.85em; }
+pre { background: #1e1e1e; color: #d4d4d4; padding: 1em; border-radius: 6px; overflow-x: auto; }
+code { background: #f0f0f0; padding: 0.15em 0.3em; border-radius: 3px; }

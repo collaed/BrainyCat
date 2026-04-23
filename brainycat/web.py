@@ -2546,3 +2546,28 @@ async def pdf_converters(_u: Any = Depends(get_current_user)) -> dict[str, bool]
     from brainycat.pdf_convert import available_converters
 
     return available_converters()
+
+
+# ── StoryGraph + Hardcover ────────────────────────────────────────────────
+@app.get("/api/v1/enrichment/storygraph")
+async def storygraph_search(title: str = Query(""), author: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.sources.social_reads import search_storygraph
+
+    return await search_storygraph(title, author) or {}
+
+
+@app.get("/api/v1/enrichment/hardcover")
+async def hardcover_search(title: str = Query(""), author: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.sources.social_reads import search_hardcover
+
+    return await search_hardcover(title, author) or {}
+
+
+@app.get("/api/v1/epub-styles")
+async def list_epub_styles() -> list[dict[str, str]]:
+    """List available EPUB default stylesheets."""
+    return [
+        {"id": "classic", "name": "Classic", "description": "Georgia serif, justified, book-style indents"},
+        {"id": "modern", "name": "Modern", "description": "System sans-serif, left-aligned, clean"},
+        {"id": "academic", "name": "Academic", "description": "Times New Roman, compact, reference-friendly"},
+    ]

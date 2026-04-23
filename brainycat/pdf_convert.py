@@ -110,6 +110,16 @@ async def _try_docling(pdf_path: str, out_path: str) -> dict[str, Any]:
         book.add_item(epub.EpubNav())
         book.spine = spine
 
+        # Embed default BrainyCat stylesheet
+        import pathlib
+
+        css_path = pathlib.Path(__file__).parent.parent / "static" / "epub-styles" / "classic.css"
+        if css_path.is_file():
+            style = epub.EpubItem(file_name="style/brainycat.css", media_type="text/css", content=css_path.read_bytes())
+            book.add_item(style)
+            for ch_item in spine[1:]:  # Skip "nav"
+                ch_item.add_item(style)
+
         epub.write_epub(out_path, book)
         if os.path.isfile(out_path):
             return {"ok": True, "method": "docling", "path": out_path, "chapters": len(chapters), "images": len(images)}

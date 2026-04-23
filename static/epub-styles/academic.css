@@ -1,0 +1,31 @@
+/* BrainyCat Academic — Compact, numbered, reference-friendly */
+
+body {
+  max-width: 42em;
+  margin: 0 auto;
+  padding: 0.8em 1.2em;
+  font-family: "Times New Roman", "Liberation Serif", serif;
+  line-height: 1.5;
+  color: #111;
+  font-size: 0.95em;
+}
+
+h1 { font-size: 1.5em; margin: 1.5em 0 0.4em; page-break-before: always; }
+h2 { font-size: 1.25em; margin: 1.2em 0 0.3em; }
+h3 { font-size: 1.1em; margin: 1em 0 0.2em; font-style: italic; }
+
+p { margin: 0 0 0.5em; text-indent: 1.5em; text-align: justify; }
+p:first-of-type, h1 + p, h2 + p, h3 + p { text-indent: 0; }
+
+blockquote { margin: 0.8em 2em; font-size: 0.9em; }
+
+figure { text-align: center; margin: 1em 0; }
+img { max-width: 100%; }
+figcaption { font-size: 0.8em; color: #555; }
+
+table { border-collapse: collapse; width: 100%; margin: 0.8em 0; font-size: 0.85em; }
+th { background: #eee; font-weight: bold; }
+th, td { padding: 0.3em 0.6em; border: 1px solid #ccc; }
+
+aside[epub|type="footnote"] { font-size: 0.8em; color: #444; }
+sup { font-size: 0.75em; }
