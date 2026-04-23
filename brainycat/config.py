@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     # External services
     intello_url: str = "http://intello:8000"
+    intello_api_key: str = ""
     signal_api_url: str = "http://signal-api:8080"
     smtp_host: str = "mailserver"
     smtp_port: int = 587

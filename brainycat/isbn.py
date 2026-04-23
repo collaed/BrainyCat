@@ -360,3 +360,64 @@ def _extract_asin(raw: str) -> str | None:
     if stripped.startswith("B") and len(stripped) == 10 and stripped.isalnum():
         return stripped
     return None
+
+
+# ISBN Registration Group → Country/Region → Best metadata sources
+ISBN_GROUPS: dict[str, dict[str, Any]] = {
+    "978-0": {
+        "region": "English-speaking",
+        "countries": ["US", "UK", "AU", "CA", "NZ"],
+        "best_sources": ["google_books", "amazon", "fantastic_fiction", "open_library"],
+    },
+    "978-1": {
+        "region": "English-speaking",
+        "countries": ["US", "UK", "AU", "CA", "ZA"],
+        "best_sources": ["google_books", "amazon", "fantastic_fiction", "open_library"],
+    },
+    "978-2": {"region": "French-speaking", "countries": ["FR", "BE", "CH", "CA-QC"], "best_sources": ["babelio", "google_books", "amazon"]},
+    "978-3": {"region": "German-speaking", "countries": ["DE", "AT", "CH"], "best_sources": ["dnb", "thalia", "google_books", "amazon"]},
+    "978-4": {"region": "Japan", "countries": ["JP"], "best_sources": ["rakuten", "google_books", "amazon"]},
+    "978-5": {"region": "Russian-speaking", "countries": ["RU", "BY", "KZ"], "best_sources": ["google_books"]},
+    "978-7": {"region": "China", "countries": ["CN"], "best_sources": ["douban", "google_books"]},
+    "978-80": {"region": "Czech/Slovak", "countries": ["CZ", "SK"], "best_sources": ["google_books"]},
+    "978-82": {"region": "Norway", "countries": ["NO"], "best_sources": ["google_books"]},
+    "978-83": {"region": "Poland", "countries": ["PL"], "best_sources": ["google_books"]},
+    "978-84": {"region": "Spain", "countries": ["ES"], "best_sources": ["casa_del_libro", "google_books", "amazon"]},
+    "978-85": {"region": "Brazil", "countries": ["BR"], "best_sources": ["skoob", "google_books"]},
+    "978-87": {"region": "Denmark", "countries": ["DK"], "best_sources": ["google_books"]},
+    "978-88": {"region": "Italy", "countries": ["IT"], "best_sources": ["google_books", "amazon"]},
+    "978-89": {"region": "South Korea", "countries": ["KR"], "best_sources": ["google_books"]},
+    "978-90": {"region": "Netherlands/Belgium", "countries": ["NL", "BE"], "best_sources": ["bol_nl", "google_books"]},
+    "978-91": {"region": "Sweden", "countries": ["SE"], "best_sources": ["google_books"]},
+    "978-92": {"region": "International orgs", "countries": ["UN", "EU", "UNESCO"], "best_sources": ["google_books", "open_library"]},
+    "978-93": {"region": "India", "countries": ["IN"], "best_sources": ["google_books", "amazon"]},
+    "978-950": {"region": "Argentina", "countries": ["AR"], "best_sources": ["google_books"]},
+    "978-956": {"region": "Chile", "countries": ["CL"], "best_sources": ["google_books"]},
+    "978-958": {"region": "Colombia", "countries": ["CO"], "best_sources": ["google_books"]},
+    "978-960": {"region": "Greece", "countries": ["GR"], "best_sources": ["google_books"]},
+    "978-961": {"region": "Slovenia", "countries": ["SI"], "best_sources": ["google_books"]},
+    "978-962": {"region": "Hong Kong", "countries": ["HK"], "best_sources": ["google_books"]},
+    "978-963": {"region": "Hungary", "countries": ["HU"], "best_sources": ["google_books"]},
+    "978-964": {"region": "Iran", "countries": ["IR"], "best_sources": ["google_books"]},
+    "978-965": {"region": "Israel", "countries": ["IL"], "best_sources": ["google_books"]},
+    "978-966": {"region": "Ukraine", "countries": ["UA"], "best_sources": ["google_books"]},
+    "978-972": {"region": "Portugal", "countries": ["PT"], "best_sources": ["google_books"]},
+    "978-973": {"region": "Romania", "countries": ["RO"], "best_sources": ["google_books"]},
+    "978-975": {"region": "Turkey", "countries": ["TR"], "best_sources": ["google_books"]},
+    "979-10": {"region": "France", "countries": ["FR"], "best_sources": ["babelio", "google_books"]},
+    "979-11": {"region": "South Korea", "countries": ["KR"], "best_sources": ["google_books"]},
+    "979-12": {"region": "Italy", "countries": ["IT"], "best_sources": ["google_books"]},
+}
+
+
+def isbn_to_region(isbn: str) -> dict[str, Any] | None:
+    """Detect country/region from ISBN prefix. Returns best metadata sources."""
+    if not isbn or len(isbn) < 10:
+        return None
+    # Try longest prefix first (978-950 before 978-9)
+    for prefix in sorted(ISBN_GROUPS.keys(), key=len, reverse=True):
+        # Convert "978-2" to "9782" for matching
+        flat = prefix.replace("-", "")
+        if isbn.startswith(flat):
+            return ISBN_GROUPS[prefix]
+    return None

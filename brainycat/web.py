@@ -3402,3 +3402,33 @@ async def submit_diagnostic(request: Request, _u: Any = Depends(get_current_user
     rate_limiter._consecutive_failures[source] = 20
     rate_limiter.report_failure(source)
     return {"ok": True, "updates": updates, "note": f"{source} may be down, cooldown set to 1 hour"}
+
+
+# ── ISBN region detection ─────────────────────────────────────────────────
+@app.get("/api/v1/books/{book_id}/isbn-region")
+async def book_isbn_region(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.isbn import isbn_to_region
+
+    book = await db.fetch_one("SELECT isbn, title FROM books WHERE id = $1", __import__("uuid").UUID(book_id))
+    if not book or not book["isbn"]:
+        return {"error": "no ISBN"}
+    region = isbn_to_region(book["isbn"])
+    return {"isbn": book["isbn"], "title": book["title"], "region": region}
+
+
+@app.get("/api/v1/stats/isbn-regions")
+async def isbn_region_stats(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Distribution of books by ISBN region — helps prioritize enrichment sources."""
+    from brainycat.isbn import isbn_to_region
+
+    rows = await db.fetch_all("SELECT isbn FROM books WHERE isbn IS NOT NULL AND length(isbn) >= 10")
+    regions: dict[str, int] = {}
+    for r in rows:
+        info = isbn_to_region(r["isbn"])
+        name = info["region"] if info else "Unknown"
+        regions[name] = regions.get(name, 0) + 1
+    sorted_regions = sorted(regions.items(), key=lambda x: x[1], reverse=True)
+    return {
+        "total": len(rows),
+        "regions": [{"region": k, "count": v, "pct": round(v / max(len(rows), 1) * 100, 1)} for k, v in sorted_regions],
+    }
