@@ -1,0 +1,201 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrainyCat</title>
+<style>
+:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6;--success:#22c55e;--warn:#f59e0b;--danger:#ef4444}
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* Shell */
+.shell{display:flex;flex-direction:column;height:100vh}
+.topbar{background:var(--surface);padding:.6rem 1rem;display:flex;align-items:center;gap:.8rem;border-bottom:1px solid var(--border)}
+.topbar .logo{font-weight:700;font-size:1.1rem;color:var(--accent)}
+.topbar input{flex:1;padding:.4rem .8rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.85rem}
+.topbar .user{color:var(--muted);font-size:.85rem}
+
+/* Tabs */
+.tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border)}
+.tabs button{flex:1;padding:.6rem;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:.85rem;border-bottom:2px solid transparent;transition:all .15s}
+.tabs button.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tabs button:hover{color:var(--text)}
+
+/* Content */
+.content{flex:1;overflow-y:auto;padding:1rem}
+.tab-content{display:none}.tab-content.active{display:block}
+
+/* Library grid */
+.book-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:1rem}
+.book-card{cursor:pointer;transition:transform .15s}
+.book-card:hover{transform:translateY(-4px)}
+.book-card img{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:6px;background:var(--surface)}
+.book-card .title{font-size:.8rem;margin-top:.3rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.book-card .author{font-size:.7rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Discover sections */
+.section{margin-bottom:1.5rem}
+.section h3{font-size:.9rem;color:var(--muted);margin-bottom:.6rem;text-transform:uppercase;letter-spacing:.05em}
+.section .row{display:flex;gap:.8rem;overflow-x:auto;padding-bottom:.5rem}
+
+/* Improve cards */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1rem}
+.stat-card .label{font-size:.75rem;color:var(--muted);text-transform:uppercase}
+.stat-card .value{font-size:1.8rem;font-weight:700;margin:.2rem 0}
+.stat-card .sub{font-size:.75rem;color:var(--muted)}
+
+/* Detail panel */
+.detail-overlay{position:fixed;top:0;right:0;width:400px;height:100%;background:var(--surface);border-left:1px solid var(--border);transform:translateX(100%);transition:transform .2s;z-index:100;overflow-y:auto;padding:1.5rem}
+.detail-overlay.open{transform:translateX(0)}
+.detail-overlay .close{position:absolute;top:.8rem;right:.8rem;background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.2rem}
+.detail-overlay img{width:100%;border-radius:8px;margin-bottom:1rem}
+.detail-overlay h2{margin-bottom:.3rem}
+.detail-overlay .meta{color:var(--muted);font-size:.85rem;margin-bottom:1rem}
+.detail-overlay .actions{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:1rem}
+.detail-overlay .actions button,.detail-overlay .actions a{padding:.4rem .8rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-size:.8rem;text-decoration:none}
+.detail-overlay .actions .primary{background:var(--accent);border-color:var(--accent);color:#fff}
+</style></head><body>
+<div class="shell">
+<div class="topbar">
+<span class="logo">🐱 BrainyCat</span>
+<input type="search" id="search" placeholder="Search your library..." oninput="clearTimeout(window._st);window._st=setTimeout(()=>searchBooks(this.value),300)">
+<span class="user" id="user-info"></span>
+</div>
+<div class="tabs">
+<button class="active" onclick="switchTab('library',this)">📚 Library</button>
+<button onclick="switchTab('discover',this)">🔍 Discover</button>
+<button onclick="switchTab('improve',this)">⚙ Improve</button>
+</div>
+<div class="content">
+<!-- Library tab -->
+<div class="tab-content active" id="tab-library">
+<div class="book-grid" id="library-grid"></div>
+</div>
+<!-- Discover tab -->
+<div class="tab-content" id="tab-discover">
+<div class="section"><h3>Recommended from your library</h3><div class="row" id="recs-row"></div></div>
+<div class="section"><h3>Free ebooks & audiobooks</h3>
+<input type="search" id="catalog-search" placeholder="Search 120K+ free books..." style="width:100%;padding:.4rem .8rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-bottom:.8rem" oninput="clearTimeout(window._cs);window._cs=setTimeout(()=>searchCatalog(this.value),500)">
+<div id="catalog-results"></div>
+</div>
+</div>
+<!-- Improve tab -->
+<div class="tab-content" id="tab-improve">
+<div class="stat-grid" id="health-stats"></div>
+<div id="improve-details"></div>
+</div>
+</div>
+</div>
+
+<!-- Detail panel (slides in from right) -->
+<div class="detail-overlay" id="detail-panel">
+<button class="close" onclick="closeDetail()">✕</button>
+<div id="detail-content"></div>
+</div>
+
+<script>
+const API = document.currentScript?.src ? new URL(document.currentScript.src).origin + '/brainycat/api/v1' : '/api/v1';
+async function api(path) { const r = await fetch(API + path, {credentials:'include'}); return r.ok ? r.json() : {}; }
+async function apiPost(path, body) { const r = await fetch(API + path, {method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); return r.ok ? r.json() : {}; }
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'discover') loadDiscover();
+  if (name === 'improve') loadImprove();
+}
+
+// Library
+let allBooks = [];
+async function loadLibrary() {
+  const d = await api('/books?limit=100');
+  allBooks = d.books || d || [];
+  renderBooks(allBooks);
+  const me = await api('/me');
+  if (me.user) document.getElementById('user-info').textContent = me.user.username;
+}
+function renderBooks(books) {
+  document.getElementById('library-grid').innerHTML = books.map(b =>
+    `<div class="book-card" onclick="openDetail('${b.id}')">
+      <img src="${API}/books/${b.id}/cover" onerror="this.style.background='var(--surface)'">
+      <div class="title">${b.title || '?'}</div>
+      <div class="author">${(b.authors||[]).join(', ')}</div>
+    </div>`
+  ).join('');
+}
+function searchBooks(q) {
+  if (!q) return renderBooks(allBooks);
+  const ql = q.toLowerCase();
+  renderBooks(allBooks.filter(b => (b.title||'').toLowerCase().includes(ql) || (b.authors||[]).join(' ').toLowerCase().includes(ql)));
+}
+
+// Detail panel
+async function openDetail(id) {
+  const b = await api('/books/' + id);
+  const hasEpub = (b.formats||[]).includes('epub');
+  const hasAudio = (b.formats||[]).some(f => ['mp3','m4b','m4a'].includes(f));
+  document.getElementById('detail-content').innerHTML = `
+    <img src="${API}/books/${id}/cover">
+    <h2>${b.title}</h2>
+    <div class="meta">${(b.authors||[]).join(', ')} · Q:${b.quality_score||'?'}/100</div>
+    <p style="font-size:.85rem;color:var(--muted);margin:1rem 0">${(b.description||'').slice(0,300)}</p>
+    <div class="actions">
+      ${hasEpub?`<a class="primary" href="static/reader.html?id=${id}">📖 Read</a>`:''}
+      ${hasAudio?`<a class="primary" href="static/player.html?id=${id}">🎧 Listen</a>`:''}
+      <button onclick="apiPost('/books/${id}/enrich').then(r=>alert('Enriched: '+JSON.stringify(r)))">✨ Enrich</button>
+      <button onclick="apiPost('/books/${id}/ingest').then(r=>alert('Ingested: '+JSON.stringify(r)))">🔄 Ingest</button>
+      <a href="${API}/books/${id}/export/markdown">📝 Export</a>
+    </div>`;
+  document.getElementById('detail-panel').classList.add('open');
+}
+function closeDetail() { document.getElementById('detail-panel').classList.remove('open'); }
+
+// Discover
+async function loadDiscover() {
+  const me = await api('/me');
+  if (me.user) {
+    const recs = await api('/recommendations/from-library');
+    document.getElementById('recs-row').innerHTML = (recs||[]).slice(0,8).map(b =>
+      `<div class="book-card" onclick="openDetail('${b.id}')" style="min-width:120px">
+        <img src="${API}/books/${b.id}/cover" style="width:120px;height:180px;object-fit:cover;border-radius:6px">
+        <div class="title">${(b.title||'').slice(0,25)}</div>
+      </div>`
+    ).join('') || '<span style="color:var(--muted)">Read some books to get recommendations</span>';
+  }
+}
+async function searchCatalog(q) {
+  if (!q || q.length < 2) return;
+  const d = await api('/catalog/search?q=' + encodeURIComponent(q));
+  let html = '';
+  for (const [cat, icon] of [['ebooks','📚'],['audiobooks','🎧'],['textbooks','🎓'],['github','💻']]) {
+    const items = d[cat] || [];
+    if (items.length) {
+      html += `<h4 style="color:var(--accent);margin:.8rem 0 .4rem">${icon} ${cat} (${items.length})</h4>`;
+      html += items.slice(0,5).map(b => `<div style="padding:.3rem 0;font-size:.85rem">${b.title||'?'} <span style="color:var(--muted)">— ${(b.authors||[]).join(', ')}</span></div>`).join('');
+    }
+  }
+  document.getElementById('catalog-results').innerHTML = html || '<span style="color:var(--muted)">No results</span>';
+}
+
+// Improve
+async function loadImprove() {
+  const h = await api('/library/health');
+  document.getElementById('health-stats').innerHTML = `
+    <div class="stat-card"><div class="label">Books</div><div class="value">${h.total_books}</div></div>
+    <div class="stat-card"><div class="label">Missing Covers</div><div class="value">${h.missing_covers?.pct||0}%</div><div class="sub">${h.missing_covers?.count||0} books</div></div>
+    <div class="stat-card"><div class="label">Missing ISBN</div><div class="value">${h.missing_isbn?.pct||0}%</div><div class="sub">${h.missing_isbn?.count||0} books</div></div>
+    <div class="stat-card"><div class="label">Missing Description</div><div class="value">${h.missing_description?.pct||0}%</div><div class="sub">${h.missing_description?.count||0} books</div></div>
+    <div class="stat-card"><div class="label">Duplicate Authors</div><div class="value">${h.duplicate_authors?.length||0}</div></div>
+    <div class="stat-card"><div class="label">Series Gaps</div><div class="value">${h.series_gaps?.length||0}</div></div>`;
+  let details = '';
+  if (h.duplicate_authors?.length) {
+    details += '<h4 style="margin:1rem 0 .5rem">Duplicate Authors</h4>';
+    details += h.duplicate_authors.slice(0,5).map(d => `<div style="font-size:.85rem;padding:.2rem 0">${d.names.join(' / ')}</div>`).join('');
+  }
+  document.getElementById('improve-details').innerHTML = details;
+}
+
+// Init
+loadLibrary();
+// Close detail on Escape
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+</script></body></html>

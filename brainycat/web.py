@@ -356,7 +356,7 @@ async def convert_stt(book_id: str, model: str = Query("small"), user: Any = Dep
 
 @app.post("/api/v1/books/{book_id}/convert/{target_format}")
 async def convert_format(book_id: str, target_format: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
-    from brainycat.format_convert import convert_book
+    from brainycat.conversion import convert_book
 
     return await convert_book(book_id, target_format)
 
