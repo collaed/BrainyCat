@@ -94,6 +94,9 @@ async def _ebook_convert_rs(src: str, dest: str, css: str) -> dict[str, Any]:
         )
         await proc.communicate()
         if proc.returncode == 0 and os.path.isfile(dest):
+            from brainycat.log import info
+
+            info(f"conversion_success method=ebook-convert-rs src={os.path.splitext(src)[1]} dest={os.path.splitext(dest)[1]}")
             return {"ok": True, "method": "ebook-convert-rs", "path": dest}
     except Exception:
         pass
@@ -132,6 +135,9 @@ async def _ebook_convert(src: str, dest: str, css: str) -> dict[str, Any]:
         )
         await proc.communicate()
         if proc.returncode == 0 and os.path.isfile(dest):
+            from brainycat.log import info
+
+            info(f"conversion_success method=ebook-convert src={os.path.splitext(src)[1]} dest={os.path.splitext(dest)[1]}")
             return {"ok": True, "method": "ebook-convert", "path": dest}
         return {"error": "ebook-convert failed"}
     finally:

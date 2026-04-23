@@ -3088,3 +3088,108 @@ async def regional_search(
         elif p == "author":
             kwargs["author"] = author
     return await fn(**kwargs) or {"result": None}
+
+
+# ── Comprehensive stats dashboard ─────────────────────────────────────────
+@app.get("/api/v1/stats/dashboard")
+async def stats_dashboard(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Full intelligence + enrichment + conversion statistics."""
+    # Library overview
+    overview = await db.fetch_one("""
+        SELECT
+            count(*) as total_books,
+            count(*) FILTER (WHERE isbn IS NOT NULL) as has_isbn,
+            count(*) FILTER (WHERE description IS NOT NULL AND description != '') as has_description,
+            count(*) FILTER (WHERE cover_path IS NOT NULL) as has_cover,
+            count(*) FILTER (WHERE embedding IS NOT NULL) as has_embedding,
+            count(*) FILTER (WHERE quality_score > 50) as good_quality,
+            count(*) FILTER (WHERE word_count IS NOT NULL) as has_wordcount,
+            count(*) FILTER (WHERE rating IS NOT NULL AND rating > 0) as has_rating,
+            count(*) FILTER (WHERE language IS NOT NULL AND language != '') as has_language,
+            count(*) FILTER (WHERE EXISTS (SELECT 1 FROM books_tags bt WHERE bt.book_id = b.id)) as has_tags,
+            avg(quality_score) FILTER (WHERE quality_score > 0) as avg_quality
+        FROM books b
+    """)
+
+    # Enrichment per source
+    enrichment = await db.fetch_all("""
+        SELECT method,
+            count(*) as attempts,
+            count(*) FILTER (WHERE success) as successes,
+            round(100.0 * count(*) FILTER (WHERE success) / NULLIF(count(*), 0), 1) as hit_rate_pct,
+            max(created_at) as last_attempt
+        FROM enrichment_log GROUP BY method ORDER BY attempts DESC
+    """)
+
+    # Format distribution
+    formats = await db.fetch_all("""
+        SELECT format, count(*) as cnt, sum(file_size) as total_size
+        FROM book_files GROUP BY format ORDER BY cnt DESC
+    """)
+
+    # Tags
+    tag_stats = await db.fetch_one("""
+        SELECT count(DISTINCT bt.book_id) as tagged_books,
+               count(DISTINCT t.id) as unique_tags
+        FROM books_tags bt JOIN tags t ON t.id = bt.tag_id
+    """)
+    top_tags = await db.fetch_all("""
+        SELECT t.name, count(*) as cnt FROM books_tags bt
+        JOIN tags t ON t.id = bt.tag_id GROUP BY t.name ORDER BY cnt DESC LIMIT 15
+    """)
+
+    # Authors
+    author_stats = await db.fetch_one("SELECT count(*) as total FROM authors")
+    dup_authors = await db.fetch_one("""
+        SELECT count(*) FROM (
+            SELECT lower(regexp_replace(name, '[^a-zA-Z ]', '', 'g')) as norm
+            FROM authors GROUP BY norm HAVING count(*) > 1
+        ) x
+    """)
+
+    # Series
+    series_stats = await db.fetch_all("""
+        SELECT s.name, count(bs.book_id) as books FROM series s
+        LEFT JOIN books_series bs ON bs.series_id = s.id
+        GROUP BY s.id ORDER BY books DESC LIMIT 10
+    """)
+
+    # Background processes
+    n = overview or {}
+    total = n.get("total_books", 0) or 0
+
+    return {
+        "library": {
+            "total_books": total,
+            "has_isbn": {"count": n.get("has_isbn", 0), "pct": round((n.get("has_isbn", 0) or 0) / max(total, 1) * 100, 1)},
+            "has_description": {
+                "count": n.get("has_description", 0),
+                "pct": round((n.get("has_description", 0) or 0) / max(total, 1) * 100, 1),
+            },
+            "has_cover": {"count": n.get("has_cover", 0), "pct": round((n.get("has_cover", 0) or 0) / max(total, 1) * 100, 1)},
+            "has_embedding": {"count": n.get("has_embedding", 0), "pct": round((n.get("has_embedding", 0) or 0) / max(total, 1) * 100, 1)},
+            "has_tags": {"count": n.get("has_tags", 0), "pct": round((n.get("has_tags", 0) or 0) / max(total, 1) * 100, 1)},
+            "has_wordcount": {"count": n.get("has_wordcount", 0), "pct": round((n.get("has_wordcount", 0) or 0) / max(total, 1) * 100, 1)},
+            "avg_quality": round(float(n.get("avg_quality", 0) or 0), 1),
+        },
+        "enrichment": [
+            {
+                "source": r["method"],
+                "attempts": r["attempts"],
+                "successes": r["successes"],
+                "hit_rate": float(r["hit_rate_pct"] or 0),
+                "last_attempt": str(r["last_attempt"] or ""),
+            }
+            for r in enrichment
+        ],
+        "formats": [
+            {"format": r["format"], "count": r["cnt"], "total_size_mb": round((r["total_size"] or 0) / 1048576, 1)} for r in formats
+        ],
+        "tags": {
+            "tagged_books": tag_stats["tagged_books"] if tag_stats else 0,
+            "unique_tags": tag_stats["unique_tags"] if tag_stats else 0,
+            "top": [{"name": t["name"], "count": t["cnt"]} for t in top_tags],
+        },
+        "authors": {"total": author_stats["total"] if author_stats else 0, "duplicate_groups": dup_authors["count"] if dup_authors else 0},
+        "series": [{"name": s["name"], "books": s["books"]} for s in series_stats],
+    }
