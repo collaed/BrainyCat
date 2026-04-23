@@ -154,6 +154,42 @@ Last updated: 2026-04-23
 - Download from AO3, FFN, Wattpad, Royal Road
 - Convert to EPUB3, auto-enrich
 
+## Next: ebook-convert-rs Integration (Priority: MEDIUM)
+
+### Status: 3,553 lines of Rust, actively developed
+
+A Rust-based ebook converter that could reduce/eliminate the Calibre dependency.
+Currently handles EPUB, MOBI, PDF, DOCX, HTML, TXT, SVG.
+
+### Integration Plan
+
+**Phase 1: Supplement (now)**
+- Compile ebook-convert-rs as a single binary
+- Add to Docker image alongside Calibre's ebook-convert
+- Use for: EPUB→MOBI (Kindle delivery), DOCX→EPUB (upload), HTML→EPUB (feeds)
+- Keep Calibre for: PDF→EPUB, Huffman MOBI, KF8/AZW3, obscure formats
+- Fallback chain: ebook-convert-rs → Calibre ebook-convert → WeasyPrint
+
+**Phase 2: Primary (when Huffman + KF8 are implemented)**
+- ebook-convert-rs becomes the default converter
+- Calibre becomes optional (for edge cases)
+- Docker image shrinks by ~300MB
+
+**Phase 3: Standalone (when font embedding + PDF metrics are done)**
+- Full Calibre independence for conversion
+- Calibre only needed for its plugin ecosystem and metadata sources
+
+### What Works vs What's Missing
+
+| Feature | ebook-convert-rs | Calibre | Gap |
+|---|---|---|---|
+| EPUB↔MOBI | ✅ PalmDOC + images | ✅ + Huffman + KF8 | 20% of MOBI files |
+| EPUB↔PDF | ⚠️ No font embedding | ✅ Full | Font support |
+| EPUB↔DOCX | ✅ WordprocessingML | ✅ Full | Edge cases |
+| Performance | 🔥 10-50x faster | Baseline | Rust wins |
+| Binary size | ~5MB | ~300MB | 60x smaller |
+| DRM detection | ✅ Clear error | ✅ + plugin removal | Same |
+
 ## Architecture: Ingest Pipeline
 
 ```
