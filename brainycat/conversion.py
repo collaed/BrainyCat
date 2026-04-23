@@ -57,15 +57,50 @@ async def convert(
     if src_ext == ".pdf" and dest_ext == ".epub":
         return await _pdf_to_epub(src, dest, css)
 
-    # Any → Any via ebook-convert (with styling)
+    # Try ebook-convert-rs first (Rust, 10-50x faster)
+    rs_result = await _ebook_convert_rs(src, dest, css)
+    if rs_result.get("ok"):
+        return rs_result
+
+    # Fallback: Calibre ebook-convert
     if shutil.which("ebook-convert"):
         return await _ebook_convert(src, dest, css)
 
-    # EPUB → PDF via WeasyPrint
+    # Last resort: WeasyPrint for EPUB → PDF
     if dest_ext == ".pdf" and src_ext == ".epub":
         return await _weasyprint(src, dest, css)
 
     return {"error": f"no converter for {src_ext}→{dest_ext}"}
+
+
+async def _ebook_convert_rs(src: str, dest: str, css: str) -> dict[str, Any]:
+    """Rust ebook converter — fast, handles EPUB/MOBI/PDF/DOCX/HTML/TXT."""
+    rs_bin = shutil.which("ebook-convert-rs")
+    if not rs_bin:
+        return {}
+    cmd = [rs_bin, src, dest]
+    if css:
+        css_path = tempfile.mktemp(suffix=".css")
+        with open(css_path, "w") as f:
+            f.write(css)
+        cmd.extend(["--extra-css", css_path])
+    else:
+        css_path = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        if proc.returncode == 0 and os.path.isfile(dest):
+            return {"ok": True, "method": "ebook-convert-rs", "path": dest}
+    except Exception:
+        pass
+    finally:
+        if css_path and os.path.isfile(css_path):
+            os.unlink(css_path)
+    return {}
 
 
 async def _ebook_convert(src: str, dest: str, css: str) -> dict[str, Any]:
