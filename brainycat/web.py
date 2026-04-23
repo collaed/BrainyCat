@@ -3100,6 +3100,9 @@ async def regional_search(
         "comicvine": regional.search_comicvine,
         "worldcat": regional.search_worldcat,
         "bnf": regional.search_bnf,
+        "british_library": regional.search_british_library,
+        "bne": regional.search_bne,
+        "ndl": regional.search_ndl,
     }
     fn = fn_map.get(source)
     if not fn:
@@ -3560,3 +3563,42 @@ async def book_editions(book_id: str, _u: Any = Depends(get_current_user)) -> di
         "you_own": len(owned) + 1,
         "total_editions": len(editions),
     }
+
+
+# ── ISBN intelligence (publisher + region + best sources) ─────────────────
+@app.get("/api/v1/isbn/{isbn}/intelligence")
+async def isbn_intelligence(isbn: str) -> dict[str, Any]:
+    """Full ISBN intelligence: region, publisher, language, best enrichment sources."""
+    from brainycat.isbn import isbn_to_publisher, isbn_to_region
+
+    region = isbn_to_region(isbn)
+    publisher = isbn_to_publisher(isbn)
+    return {
+        "isbn": isbn,
+        "region": region,
+        "publisher": publisher,
+        "enrichment_priority": _enrichment_priority(region),
+    }
+
+
+def _enrichment_priority(region: dict | None) -> list[str]:
+    """Given an ISBN region, return the optimal enrichment source order."""
+    if not region:
+        return ["google_books", "open_library", "amazon"]
+    sources = region.get("best_sources", [])
+    # Add national bibliography based on country
+    countries = region.get("countries", [])
+    if "FR" in countries:
+        sources = ["bnf", *sources]
+    elif "DE" in countries or "AT" in countries or "CH" in countries:
+        sources = ["dnb", *sources]
+    elif "GB" in countries or "UK" in countries:
+        sources = ["british_library", *sources]
+    elif "ES" in countries:
+        sources = ["bne", *sources]
+    elif "JP" in countries:
+        sources = ["ndl", "rakuten", *sources]
+    # Always include google_books as fallback
+    if "google_books" not in sources:
+        sources.append("google_books")
+    return sources

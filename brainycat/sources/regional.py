@@ -306,3 +306,87 @@ async def search_comicvine(title: str = "") -> dict[str, Any] | None:
     except Exception:
         pass
     return None
+
+
+# ── National Bibliographies (Legal Deposit — most authoritative) ──────────
+
+
+async def search_british_library(title: str = "", isbn: str = "") -> dict[str, Any] | None:
+    """British Library 🇬🇧 — UK legal deposit, every UK publication."""
+    q = isbn or title
+    try:
+        c = get_client()
+        await rate_limiter.wait("default")
+        r = await c.get(
+            "https://bnb.data.bl.uk/sparql",
+            params={
+                "query": f'SELECT ?title ?author WHERE {{ ?book <http://purl.org/dc/terms/title> ?title . OPTIONAL {{ ?book <http://purl.org/dc/terms/creator> ?author }} FILTER(CONTAINS(LCASE(?title), LCASE("{q}"))) }} LIMIT 3',
+                "format": "json",
+            },
+            headers={"Accept": "application/sparql-results+json"},
+        )
+        if r.status_code == 200:
+            bindings = r.json().get("results", {}).get("bindings", [])
+            if bindings:
+                b = bindings[0]
+                return {
+                    "source": "british_library",
+                    "title": b.get("title", {}).get("value"),
+                    "authors": [b["author"]["value"]] if "author" in b else [],
+                }
+    except Exception:
+        pass
+    return None
+
+
+async def search_bne(title: str = "", isbn: str = "") -> dict[str, Any] | None:
+    """BNE 🇪🇸 — Biblioteca Nacional de España, every Spanish publication."""
+    q = isbn or title
+    try:
+        c = get_client()
+        await rate_limiter.wait("default")
+        r = await c.get(
+            "https://datos.bne.es/sparql",
+            params={
+                "query": f'SELECT ?title ?author WHERE {{ ?book <http://purl.org/dc/elements/1.1/title> ?title . OPTIONAL {{ ?book <http://purl.org/dc/elements/1.1/creator> ?author }} FILTER(CONTAINS(LCASE(?title), LCASE("{q}"))) }} LIMIT 3',
+                "format": "json",
+            },
+            headers={"Accept": "application/sparql-results+json"},
+        )
+        if r.status_code == 200:
+            bindings = r.json().get("results", {}).get("bindings", [])
+            if bindings:
+                b = bindings[0]
+                return {
+                    "source": "bne",
+                    "title": b.get("title", {}).get("value"),
+                    "authors": [b["author"]["value"]] if "author" in b else [],
+                }
+    except Exception:
+        pass
+    return None
+
+
+async def search_ndl(title: str = "", isbn: str = "") -> dict[str, Any] | None:
+    """NDL 🇯🇵 — National Diet Library of Japan."""
+    q = isbn or title
+    try:
+        c = get_client()
+        await rate_limiter.wait("default")
+        r = await c.get(
+            f"https://ndlsearch.ndl.go.jp/api/sru?operation=searchRetrieve&query=title%3D{q}&maximumRecords=3&recordSchema=dcndl_simple"
+        )
+        if r.status_code == 200:
+            from xml.etree import ElementTree as ET
+
+            root = ET.fromstring(r.content)
+            ns = {"dc": "http://purl.org/dc/elements/1.1/", "srw": "http://www.loc.gov/zing/srw/"}
+            rec = root.find(".//srw:recordData", ns)
+            if rec is not None:
+                t = rec.findtext(".//dc:title", "", ns)
+                a = rec.findtext(".//dc:creator", "", ns)
+                if t:
+                    return {"source": "ndl", "title": t, "authors": [a] if a else []}
+    except Exception:
+        pass
+    return None

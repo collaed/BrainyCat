@@ -444,3 +444,64 @@ def isbn_to_region(isbn: str) -> dict[str, Any] | None:
     if info:
         return {"region": info, "countries": [], "best_sources": ["google_books"], "language_info": info, "masked": masked}
     return None
+
+
+# Known publisher prefixes (from ISBN range data)
+PUBLISHER_PREFIXES: dict[str, str] = {
+    "978-2-07": "Gallimard",
+    "978-2-253": "Le Livre de Poche",
+    "978-2-070": "Gallimard",
+    "978-2-01": "Hachette",
+    "978-2-221": "Robert Laffont",
+    "978-2-266": "Pocket",
+    "978-2-290": "J'ai Lu",
+    "978-2-08": "Flammarion",
+    "978-2-02": "Seuil",
+    "978-2-226": "Albin Michel",
+    "978-2-246": "Grasset",
+    "978-0-14": "Penguin",
+    "978-0-06": "HarperCollins",
+    "978-0-316": "Little Brown",
+    "978-0-375": "Random House",
+    "978-0-385": "Doubleday",
+    "978-0-399": "Putnam",
+    "978-0-451": "Signet/NAL",
+    "978-0-553": "Bantam",
+    "978-0-671": "Simon & Schuster",
+    "978-0-7432": "Simon & Schuster",
+    "978-1-250": "St. Martin's",
+    "978-1-4013": "Hachette US",
+    "978-1-5011": "Simon & Schuster",
+    "978-3-518": "Suhrkamp",
+    "978-3-423": "dtv",
+    "978-3-596": "Fischer",
+    "978-4-04": "Kadokawa",
+    "978-4-06": "Kodansha",
+    "978-4-08": "Shueisha",
+    "978-88-06": "Einaudi",
+    "978-88-04": "Mondadori",
+}
+
+
+def isbn_to_publisher(isbn: str) -> str | None:
+    """Detect publisher from ISBN prefix using known ranges."""
+    if not isbn or len(isbn) < 10:
+        return None
+    try:
+        import isbnlib
+
+        masked = isbnlib.mask(isbn)
+        if masked:
+            parts = masked.split("-")
+            for prefix_len in range(len(parts), 2, -1):
+                prefix = "-".join(parts[:prefix_len])
+                if prefix in PUBLISHER_PREFIXES:
+                    return PUBLISHER_PREFIXES[prefix]
+    except Exception:
+        pass
+    # Fallback: check our static map
+    for prefix, publisher in sorted(PUBLISHER_PREFIXES.items(), key=lambda x: len(x[0]), reverse=True):
+        flat = prefix.replace("-", "")
+        if isbn.startswith(flat):
+            return publisher
+    return None
