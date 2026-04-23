@@ -2791,3 +2791,22 @@ async def free_computer_books(q: str = Query(""), _u: Any = Depends(get_current_
     except Exception:
         pass
     return {"books": []}
+
+
+# ── Serve file by format (for PDF read button) ───────────────────────────
+@app.get("/api/v1/books/{book_id}/file/by-format/{fmt}")
+async def serve_file_by_format(book_id: str, fmt: str, _u: Any = Depends(get_current_user)) -> Any:
+    """Serve a book file by format (epub, pdf, mobi, etc.)."""
+    import os
+
+    row = await db.fetch_one(
+        "SELECT file_path FROM book_files WHERE book_id = $1 AND format = $2 LIMIT 1",
+        __import__("uuid").UUID(book_id),
+        fmt,
+    )
+    if not row or not os.path.isfile(row["file_path"]):
+        return {"detail": "file not found"}
+    mime = {"epub": "application/epub+zip", "pdf": "application/pdf", "mobi": "application/x-mobipocket-ebook"}.get(
+        fmt, "application/octet-stream"
+    )
+    return FileResponse(row["file_path"], media_type=mime)

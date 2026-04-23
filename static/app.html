@@ -25,7 +25,7 @@
 .book-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:1rem}
 .book-card{cursor:pointer;transition:transform .15s}
 .book-card:hover{transform:translateY(-4px)}
-.book-card img{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:6px;background:var(--surface)}
+.book-card img{width:100%;aspect-ratio:2/3;object-fit:contain;border-radius:6px;background:var(--surface)}
 .book-card .title{font-size:.8rem;margin-top:.3rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .book-card .author{font-size:.7rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
@@ -156,7 +156,7 @@ async function loadDiscover() {
     const recs = await api('/recommendations/from-library');
     document.getElementById('recs-row').innerHTML = (recs||[]).slice(0,8).map(b =>
       `<div class="book-card" onclick="openDetail('${b.id}')" style="min-width:120px">
-        <img src="${API}/books/${b.id}/cover" style="width:120px;height:180px;object-fit:cover;border-radius:6px">
+        <img src="${API}/books/${b.id}/cover" style="width:120px;height:180px;object-fit:contain;border-radius:6px">
         <div class="title">${(b.title||'').slice(0,25)}</div>
       </div>`
     ).join('') || '<span style="color:var(--muted)">Read some books to get recommendations</span>';

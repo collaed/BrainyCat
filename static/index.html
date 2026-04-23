@@ -32,7 +32,7 @@ nav a:hover{background:var(--surface);color:var(--text)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.6rem}
 .grid .card{background:var(--surface);border-radius:6px;overflow:hidden;cursor:pointer;transition:transform .1s}
 .grid .card:hover{transform:translateY(-2px)}
-.grid .card img{width:100%;aspect-ratio:2/3;object-fit:cover;background:var(--border)}
+.grid .card img{width:100%;aspect-ratio:2/3;object-fit:contain;background:var(--surface);border-radius:4px}
 .grid .card .info{padding:.3rem .4rem}
 .grid .card .title{font-size:.75rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .grid .card .author{font-size:.65rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -227,7 +227,7 @@ async function openBook(id){
         <div id="job-status"><span id="job-msg"></span><div class="bar"><div class="fill" id="job-bar"></div></div></div>
         <div id="similar" style="margin-top:.5rem"></div>
         <div class="actions">
-            ${canRead?`<button class="btn primary" onclick="location='${hasEpub?'reader.html?id='+id:'api/v1/books/'+id+'/file/pdf'}'" style="font-size:1.1em;padding:.5em 1.2em">📖 Read</button>`:''}
+            ${canRead?`<button class="btn primary" onclick="openReader('${id}',${hasEpub})" style="font-size:1.1em;padding:.5em 1.2em">📖 Read</button>`:''}
             ${hasAudio?`<button class="btn primary" onclick="location='player.html?id=${id}'" style="font-size:1.1em;padding:.5em 1.2em">🎧 Listen</button>`:''}
             ${hasEpub?`<button class="btn" onclick="location='bilingual.html?id=${id}'">🌐 Bilingual</button>`:''}
             <button class="btn success" id="btn-enrich" onclick="enrich('${id}')">✨ Enrich</button>
@@ -250,6 +250,17 @@ async function openBook(id){
 }
 
 function closeModal(){document.getElementById('modal').classList.remove('active');}
+function openReader(id, hasEpub) {
+    if (hasEpub) { location = 'reader.html?id=' + id; }
+    else {
+        // PDF: find the file ID and open directly
+        BC.get('/books/' + id).then(b => {
+            const pdf = (b.files || []).find(f => f.format === 'pdf');
+            if (pdf) window.open(API + '/books/' + id + '/file/' + pdf.id, '_blank');
+            else alert('No readable file found');
+        });
+    }
+}
 function searchTag(t){searchInput.value=t;page=0;allBooks=[];hasMore=true;loadBooks();closeModal();}
 function showJobStatus(m,p){const el=document.getElementById('job-status');el.style.display='block';document.getElementById('job-msg').textContent=m;document.getElementById('job-bar').style.width=p+'%';}
 async function pollJob(jid){for(let i=0;i<300;i++){await new Promise(r=>setTimeout(r,2000));try{const j=await BC.get('/jobs/'+jid);if(!j)break;showJobStatus(`${j.job_type}: ${j.status} (${Math.round(j.progress||0)}%)`,j.progress||0);if(j.status==='complete'){showJobStatus('✅ Done!',100);loadBooks();return j;}if(j.status==='failed'){showJobStatus('❌ '+(j.error||'').slice(0,120),0);return j;}}catch{break;}}}
