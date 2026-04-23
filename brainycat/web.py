@@ -2091,3 +2091,25 @@ async def github_files(owner: str, repo: str, _u: Any = Depends(get_current_user
     from brainycat.sources.github_books import find_epub_files
 
     return await find_epub_files(owner, repo)
+
+
+# ── Open textbook sources ─────────────────────────────────────────────────
+@app.get("/api/v1/catalog/oapen/search")
+async def oapen_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.sources.open_textbooks import search_oapen
+
+    return await search_oapen(q)
+
+
+@app.get("/api/v1/catalog/openstax")
+async def openstax_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.sources.open_textbooks import search_openstax
+
+    return await search_openstax(q)
+
+
+@app.get("/api/v1/catalog/open-textbooks/search")
+async def otl_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.sources.open_textbooks import search_open_textbook_library
+
+    return await search_open_textbook_library(q)
