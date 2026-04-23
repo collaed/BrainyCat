@@ -28,3 +28,10 @@ def test_readability_hard_text() -> None:
 def test_readability_too_short() -> None:
     r = compute_readability("Hi.")
     assert "error" in r
+
+
+def test_gunning_fog() -> None:
+    text = "The cat sat on the mat. The dog ran in the park. It was a nice day. " * 10
+    r = compute_readability(text)
+    assert "gunning_fog" in r
+    assert r["gunning_fog"] >= 0

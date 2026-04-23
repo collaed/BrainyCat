@@ -38,6 +38,10 @@ def compute_readability(text: str) -> dict[str, Any]:
     # Flesch-Kincaid Grade: 0.39*(words/sentences) + 11.8*(syllables/words) - 15.59
     fk_grade = 0.39 * avg_sentence_len + 11.8 * avg_syllables - 15.59
 
+    # Gunning Fog Index: 0.4 * (avg_sentence_len + 100 * complex_words / num_words)
+    complex_words = sum(1 for w in words if _count_syllables(w) >= 3)
+    gunning_fog = round(0.4 * (avg_sentence_len + 100 * complex_words / num_words), 1)
+
     # Difficulty label
     if flesch_ease >= 80:
         level = "easy"
@@ -53,6 +57,7 @@ def compute_readability(text: str) -> dict[str, Any]:
     return {
         "flesch_ease": round(flesch_ease, 1),
         "fk_grade": round(max(0, fk_grade), 1),
+        "gunning_fog": gunning_fog,
         "avg_sentence_length": round(avg_sentence_len, 1),
         "avg_syllables_per_word": round(avg_syllables, 2),
         "level": level,

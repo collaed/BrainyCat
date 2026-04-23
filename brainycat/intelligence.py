@@ -387,6 +387,28 @@ def _normalize(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _soundex(name: str) -> str:
+    """American Soundex — phonetic matching for misspellings."""
+    name = name.upper().strip()
+    if not name:
+        return ""
+    coded = name[0]
+    mapping = {"BFPV": "1", "CGJKQSXZ": "2", "DT": "3", "L": "4", "MN": "5", "R": "6"}
+    prev = ""
+    for ch in name[1:]:
+        code = ""
+        for chars, digit in mapping.items():
+            if ch in chars:
+                code = digit
+                break
+        if code and code != prev:
+            coded += code
+        prev = code
+        if len(coded) >= 4:
+            break
+    return coded.ljust(4, "0")
+
+
 def _jaccard(a: list[str], b: list[str]) -> float:
     """Jaccard similarity between two word lists."""
     sa, sb = set(a), set(b)

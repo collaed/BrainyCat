@@ -343,3 +343,58 @@ async def get_duplicate_matches() -> list[dict[str, Any]]:
 async def resolve_match(match_id: str, action: str) -> dict[str, bool]:
     await execute("UPDATE duplicate_matches SET status = $1 WHERE id = $2", action, UUID(match_id))
     return {"ok": True}
+
+
+async def find_exact_duplicates() -> list[dict[str, Any]]:
+    """Find exact file duplicates via file size pre-filter + hash comparison.
+
+    O(n) pre-filter by file size, then MD5 only for same-size files.
+    Inspired by Calibre's Find Duplicates binary compare algorithm.
+    """
+    import hashlib
+
+    from brainycat.db import fetch_all
+
+    # Group files by size
+    rows = await fetch_all("""
+        SELECT bf.book_id, bf.file_path, bf.file_size, b.title
+        FROM book_files bf JOIN books b ON b.id = bf.book_id
+        WHERE bf.file_size > 0
+        ORDER BY bf.file_size
+    """)
+
+    # Group by file_size
+    size_groups: dict[int, list[dict]] = {}
+    for r in rows:
+        size = r["file_size"] or 0
+        if size > 0:
+            size_groups.setdefault(size, []).append(dict(r))
+
+    # Only check groups with >1 file (same size = potential duplicate)
+    duplicates = []
+    for size, files in size_groups.items():
+        if len(files) < 2:
+            continue
+        # Hash each file
+        hashes: dict[str, list[dict]] = {}
+        for f in files:
+            try:
+                import os
+
+                if os.path.isfile(f["file_path"]):
+                    with open(f["file_path"], "rb") as fh:
+                        h = hashlib.md5(fh.read(1024 * 1024)).hexdigest()  # First 1MB
+                    hashes.setdefault(h, []).append(f)
+            except Exception:
+                pass
+        for h, group in hashes.items():
+            if len(group) > 1:
+                duplicates.append(
+                    {
+                        "hash": h,
+                        "file_size": size,
+                        "books": [{"id": str(g["book_id"]), "title": g["title"]} for g in group],
+                    }
+                )
+
+    return duplicates

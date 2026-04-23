@@ -2474,3 +2474,11 @@ async def opds_import_search(url: str = Query(""), q: str = Query(""), _u: Any =
             return {"books": books, "feed_title": root.findtext("atom:title", "", ns)}
     except Exception as e:
         return {"error": str(e)[:100]}
+
+
+# ── Binary duplicate detection ────────────────────────────────────────────
+@app.get("/api/v1/intelligence/exact-duplicates")
+async def exact_duplicates(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.fingerprints import find_exact_duplicates
+
+    return await find_exact_duplicates()

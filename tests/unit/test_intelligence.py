@@ -21,3 +21,17 @@ def test_jaccard_partial() -> None:
 
 def test_jaccard_empty() -> None:
     assert _jaccard([], ["a"]) == 0.0
+
+
+def test_soundex_basic() -> None:
+    from brainycat.intelligence import _soundex
+    assert _soundex("Robert") == "R163"
+    assert _soundex("Rupert") == "R163"  # Same soundex!
+
+def test_soundex_tolkien() -> None:
+    from brainycat.intelligence import _soundex
+    assert _soundex("Tolkien") == _soundex("Tolkein")  # Misspelling matches
+
+def test_soundex_empty() -> None:
+    from brainycat.intelligence import _soundex
+    assert _soundex("") == ""
