@@ -222,7 +222,9 @@ async def generate_missing_covers() -> dict[str, Any]:
 
         cover_data = generate_cover(title, author, description=f"{desc} {tags}")
         cover_path = os.path.join(book_dir(str(r["id"])), "cover.jpg")
-        with open(cover_path, "wb") as f:
+        from brainycat.atomic import atomic_write
+
+        with atomic_write(cover_path) as f:
             f.write(cover_data)
         await execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, r["id"])
         generated += 1

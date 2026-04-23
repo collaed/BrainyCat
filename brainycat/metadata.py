@@ -140,7 +140,9 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
                 resp = await client.get(cover_url, timeout=15, follow_redirects=True)
                 if resp.status_code == 200 and not is_dummy_cover(resp.content):
                     cover_path = os.path.join(book_dir(book_id), "cover.jpg")
-                    with open(cover_path, "wb") as f:
+                    from brainycat.atomic import atomic_write
+
+                    with atomic_write(cover_path) as f:
                         f.write(resp.content)
                     await execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, UUID(book_id))
             except Exception:

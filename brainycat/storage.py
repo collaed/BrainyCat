@@ -20,7 +20,9 @@ async def save_upload(book_id: str, filename: str, content: bytes) -> str:
     safe_name = os.path.basename(filename)  # Strip any directory path
     d = book_dir(book_id)
     path = os.path.join(d, safe_name)
-    with open(path, "wb") as f:
+    from brainycat.atomic import atomic_write
+
+    with atomic_write(path) as f:
         f.write(content)
     return path
 
