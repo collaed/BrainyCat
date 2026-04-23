@@ -72,8 +72,41 @@ async def _title_cleanup_loop() -> None:
             result = await run_title_cleanup_cycle()
             isbn_found = result.get("isbn_from_filename", {}).get("found", 0)
             titles_fixed = result.get("api_title_fix", {}).get("fixed", 0)
-            if isbn_found or titles_fixed:
-                await log.ainfo("title_cleanup", isbn_found=isbn_found, titles_fixed=titles_fixed)
+
+            # Also classify untagged books
+            from brainycat.db import execute, fetch_all, fetch_one
+            from brainycat.http_client import get_client
+            from brainycat.rate_limit import rate_limiter
+
+            untagged = await fetch_all("""
+                SELECT b.id, b.isbn FROM books b
+                WHERE b.isbn IS NOT NULL AND length(b.isbn) >= 10
+                  AND NOT EXISTS (SELECT 1 FROM books_tags bt WHERE bt.book_id = b.id)
+                LIMIT 5
+            """)
+            genres_added = 0
+            for row in untagged:
+                try:
+                    await rate_limiter.wait("google")
+                    c = get_client()
+                    resp = await c.get(f"https://www.googleapis.com/books/v1/volumes?q=isbn:{row['isbn']}&maxResults=1")
+                    if resp.status_code == 200:
+                        items = resp.json().get("items", [])
+                        if items:
+                            for cat in items[0].get("volumeInfo", {}).get("categories", [])[:5]:
+                                await execute("INSERT INTO tags (name) VALUES ($1) ON CONFLICT DO NOTHING", cat.strip())
+                                tag = await fetch_one("SELECT id FROM tags WHERE name = $1", cat.strip())
+                                if tag:
+                                    await execute(
+                                        "INSERT INTO books_tags (book_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+                                        row["id"],
+                                        tag["id"],
+                                    )
+                                    genres_added += 1
+                except Exception:
+                    pass
+            if isbn_found or titles_fixed or genres_added:
+                await log.ainfo("title_cleanup", isbn_found=isbn_found, titles_fixed=titles_fixed, genres_added=genres_added)
         except Exception as e:
             await log.awarning("title_cleanup_error", error=str(e))
         await asyncio.sleep(60)  # Every 60s

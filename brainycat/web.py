@@ -2804,3 +2804,42 @@ async def serve_file_by_format(book_id: str, fmt: str, _u: Any = Depends(get_cur
         fmt, "application/octet-stream"
     )
     return FileResponse(row["file_path"], media_type=mime)
+
+
+# ── Batch genre classification ────────────────────────────────────────────
+@app.post("/api/v1/intelligence/classify-batch")
+async def classify_batch(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Classify untagged books that have ISBNs — fetch genres from Google Books."""
+    rows = await db.fetch_all("""
+        SELECT b.id, b.isbn, b.title FROM books b
+        WHERE b.isbn IS NOT NULL AND length(b.isbn) >= 10
+          AND NOT EXISTS (SELECT 1 FROM books_tags bt WHERE bt.book_id = b.id)
+        LIMIT 20
+    """)
+    classified = 0
+    for r in rows:
+        try:
+            from brainycat.rate_limit import rate_limiter
+
+            await rate_limiter.wait("google")
+            c = get_client()
+            resp = await c.get(f"https://www.googleapis.com/books/v1/volumes?q=isbn:{r['isbn']}&maxResults=1")
+            if resp.status_code == 200:
+                items = resp.json().get("items", [])
+                if items:
+                    cats = items[0].get("volumeInfo", {}).get("categories", [])
+                    for cat in cats[:5]:
+                        cat = cat.strip()
+                        if len(cat) < 2:
+                            continue
+                        await db.execute("INSERT INTO tags (name) VALUES ($1) ON CONFLICT DO NOTHING", cat)
+                        tag = await db.fetch_one("SELECT id FROM tags WHERE name = $1", cat)
+                        if tag:
+                            await db.execute(
+                                "INSERT INTO books_tags (book_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", r["id"], tag["id"]
+                            )
+                    if cats:
+                        classified += 1
+        except Exception:
+            pass
+    return {"classified": classified, "checked": len(rows)}

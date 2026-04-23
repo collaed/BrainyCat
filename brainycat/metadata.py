@@ -108,6 +108,21 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
         vals.append(UUID(book_id))
         await execute(f"UPDATE books SET {', '.join(sets)}, updated_at = now() WHERE id = ${idx}", *vals)
 
+    # Apply genres as tags
+    if merged.get("genres"):
+        for genre in merged["genres"][:10]:
+            genre = genre.strip()
+            if len(genre) < 2 or len(genre) > 50:
+                continue
+            await execute("INSERT INTO tags (name) VALUES ($1) ON CONFLICT DO NOTHING", genre)
+            tag_row = await fetch_one("SELECT id FROM tags WHERE name = $1", genre)
+            if tag_row:
+                await execute(
+                    "INSERT INTO books_tags (book_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    UUID(book_id),
+                    tag_row["id"],
+                )
+
     # Cover chain: source results → Apple Books → Bookcover API → OL → Generate
     if not row["cover_path"]:
         import os

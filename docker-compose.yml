@@ -12,6 +12,8 @@ services:
       - .env
     volumes:
       - brainycat-data:/data
+      - ./brainycat:/app/brainycat
+      - ./static:/app/static
     entrypoint: >
       sh -c "for i in 1 2 3 4 5; do alembic upgrade head && break || sleep 3; done;
              uvicorn brainycat.web:app --host 0.0.0.0 --port 8000"
