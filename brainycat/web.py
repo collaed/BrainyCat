@@ -2291,3 +2291,186 @@ async def calibre_ack(request: Request, _u: Any = Depends(get_current_user)) -> 
                 _UUID(bid),
             )
     return {"ok": True}
+
+
+# ── "You already own this" detection ──────────────────────────────────────
+@app.get("/api/v1/catalog/check-owned")
+async def check_owned(title: str = Query(""), isbn: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Check if a catalog book is already in the user's library."""
+    if isbn:
+        row = await db.fetch_one("SELECT id, title, quality_score FROM books WHERE isbn = $1", isbn)
+        if row:
+            return {"owned": True, "book_id": str(row["id"]), "title": row["title"], "quality": row["quality_score"]}
+    if title:
+        row = await db.fetch_one("SELECT id, title, quality_score FROM books WHERE title ILIKE $1", title)
+        if row:
+            return {"owned": True, "book_id": str(row["id"]), "title": row["title"], "quality": row["quality_score"]}
+        # Fuzzy: check if any book has >60% word overlap
+        words = {w.lower() for w in title.split() if len(w) > 3}
+        if words:
+            rows = await db.fetch_all("SELECT id, title FROM books LIMIT 2000")
+            for r in rows:
+                book_words = {w.lower() for w in (r["title"] or "").split() if len(w) > 3}
+                if words and book_words and len(words & book_words) / len(words) > 0.6:
+                    return {"owned": True, "book_id": str(r["id"]), "title": r["title"], "match": "fuzzy"}
+    return {"owned": False}
+
+
+# ── Library health report ─────────────────────────────────────────────────
+@app.get("/api/v1/library/health")
+async def library_health(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Comprehensive library health report."""
+    total = await db.fetch_one("SELECT count(*) as n FROM books")
+    n = total["n"] if total else 0
+    no_cover = await db.fetch_one("SELECT count(*) as n FROM books WHERE cover_path IS NULL")
+    no_isbn = await db.fetch_one("SELECT count(*) as n FROM books WHERE isbn IS NULL")
+    no_desc = await db.fetch_one("SELECT count(*) as n FROM books WHERE description IS NULL OR description = ''")
+    no_author = await db.fetch_one(
+        "SELECT count(*) as n FROM books b WHERE NOT EXISTS (SELECT 1 FROM books_authors ba WHERE ba.book_id = b.id)"
+    )
+    dup_authors = await db.fetch_all("""
+        SELECT lower(regexp_replace(name, '[^a-zA-Z ]', '', 'g')) as norm, array_agg(name) as names, count(*) as cnt
+        FROM authors GROUP BY norm HAVING count(*) > 1 ORDER BY cnt DESC LIMIT 20
+    """)
+    series_gaps = await db.fetch_all("""
+        SELECT s.name, array_agg(b.series_index ORDER BY b.series_index) as indices
+        FROM books_series bs JOIN series s ON s.id = bs.series_id JOIN books b ON b.id = bs.book_id
+        GROUP BY s.name HAVING count(*) > 1
+    """)
+    gaps = []
+    for sg in series_gaps:
+        indices = sorted([i for i in (sg["indices"] or []) if i])
+        if indices and indices[-1] > len(indices):
+            gaps.append({"series": sg["name"], "have": indices, "missing": [i for i in range(1, int(indices[-1]) + 1) if i not in indices]})
+
+    return {
+        "total_books": n,
+        "missing_covers": {"count": no_cover["n"], "pct": round(no_cover["n"] / max(n, 1) * 100, 1)},
+        "missing_isbn": {"count": no_isbn["n"], "pct": round(no_isbn["n"] / max(n, 1) * 100, 1)},
+        "missing_description": {"count": no_desc["n"], "pct": round(no_desc["n"] / max(n, 1) * 100, 1)},
+        "missing_author": {"count": no_author["n"], "pct": round(no_author["n"] / max(n, 1) * 100, 1)},
+        "duplicate_authors": [{"names": d["names"], "count": d["cnt"]} for d in dup_authors],
+        "series_gaps": gaps[:10],
+    }
+
+
+# ── "What should I read next" from own library ───────────────────────────
+@app.get("/api/v1/recommendations/from-library")
+async def recommend_from_library(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Recommend unread books from the user's own library, sorted by taste match."""
+    from brainycat.taste import build_taste_profile, score_book
+
+    profile = await build_taste_profile(str(user["id"]))
+    rows = await db.fetch_all(
+        """
+        SELECT b.id, b.title, b.rating, b.quality_score, b.description, b.word_count,
+               b.estimated_reading_minutes,
+               array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors,
+               array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) as tags,
+               array_agg(DISTINCT s.name) FILTER (WHERE s.name IS NOT NULL) as series
+        FROM books b
+        LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id
+        LEFT JOIN books_tags bt ON bt.book_id = b.id LEFT JOIN tags t ON t.id = bt.tag_id
+        LEFT JOIN books_series bs ON bs.book_id = b.id LEFT JOIN series s ON s.id = bs.series_id
+        LEFT JOIN reading_progress rp ON rp.book_id = b.id AND rp.user_id = $1
+        WHERE rp.id IS NULL
+        GROUP BY b.id
+    """,
+        user["id"],
+    )
+    scored = []
+    for r in rows:
+        s = score_book(dict(r), profile)
+        mins = r["estimated_reading_minutes"] or 0
+        time_str = f"{mins // 60}h {mins % 60}m" if mins > 60 else f"{mins}m" if mins else ""
+        scored.append(
+            {
+                "id": str(r["id"]),
+                "title": r["title"],
+                "authors": r["authors"] or [],
+                "score": s,
+                "reading_time": time_str,
+                "quality": r["quality_score"],
+            }
+        )
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored[:20]
+
+
+# ── Annotation export (Obsidian/Markdown) ─────────────────────────────────
+@app.get("/api/v1/books/{book_id}/export/markdown")
+async def export_markdown(book_id: str, user: Any = Depends(get_current_user)) -> Any:
+    from uuid import UUID as _UUID
+
+    from fastapi.responses import PlainTextResponse
+
+    book = await db.fetch_one(
+        """
+        SELECT b.title, array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
+        FROM books b LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id
+        WHERE b.id = $1 GROUP BY b.id
+    """,
+        _UUID(book_id),
+    )
+    if not book:
+        return PlainTextResponse("Book not found")
+    annotations = await db.fetch_all(
+        """
+        SELECT content, annotation_type, position, created_at FROM annotations
+        WHERE book_id = $1 AND user_id = $2 ORDER BY created_at
+    """,
+        _UUID(book_id),
+        user["id"],
+    )
+    progress = await db.fetch_one(
+        "SELECT percentage, is_finished, updated_at FROM reading_progress WHERE book_id=$1 AND user_id=$2",
+        _UUID(book_id),
+        user["id"],
+    )
+
+    md = f"# {book['title']}\n**{', '.join(book['authors'] or [])}**\n\n"
+    if progress:
+        status = "Finished ✅" if progress["is_finished"] else f"{round((progress['percentage'] or 0) * 100)}% read"
+        md += f"## Reading Status\n{status}\n\n"
+    if annotations:
+        highlights = [a for a in annotations if a["annotation_type"] == "highlight"]
+        notes = [a for a in annotations if a["annotation_type"] == "note"]
+        bookmarks = [a for a in annotations if "bookmark" in (a["annotation_type"] or "")]
+        if highlights:
+            md += "## Highlights\n" + "\n".join(f"> {h['content']}\n" for h in highlights) + "\n"
+        if notes:
+            md += "## Notes\n" + "\n".join(f"- {n['content']}\n" for n in notes) + "\n"
+        if bookmarks:
+            md += "## Bookmarks\n" + "\n".join(f"- 🔖 {b['content']}\n" for b in bookmarks) + "\n"
+    md += "\n---\n*Exported from BrainyCat*\n"
+    return PlainTextResponse(
+        md, media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="{book["title"][:50]}.md"'}
+    )
+
+
+# ── OPDS import from external servers ─────────────────────────────────────
+@app.get("/api/v1/catalog/opds-import")
+async def opds_import_search(url: str = Query(""), q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search an external OPDS feed (calibre-server, Kavita, Komga, etc.)."""
+    from xml.etree import ElementTree as ET
+
+    import httpx
+
+    if not url:
+        return {"error": "provide OPDS feed URL"}
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            search_url = f"{url.rstrip('/')}/search?q={q}" if q else url
+            resp = await client.get(search_url)
+            if resp.status_code != 200:
+                return {"error": f"HTTP {resp.status_code}"}
+            root = ET.fromstring(resp.content)
+            ns = {"atom": "http://www.w3.org/2005/Atom", "opds": "http://opds-spec.org/2010/catalog"}
+            books = []
+            for entry in root.findall("atom:entry", ns):
+                title = entry.findtext("atom:title", "", ns)
+                author = entry.findtext("atom:author/atom:name", "", ns)
+                books.append({"title": title, "authors": [author] if author else [], "source": "opds_external"})
+            return {"books": books, "feed_title": root.findtext("atom:title", "", ns)}
+    except Exception as e:
+        return {"error": str(e)[:100]}
