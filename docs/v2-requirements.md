@@ -231,3 +231,88 @@ GET /public/wrap-up/{share_token} → public shareable page
 | **v2.0-beta** | Wrap-up cards, file watcher, WebSocket | +4 weeks |
 | **v2.0-rc** | Intelligence pages, Prowlarr, architecture hardening | +8 weeks |
 | **v2.0** | Audio/text sync, full test coverage, docs | +12 weeks |
+
+---
+
+## 11. Additional Features (from Master Ideas List)
+
+### Search & Discovery
+- R2.11.1: **FTS5 page-level search** with snippet() highlights — "find the passage about X in chapter 3"
+- R2.11.2: **Server-side PDF page rendering** to WebP with caching — faster than shipping full PDFs to client
+- R2.11.3: **"You already own this"** check when browsing catalogs — cross-reference by ISBN/title
+- R2.11.4: **FanFicFare-style import** — AO3, FFN, Wattpad reading lists as EPUBs
+
+### Intelligence
+- R2.11.5: **Enrichment explanation** per book — "found on Google Books (title match), Open Library (ISBN match), BnF (French ISBN prefix). Chose shortest title, longest description."
+- R2.11.6: **OCR quality diagnosis** — "confidence 72% because: handwritten annotations on pages 12-15, watermark on even pages, low scan DPI"
+- R2.11.7: **WordDumb equivalent** — Kindle Word Wise (inline definitions) + X-Ray (character index) for any format via LLM
+- R2.11.8: **Scan-failed flag** — proper `processing_status` column: `pending`, `processing`, `complete`, `failed`. Failed books shown in admin with error reason, not retried forever.
+
+### Content Extraction
+- R2.11.9: **Recipe extraction** from cookbook EPUBs — structured `{title, ingredients[], steps[], servings, prep_time}`
+- R2.11.10: **Citation extraction** for academic papers — BibTeX export, DOI linking, Zotero sync
+- R2.11.11: **Comic/manga metadata** from ComicVine — series tracking, reading order, character database
+- R2.11.12: **RPG sourcebook extraction** — monsters/spells/items as searchable structured data
+
+### Infrastructure
+- R2.11.13: **Circuit breaker for Intello** — after 5 consecutive failures, stop calling for 5 minutes. Health indicator in admin dashboard.
+- R2.11.14: **Pre-built Docker images on GHCR** — eliminate 20-minute build times for users
+- R2.11.15: **Prometheus metrics** — request latency, enrichment rate, OCR queue depth, cache hit ratio
+- R2.11.16: **go:embed single-binary** desktop app (Owl pattern) — future, if demand exists
+- R2.11.17: **Cover resize on upload** — generate thumbnail (200px) + display (600px) on ingest, not on every request
+- R2.11.18: **Open Library writeback** — push covers, descriptions, subjects back upstream. Opt-in, admin-controlled.
+
+### Social & Sharing
+- R2.11.19: **Reading challenges** — "Read 5 books from a new genre", "Read a book from every continent". Badge SVGs.
+- R2.11.20: **Activity feed** — "Alice finished Dune, Bob started Neuromancer". WebSocket-powered.
+- R2.11.21: **Embeddable "currently reading" widget** — `<iframe>` or `<img>` for blogs/Notion
+- R2.11.22: **Cross-project MCP** — "add this book, play this movie, log this dive" from any AI assistant
+
+### Ecosystem
+- R2.11.23: **SSO across projects** — one auth for BrainyCat + Intello + CineCross + DivingClub
+- R2.11.24: **Unified backup orchestrator** — one cron backs up all project databases
+- R2.11.25: **Personal knowledge base** — Beever Atlas pattern applied to highlights/annotations across all books
+
+---
+
+## Priority Matrix
+
+### Must Have (v2.0)
+| # | Feature | Why |
+|---|---|---|
+| 1 | Multi-user isolation | #1 community request |
+| 2 | Book status enum | Basic UX expectation |
+| 3 | Daily reading logs | Enables streaks, wrap-ups, speed |
+| 8 | Scan-failed flag | Prevents infinite retry loops |
+| 10 | Architecture hardening | Alembic, tests, scheduler separation |
+
+### Should Have (v2.1)
+| # | Feature | Why |
+|---|---|---|
+| 4 | Wrap-up cards | Viral sharing potential |
+| 6 | File watcher | Samba/NFS users expect it |
+| 9 | WebSocket updates | Multi-user UX |
+| 13 | Circuit breaker | Reliability |
+| 14 | GHCR images | Adoption friction |
+| 17 | Cover resize on ingest | Performance |
+
+### Could Have (v2.2)
+| # | Feature | Why |
+|---|---|---|
+| 5 | Audio/text sync | Differentiator, complex |
+| 7 | Intelligence pages | Impressive but LLM-dependent |
+| 8 | Prowlarr integration | *arr community |
+| 11.1 | FTS5 page search | Power users |
+| 11.5 | Enrichment explanation | Trust & transparency |
+| 11.7 | WordDumb equivalent | Kindle users |
+
+### Won't Have (v2, maybe v3)
+| # | Feature | Why |
+|---|---|---|
+| 11.4 | FanFicFare import | Niche |
+| 11.9 | Recipe extraction | Niche |
+| 11.11 | Comic metadata | Komga exists |
+| 11.12 | RPG extraction | Very niche |
+| 11.16 | Desktop binary | Premature |
+| 11.23 | Cross-project SSO | Ecosystem not ready |
+| 11.25 | Personal knowledge base | Separate product |
