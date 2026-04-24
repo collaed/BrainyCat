@@ -42,7 +42,7 @@ TRANSLATOR_ANCHORS = re.compile(
     re.IGNORECASE,
 )
 COPYRIGHT_RE = re.compile(r"[©Ⓒ]\s*(\d{4})")
-DEPOT_LEGAL_RE = re.compile(r"[Dd]épôt\s+légal\s*:?\s*(.+?)(?:\n|$)")
+DEPOT_LEGAL_RE = re.compile(r"[Dd]épôt\s+légal\s*:?\s*([a-zA-Zéèêëàâùûôîïç\s]+\d{4})")
 IMPRESSUM_RE = re.compile(r"Impressum|Auflage\s*:?\s*(.+?)(?:\n|$)", re.IGNORECASE)
 # Number line: "10 9 8 7 6 5 4 3 2 1" — lowest = printing number
 NUMBER_LINE_RE = re.compile(r"(?:^|\n)\s*((?:\d+\s+){3,}\d+)\s*(?:\n|$)")
@@ -147,62 +147,73 @@ def extract_from_text(text: str) -> dict[str, Any]:
     if total < 500:
         return result
 
-    # Strategy: front ~10 pages + back ~5 pages (Calibre Extract ISBN style)
-    # Estimate ~2000 chars per page
-    front = text[:20000]  # ~10 pages
-    back = text[-10000:]  # ~5 pages
+    # Full text search — regex on even 1MB text is <50ms, no need to truncate
+    search_zones = text
 
-    # For German books: find Impressum section
-    impressum_match = IMPRESSUM_RE.search(text[:5000])
-    impressum_section = ""
-    if impressum_match:
-        start = max(0, impressum_match.start() - 200)
-        impressum_section = text[start : start + 2000]
-
-    # For French books: find Achevé d'imprimer (usually last pages)
-    acheve_section = ""
-    acheve_match = re.search(r"Achevé d'imprimer", text[int(total * 0.90) :], re.IGNORECASE)
-    if acheve_match:
-        pos = int(total * 0.90) + acheve_match.start()
-        acheve_section = text[max(0, pos - 200) : pos + 1000]
-
-    # Combine all search zones
-    search_zones = front + "\n" + back + "\n" + impressum_section + "\n" + acheve_section
-
-    # Find all ISBN-like sequences near "ISBN" anchors, prefer 13 over 10
-    isbn_anchor_re = re.compile(
-        r"ISBN[\-\u2010\u2011\u2012\u2013\u2014:\s]*([\d][\d\s\-\u2010\u2011\u2012\u2013\u2014]{9,20}[\dXx])", re.IGNORECASE
+    # Collect ALL ISBNs with context (type detection from surrounding text)
+    isbn_context_re = re.compile(
+        r"(?P<ctx>[^\n]{0,40})"
+        r"ISBN\s*(?P<qual>[^\d:]{0,30}?)\s*:?\s*"
+        r"(?P<num>[\d][\d\s\-\u2010\u2011\u2012\u2013\u2014]{9,20}[\dXx])",
+        re.IGNORECASE,
     )
-    for m in isbn_anchor_re.finditer(search_zones):
-        raw = m.group(1)
-        digits = re.sub(r"[^0-9Xx]", "", raw.translate({0x2010: "", 0x2011: "", 0x2012: "", 0x2013: "", 0x2014: ""}))
-        # Try ISBN-13 first (first 13 digits)
+    all_isbns: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for m in isbn_context_re.finditer(search_zones):
+        raw = m.group("num")
+        ctx = (m.group("ctx") + " " + m.group("qual")).lower()
+        digits = re.sub(
+            r"[^0-9Xx]",
+            "",
+            raw.translate({0x2010: "", 0x2011: "", 0x2012: "", 0x2013: "", 0x2014: ""}),
+        )
+        isbn = None
         if len(digits) >= 13:
             isbn = _clean_isbn(digits[:13])
-            if isbn:
-                result["isbn"] = isbn
-                break
-        # Then ISBN-10 (first 10 digits)
-        if "isbn" not in result and len(digits) >= 10:
+        if not isbn and len(digits) >= 10:
             isbn = _clean_isbn(digits[:10])
-            if isbn:
-                result["isbn_10"] = isbn
-                break
+        if not isbn:
+            isbn = _clean_isbn(digits)  # try 12-digit completion
+        if isbn and isbn not in seen:
+            seen.add(isbn)
+            # Detect type from context
+            isbn_type = "print"
+            if any(k in ctx for k in ("numérique", "numeric", "ebook", "e-book", "ebk", "digital", "epub")):
+                isbn_type = "ebook"
+            elif any(k in ctx for k in ("pdf",)):
+                isbn_type = "pdf"
+            elif any(k in ctx for k in ("audio", "audiobook", "hörbuch")):
+                isbn_type = "audiobook"
+            elif any(k in ctx for k in ("pbk", "paperback", "broché", "poche")):
+                isbn_type = "paperback"
+            elif any(k in ctx for k in ("hbk", "hardcover", "relié", "hardback")):
+                isbn_type = "hardcover"
+            all_isbns.append({"isbn": isbn, "type": isbn_type})
 
     # Fallback: regex scan without anchor
-    if "isbn" not in result and "isbn_10" not in result:
+    if not all_isbns:
         for m in ISBN13_RE.finditer(search_zones):
             isbn = _clean_isbn(m.group())
-            if isbn:
-                result["isbn"] = isbn
+            if isbn and isbn not in seen:
+                seen.add(isbn)
+                all_isbns.append({"isbn": isbn, "type": "unknown"})
                 break
-
-    if "isbn" not in result and "isbn_10" not in result:
+    if not all_isbns:
         for m in ISBN10_RE.finditer(search_zones):
             isbn = _clean_isbn(m.group())
-            if isbn:
-                result["isbn_10"] = isbn
+            if isbn and isbn not in seen:
+                all_isbns.append({"isbn": isbn, "type": "unknown"})
                 break
+
+    if all_isbns:
+        result["all_isbns"] = all_isbns
+        # Primary ISBN: prefer ebook > pdf > print > unknown
+        type_priority = {"ebook": 0, "pdf": 1, "unknown": 2, "print": 3, "paperback": 4, "hardcover": 5, "audiobook": 6}
+        best = min(all_isbns, key=lambda x: type_priority.get(x["type"], 99))
+        if len(best["isbn"]) == 13:
+            result["isbn"] = best["isbn"]
+        else:
+            result["isbn_10"] = best["isbn"]
 
     # Copyright year
     m = COPYRIGHT_RE.search(search_zones)
@@ -218,6 +229,25 @@ def extract_from_text(text: str) -> dict[str, Any]:
     m = PRINTER_ANCHORS.search(search_zones)
     if m:
         result["printer"] = m.group(1).strip()[:100]
+
+    # Digital production house (Nord Compo, Jouve, etc.)
+    prod_re = re.compile(
+        r"(?:réalisé par|réalisation|composition|mise en page|numérisation|produced by|typeset by"
+        r"|digital production|Herstellung|Satz)\s*:?\s*(.+?)[\.\n]",
+        re.IGNORECASE,
+    )
+    m = prod_re.search(search_zones)
+    if m:
+        result["digital_production"] = m.group(1).strip()[:100]
+
+    # Original title (for translations)
+    orig_re = re.compile(
+        r"(?:Titre original|Original title|Originaltitel|Título original)\s*:?\s*(.+?)(?:\n|$)",
+        re.IGNORECASE,
+    )
+    m = orig_re.search(search_zones)
+    if m:
+        result["original_title"] = m.group(1).strip()[:200]
 
     # Edition
     m = EDITION_ANCHORS.search(search_zones)
@@ -458,6 +488,11 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
             "printer": extra.get("printer"),
             "edition": extra.get("edition"),
             "translator": extra.get("translator"),
+            "digital_production": extra.get("digital_production"),
+            "original_title": extra.get("original_title"),
+            "depot_legal": extra.get("depot_legal"),
+            "copyright_year": extra.get("copyright_year"),
+            "all_isbns": extra.get("all_isbns"),
         }.items()
         if v
     }
