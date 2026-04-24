@@ -20,24 +20,28 @@ async def _enrichment_loop() -> None:
     await asyncio.sleep(15)
     while True:
         try:
-            from brainycat.db import fetch_all
+            from brainycat.db import get_pool
             from brainycat.metadata import enrich_book
 
-            rows = await fetch_all("SELECT id, title FROM books WHERE quality_score < 50 ORDER BY updated_at ASC LIMIT 3")
+            pool = await get_pool()
             enriched = 0
+            # Use FOR UPDATE SKIP LOCKED to prevent concurrent enrichment of same book
+            async with pool.acquire() as conn, conn.transaction():
+                rows = await conn.fetch(
+                    "SELECT id, title FROM books WHERE quality_score < 50 ORDER BY updated_at ASC LIMIT 3 FOR UPDATE SKIP LOCKED"
+                )
+                for row in rows:
+                    await conn.execute("UPDATE books SET updated_at = now() WHERE id = $1", row["id"])
+
             for row in rows:
                 result = await enrich_book(str(row["id"]))
                 if result.get("enriched"):
                     enriched += 1
-                # Mark as attempted even if no results (bump updated_at so we don't retry immediately)
-                from brainycat.db import execute
-
-                await execute("UPDATE books SET updated_at = now() WHERE id = $1", row["id"])
             if enriched:
                 await log.ainfo("auto_enriched", count=enriched, batch=len(rows))
         except Exception as e:
             await log.awarning("enrichment_error", error=str(e))
-        await asyncio.sleep(60)  # 60s between batches — adaptive rate limiter handles per-source delays
+        await asyncio.sleep(60)
 
 
 async def _fingerprint_loop() -> None:

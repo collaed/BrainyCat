@@ -16,7 +16,13 @@ async def get_pool() -> asyncpg.Pool:  # type: ignore[type-arg]
     """Return the global connection pool, creating it on first call."""
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(settings.database_url, min_size=2, max_size=10)
+        _pool = await asyncpg.create_pool(
+            settings.database_url,
+            min_size=3,
+            max_size=20,
+            command_timeout=60,
+            server_settings={"statement_timeout": "30000"},  # 30s max query
+        )
         await log.ainfo("db_pool_created")
     return _pool
 

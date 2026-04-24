@@ -769,3 +769,85 @@ async def isbn_region_stats(_u: Any = Depends(get_current_user)) -> dict[str, An
 
 
 # ── Open Library Work ID resolution ───────────────────────────────────────
+
+
+# ── Backup ────────────────────────────────────────────────────────────────
+@router.post("/backup")
+async def create_backup(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Create a PostgreSQL backup via asyncpg COPY."""
+    import gzip
+    import time
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    dump_path = f"/data/backups/brainycat_{ts}.sql.gz"
+    os.makedirs("/data/backups", exist_ok=True)
+
+    from brainycat.db import get_pool
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        tables = await conn.fetch("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")
+        with gzip.open(dump_path, "wb") as f:
+            for t in tables:
+                tname = t["tablename"]
+                f.write(f"-- TABLE: {tname}\n".encode())
+                import io as _io
+
+                buf = _io.BytesIO()
+                await conn.copy_from_table(tname, output=buf, format="csv", header=True)
+                data = buf.getvalue()
+                if data:
+                    f.write(data)
+                f.write(b"\n")
+
+    size = os.path.getsize(dump_path)
+    total = await db.fetch_one("SELECT count(*) as c FROM books")
+    return {"ok": True, "path": dump_path, "size_mb": round(size / 1048576, 1), "books": total["c"], "timestamp": ts}
+
+
+@router.get("/backups")
+async def list_backups(_a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    """List available backups."""
+    backup_dir = "/data/backups"
+    if not os.path.isdir(backup_dir):
+        return []
+    backups = []
+    for f in sorted(os.listdir(backup_dir), reverse=True):
+        if f.endswith(".sql.gz"):
+            path = os.path.join(backup_dir, f)
+            backups.append(
+                {
+                    "filename": f,
+                    "size_mb": round(os.path.getsize(path) / 1048576, 1),
+                    "created": f.replace("brainycat_", "").replace(".sql.gz", ""),
+                }
+            )
+    return backups
+
+
+# ── Disk usage & cleanup ──────────────────────────────────────────────────
+@router.get("/disk-usage")
+async def disk_usage(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Report disk usage by category."""
+    import subprocess
+
+    result = subprocess.run(["du", "-sh", "/data/books", "/data/backups", "/data/incoming"], capture_output=True, text=True, timeout=30)
+    lines = result.stdout.strip().split("\n")
+    usage = {}
+    for line in lines:
+        parts = line.split("\t")
+        if len(parts) == 2:
+            usage[parts[1].split("/")[-1]] = parts[0]
+
+    # Count orphan OCR results (bloated)
+    ocr_size = await db.fetch_one(
+        "SELECT count(*) as cnt, COALESCE(sum(file_size),0)/1048576 as mb FROM book_files WHERE file_name = 'ocr_result.pdf'"
+    )
+
+    df = subprocess.run(["df", "-h", "/data"], capture_output=True, text=True, timeout=5)
+
+    return {
+        "directories": usage,
+        "ocr_results": {"count": ocr_size["cnt"], "size_mb": round(float(ocr_size["mb"]))},
+        "disk": df.stdout.strip().split("\n")[-1] if df.stdout else "unknown",
+    }

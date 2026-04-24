@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from typing import Any
 
@@ -38,7 +39,7 @@ async def optimize_ocr_pdf(ocr_path: str, output_path: str | None = None) -> dic
         blocks = text_blocks.get("blocks", [])
 
         # Get images on this page
-        images = src_page.get_images(full=True)
+        src_page.get_images(full=True)
 
         # Classify: is this page mostly text or mostly illustration?
         text_area = 0
@@ -51,19 +52,21 @@ async def optimize_ocr_pdf(ocr_path: str, output_path: str | None = None) -> dic
                 text_area += bbox.width * bbox.height
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
-                        text_content.append({
-                            "text": span["text"],
-                            "bbox": fitz.Rect(span["bbox"]),
-                            "size": span["size"],
-                            "font": span.get("font", "helv"),
-                            "color": span.get("color", 0),
-                        })
+                        text_content.append(
+                            {
+                                "text": span["text"],
+                                "bbox": fitz.Rect(span["bbox"]),
+                                "size": span["size"],
+                                "font": span.get("font", "helv"),
+                                "color": span.get("color", 0),
+                            }
+                        )
             elif block["type"] == 1:  # image block
                 bbox = fitz.Rect(block["bbox"])
                 image_area += bbox.width * bbox.height
 
         page_area = width * height
-        text_ratio = text_area / max(page_area, 1)
+        text_area / max(page_area, 1)
         image_ratio = image_area / max(page_area, 1)
 
         # Create new page
@@ -98,7 +101,7 @@ async def optimize_ocr_pdf(ocr_path: str, output_path: str | None = None) -> dic
                                 fontname="helv",
                                 color=(0, 0, 0),
                             )
-                        except Exception:
+                        except Exception:  # noqa: SIM105
                             pass
                 pages_optimized += 1
         else:
@@ -106,7 +109,7 @@ async def optimize_ocr_pdf(ocr_path: str, output_path: str | None = None) -> dic
             for span in text_content:
                 if span["text"].strip():
                     fontsize = max(6, min(span["size"], 24))
-                    try:
+                    with contextlib.suppress(Exception):
                         new_page.insert_text(
                             span["bbox"].tl,
                             span["text"],
@@ -114,8 +117,6 @@ async def optimize_ocr_pdf(ocr_path: str, output_path: str | None = None) -> dic
                             fontname="helv",
                             color=(0, 0, 0),
                         )
-                    except Exception:
-                        pass
             pages_optimized += 1
 
     dst.save(output_path, deflate=True, garbage=4)
