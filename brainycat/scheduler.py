@@ -198,7 +198,7 @@ async def _ocr_loop() -> None:
     if not active:
         candidate = await fetch_one("""
             SELECT b.id, bf.file_path, b.language FROM books b
-            JOIN book_files bf ON bf.book_id = b.id AND bf.format = 'pdf' AND bf.file_size > 500000
+            JOIN book_files bf ON bf.book_id = b.id AND bf.format = 'pdf' AND bf.file_size BETWEEN 500000 AND 30000000
             WHERE NOT EXISTS (SELECT 1 FROM async_jobs aj WHERE aj.book_id = b.id AND aj.job_type = 'ocr')
             ORDER BY bf.file_size ASC LIMIT 1
         """)
