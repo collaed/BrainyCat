@@ -235,13 +235,36 @@ def extract_from_text(text: str) -> dict[str, Any]:
 
 
 async def ocr_last_page_for_isbn(book_id: str) -> dict[str, Any]:
-    """OCR just the last 2 pages of a scanned PDF to find the ISBN barcode area."""
+    """Scan PDF last pages or EPUB copyright pages for ISBN."""
+    # Try EPUB first — scan copyright/info pages (first 5 spine items)
+    epub_row = await fetch_one(
+        "SELECT file_path FROM book_files WHERE book_id = $1 AND format = 'epub' LIMIT 1",
+        UUID(book_id),
+    )
+    if epub_row and os.path.isfile(epub_row["file_path"]):
+        try:
+            import zipfile
+
+            with zipfile.ZipFile(epub_row["file_path"]) as zf:
+                htmls = sorted(n for n in zf.namelist() if n.endswith((".xhtml", ".html")))
+                for h in htmls[:8]:
+                    text = zf.read(h).decode("utf-8", errors="ignore")
+                    result = extract_from_text(text)
+                    isbn = result.get("isbn") or result.get("isbn_10")
+                    if isbn:
+                        current = await fetch_one("SELECT isbn FROM books WHERE id = $1", UUID(book_id))
+                        if not current or not current["isbn"]:
+                            await execute("UPDATE books SET isbn = $1, updated_at = now() WHERE id = $2", isbn, UUID(book_id))
+                        return {"ok": True, "isbn": isbn, "source": "epub_content"}
+        except Exception:
+            pass
+
     row = await fetch_one(
         "SELECT file_path FROM book_files WHERE book_id = $1 AND format = 'pdf' LIMIT 1",
         UUID(book_id),
     )
     if not row or not os.path.isfile(row["file_path"]):
-        return {"ok": False, "reason": "no pdf"}
+        return {"ok": False, "reason": "no pdf or epub"}
 
     try:
         import fitz

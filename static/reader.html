@@ -131,12 +131,13 @@ async function init() {
         }
         log('');
 
-        // Generate locations for accurate progress tracking
-        await book.locations.generate(1024);
+        // Generate locations for accurate progress tracking (non-blocking)
+        let locationsReady = false;
+        book.locations.generate(1024).then(() => { locationsReady = true; });
 
         // Track progress on page turn
         rendition.on('relocated', loc => {
-            const pct = book.locations.percentageFromCfi(loc.start.cfi) * 100;
+            const pct = locationsReady ? book.locations.percentageFromCfi(loc.start.cfi) * 100 : (loc.start.percentage || 0) * 100;
             document.getElementById('progress-bar').style.width = pct + '%';
             scrollMargins(pct);
             if (loc.start.cfi) {
