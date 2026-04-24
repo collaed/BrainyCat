@@ -1484,3 +1484,25 @@ def _extract_paragraphs(epub_path: str) -> list[str]:
         return paragraphs
     except Exception:
         return []
+
+
+@router.delete("/books/{book_id}/file/{file_id}")
+async def delete_book_file(book_id: str, file_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Delete a specific file version from a book (keep at least one)."""
+    remaining = await db.fetch_one(
+        "SELECT count(*) as cnt FROM book_files WHERE book_id = $1",
+        UUID(book_id),
+    )
+    if remaining["cnt"] <= 1:
+        return {"error": "Cannot delete the only file"}
+    row = await db.fetch_one(
+        "SELECT file_path FROM book_files WHERE id = $1 AND book_id = $2",
+        UUID(file_id),
+        UUID(book_id),
+    )
+    if not row:
+        return {"error": "File not found"}
+    if row["file_path"] and os.path.exists(row["file_path"]):
+        os.unlink(row["file_path"])
+    await db.execute("DELETE FROM book_files WHERE id = $1", UUID(file_id))
+    return {"ok": True}

@@ -591,6 +591,18 @@ async function toggleCompare(pdfs) {
         label.style.cssText = 'position:sticky;top:0;background:#16213e;padding:4px 8px;font-size:.8rem;color:#94a3b8;z-index:5';
         label.textContent = pdf.file_name === 'ocr_result.pdf' ? '🔍 OCR (hybrid)' : '📄 Original';
         label.textContent += ` (${(pdf.file_size/1048576).toFixed(1)}MB)`;
+        const keepBtn = document.createElement('button');
+        keepBtn.textContent = '✅ Keep this, discard other';
+        keepBtn.style.cssText = 'margin-left:8px;padding:2px 8px;border-radius:4px;border:1px solid #334155;background:#14532d;color:#86efac;cursor:pointer;font-size:.75rem';
+        keepBtn.onclick = async () => {
+            const otherId = pdfs.find(p => p.id !== pdf.id)?.id;
+            if (!otherId) return;
+            if (!confirm('Delete the other version permanently?')) return;
+            await BC.del('/books/' + bookId + '/file/' + otherId);
+            keepBtn.textContent = '✓ Done';
+            setTimeout(() => location.reload(), 1000);
+        };
+        label.appendChild(keepBtn);
         col.appendChild(label);
 
         const resp = await fetch(API + '/books/' + bookId + '/file/' + pdf.id, {credentials: 'same-origin'});
