@@ -12,7 +12,7 @@
 
 Self-hosted personal library that automatically enriches your books with covers, ISBNs, genres, and descriptions from 32 metadata sources. Upload your ebooks and audiobooks, BrainyCat does the rest.
 
-I built this because I had 1,500+ books scattered across formats with terrible metadata — missing covers, no ISBNs, wrong titles. Calibre is great for manual curation but I wanted something that runs continuously in the background and fixes everything automatically.
+I built this because I kept seeing the same question on r/selfhosted: "I have a folder of ebooks, how do I turn it into a proper library?" The answers are always "glue together Readarr + Calibre + Kavita" or "use Calibre-Web but set up metadata manually." I wanted one tool: drop your files in, everything else is automatic.
 
 **Key features:**
 
