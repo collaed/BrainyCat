@@ -193,6 +193,16 @@ async def _ocr_loop() -> None:
     intello_url = settings.intello_url.rstrip("/")
     client = get_client()
 
+    # 0. Check Intello health before doing anything
+    try:
+        async with asyncio.timeout(5):
+            health = await client.get(f"{intello_url}/api/health")
+        if health.status_code == 200 and not health.json().get("healthy", False):
+            await log.awarning("intello_unhealthy")
+            return
+    except Exception:
+        return  # Intello unreachable, skip this cycle
+
     # 1. Poll pending OCR jobs
     pending = await fetch_all("SELECT id, book_id, remote_job_id FROM async_jobs WHERE job_type = 'ocr' AND status = 'submitted' LIMIT 5")
     for job in pending:
