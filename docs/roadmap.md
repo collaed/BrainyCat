@@ -1,275 +1,116 @@
-# BrainyCat — Roadmap v4
+# BrainyCat Roadmap
 
-Last updated: 2026-04-23
+*Born: Tuesday 2026-04-22. Feeling very adult by Friday.*
 
 ## Completed ✅
 
-### Core (Phases 1-4)
-- Library CRUD, search, upload, collections, 5 UI skins
-- EPUB reader (themes, night mode, dictionary, speed tracking, auto-scroll)
-- PDF reader (pdf.js, progress tracking, lazy page rendering)
-- MOBI/AZW3 reading (auto-converts to EPUB on first open)
-- Audio player (chapters, speed, smart sleep mode, bookmark, download)
-- 10 format conversions via ebook-convert
-- OPDS 1.2 with pagination
-- 53→210 tests (unit + integration + Playwright E2E)
+### Core (Day 1-2)
+- [x] FastAPI backend with 230+ routes
+- [x] PostgreSQL with pgvector + pg_trgm
+- [x] 22 upload formats (EPUB, PDF, MOBI, AZW3, KFX, FB2, DOCX, ODT, TXT, RTF, HTML, MD, DJVU, CBZ, CBR + audio)
+- [x] Docker deployment with hot reload (rsync + restart)
+- [x] Multi-user auth with session cookies
+- [x] Shared HTTP client with connection pooling (73 call sites)
 
-### Intelligence
-- 10 enrichment sources in parallel (Google Books, OL, OL Enhanced, LoC, Amazon 6-country, Gutendex, VIAF, ISNI, Inventaire, BookBrainz)
-- Calibre-style merge + cover chain (Apple Books, Bookcover API) + dummy validation
-- ISBN extraction: 9 languages, checksum validation, 40+ formats
-- ISBN barcode scanning (pyzbar EAN-13 from scanned PDF back covers)
-- Multi-ISBN storage (print, ebook, PDF, audiobook ISBNs with type detection)
-- Edition detection (multilingual: English/French/German/Spanish)
-- Full-text metadata extraction
-- Content fingerprinting: Winnowing + MinHash + binary compare
-- TF-IDF embeddings: 11-language stopwords, pgvector similarity
-- Book Genome taste engine: 7 categories + NLP themes
-- Readability: Flesch-Kincaid + Gunning Fog
-- Calibre-aligned quality score (10-field weighted scoring, 100 max)
-- Language extraction (EPUB OPF metadata + ISBN region inference)
-- Missing data filter (ISBN, description, cover, tags, quality)
-- Library health report: 10 checks
-- Soundex author matching
-- Adaptive chapter splitting (silence detection)
-- Edition diffing (paragraph-level)
+### Enrichment (Day 1-3)
+- [x] 32 metadata sources with parallel fetching
+- [x] Adaptive rate limiting (fail2ban-style escalation)
+- [x] Calibre-style merge (shortest title, longest description, averaged ratings)
+- [x] Smart ISBN routing (French → BnF first, German → DNB)
+- [x] Cover validation (MD5 check against Google Books dummy images)
+- [x] Post-enrichment writeback into EPUB + cover regeneration
 
-### AI (via Intello)
-- AI companion, contextual footnotes, getAbstract summaries
-- Word Wise + X-Ray, LLM genre classification
-- Orpheus TTS, Whisper STT, OCR
+### ISBN Intelligence (Day 2-3)
+- [x] 6 extraction methods (OPF, full-text, barcode/pyzbar, filename, title, check-digit completion)
+- [x] Multi-ISBN storage with type detection (print, ebook, PDF, audiobook)
+- [x] Unicode dash handling (U+2010–U+2014)
+- [x] 285 registration groups from official ISBN Range Message
+- [x] Full-text extraction (no page limit — regex on 1MB text is <50ms)
+- [x] BISAC/Thema subject code mapping + LLM verification via Groq
 
-### Catalog & Discovery
-- 8 sources (120K+ free books), unified parallel search
-- Gutenberg↔LibriVox cross-linking, local cache (175ms)
-- Language preferences, "you already own this" detection
-- OPDS import from external servers
+### Reading (Day 3)
+- [x] EPUB reader (epub.js, scrolled-doc, themes, font selector, OpenDyslexic)
+- [x] PDF reader (pdf.js, lazy rendering, in-app viewing)
+- [x] MOBI/AZW3 auto-convert to EPUB on first open
+- [x] Stylus annotations (pressure-sensitive pen/highlighter, per-page, synced)
+- [x] Dictionary (language-aware, tries book language first)
+- [x] Clippings (save/explain/translate, Markdown export for Obsidian)
+- [x] Custom CSS injection
+- [x] Reading progress save/restore (was broken — POST vs PUT fix)
+- [x] Reading goals ("50 books in 2026")
 
-### Social
-- Federated reading profiles, book clubs, lending, streaks
-- Annotation export to Markdown/Obsidian
+### Discovery (Day 3)
+- [x] 15 free catalog sources (Gutenberg, Standard Ebooks, LibriVox, Internet Archive, Feedbooks, OAPEN, arXiv, Semantic Scholar, CORE, Unpaywall, DOAB, Loyal Books, ManyBooks, GitHub, OpenStax)
+- [x] 8 pre-configured OPDS subscriptions (75,000+ free books)
+- [x] One-click import from any catalog to library (server-side download)
+- [x] Taste engine (7-category Book Genome)
 
-### Integration
-- MCP server: 28 tools
-- ABS mobile app compatibility (full playback flow)
-- Calibre sync plugin (two-way enrichment bridge)
-- API key auth (Bearer through Caddy)
+### Infrastructure (Day 3)
+- [x] web.py split: 3,776 → 139 lines (9 APIRouter modules)
+- [x] Supervised scheduler (crash recovery, row locking, timeouts)
+- [x] SELECT FOR UPDATE SKIP LOCKED on all background loops
+- [x] Timeouts on all external calls (15s per source, 30s per book, 120s OCR)
+- [x] Connection pool config (min=3, max=20, 30s statement timeout)
+- [x] Backup endpoint (asyncpg COPY → gzipped CSV)
+- [x] GIN index on extra_metadata JSONB
+- [x] OCR pipeline with PDF chunking for large files
+- [x] First-run setup wizard
+- [x] Auto-generated secret key
+- [x] docker-compose.standalone.yml (zero-config with PostgreSQL)
 
-## Next: Ingest Pipeline (Priority: HIGH)
+### Intello Integration (Day 3)
+- [x] TTS engine: orpheus → groq (was silently falling back to Piper)
+- [x] Voice endpoint: /api/v1/tts/voices (was 404)
+- [x] OCR download: /api/v1/ocr/jobs/{id}/result (was using raw file path)
+- [x] OCR output: hybrid mode (100x smaller than searchable_pdf)
+- [x] LLM endpoint: /v1/chat/completions (OpenAI-compatible)
+- [x] task_hint on all LLM calls (analysis/creative/classification/translation)
+- [x] HTTP timeout: 120s (deep mode needs 60s+)
+- [x] Voxtral voice for French TTS
+- [x] async_mode for long TTS chunks
+- [x] Language codes: ISO 639-2 (3-letter: eng, fra, deu)
 
-### P1: EPUB3 Canonical Storage
-- All uploads converted to EPUB3 as internal canonical format
-- Original file preserved alongside canonical copy
-- Pipeline: upload → detect format → convert to EPUB3 → store both
-- On-demand conversion for delivery (MOBI/KEPUB/PDF)
-- **Why**: EPUB3 is the most open, richest, best-supported format
+### Data Quality (Day 3)
+- [x] 535 garbage ISBNs cleaned (UUIDs/URNs stored as ISBN)
+- [x] 26 duplicates confirmed and merged
+- [x] 288 editions detected (multilingual)
+- [x] 704 pubdates filled from copyright_year
+- [x] 295+ word/page counts
+- [x] 63 BISAC subject codes mapped
+- [x] Audiobook chapter merge (19 MP3s → 1 M4B, 46% smaller)
 
-### P2: Auto-Clean on Ingest
-- Strip publisher cruft (ads, DRM artifacts, tracking pixels)
-- Fix encoding issues (Latin-1 → UTF-8)
-- Validate EPUB structure (our epub_check)
-- Normalize CSS (remove vendor prefixes, fix broken styles)
-- Optimize images (resize oversized, compress)
-- Generate missing TOC/NCX
+## In Progress 🔄
 
-### P3: Auto-Enrich Pipeline
-- On upload: ISBN scan → parallel enrichment (10 sources) → merge
-- Auto-apply: description, cover, genres, series, rating
-- Quality score computed automatically
-- Embedding generated for similarity search
-- **No user action needed** — book arrives enriched
+- [ ] ISBN re-extraction (recovering from garbage cleanup, 80% → target 95%)
+- [ ] Genre classification (4.9%, enrichment loop running)
+- [ ] OCR pipeline (30 complete, Intello improving)
+- [ ] Enrichment backlog (3 books/minute, all rate limiters green)
+- [ ] Fingerprinting (391 done, 1,100 pending)
 
-### P4: Calibre Auto-Push
-- Enriched metadata pushed to Calibre via sync plugin
-- Cleaned EPUB3 replaces original in Calibre library
-- Covers, ISBNs, descriptions, genres all synced
-- Pipeline: BrainyCat enriches → plugin pulls → Calibre updated
+## TODO 📋
 
-## Next: Calibre Deep Integration (Priority: HIGH)
+### High Priority
+- [ ] Screenshots for r/selfhosted launch (library grid, book detail, reader)
+- [ ] books.py split (1,483 lines — next god file)
+- [ ] Series auto-detection from title patterns ("Book 1", "Vol. 2", "Tome 3")
+- [ ] Batch LLM genre classification (jump tags from 5% to 60%+)
+- [ ] Open Library metadata contribution (push enriched data back)
 
-### C1: Live Metadata.db Reader (Phase A)
-- Point BrainyCat at Calibre's metadata.db (read-only)
-- Query catalog data directly, no import/copy
-- Intelligence data in PostgreSQL, keyed by Calibre book ID
-- **Effort**: 2-3 days
+### Medium Priority
+- [ ] Virtual libraries (saved filter presets)
+- [ ] Hierarchical tag browser (Genre.Fiction.SciFi)
+- [ ] Book DNA / Spotify Wrapped for books (shareable reading stats card)
+- [ ] Action chains (import → enrich → convert → send automation)
+- [ ] File watcher for auto-import (Samba/NFS drop folder)
+- [ ] WebSocket for real-time library updates
+- [ ] Multi-user data isolation (per-user visibility)
 
-### C2: Shadow Metadata Overlay (Phase B)
-- BrainyCat enrichments stored as overlay
-- Display: merge Calibre data + BrainyCat enrichments
-- Pending changes queue with diff view
-- **Effort**: 1-2 days
-
-### C3: Content Server Proxy (Phase D)
-- BrainyCat in front of calibre-server
-- Passes catalog/download through unchanged
-- Adds: taste recommendations, sleep detection, fingerprint warnings
-- **Effort**: 3-5 days
-
-### C4: Plugin Distribution
-- Submit brainycat-sync.zip to Calibre plugin repo
-- Documentation, screenshots, setup guide
-- **Effort**: 1 day
-
-## Next: Reader & Player (Priority: MEDIUM)
-
-### R1: Comic Reader (CBZ/CBR)
-- Page-turn interface for comic archives
-- Would attract Kavita/Komga users
-
-### R2: Annotation UI in Reader
-- Highlight text → save annotation
-- View others' shared annotations inline
-- Currently annotations are API-only
-
-### R3: Bookmarks UI
-- Visual bookmark list in reader sidebar
-- Jump to bookmarked positions
-
-## Next: Intelligence Improvements (Priority: MEDIUM)
-
-### I1: Real Sentence-Transformers
-- Via Intello or local model (all-MiniLM-L6-v2, 80MB)
-- "A story about loss" would match "A tale of grief"
-- TF-IDF is good for same-topic, not semantic similarity
-
-### I2: Series Completion via Open Library
-- "You have books 1, 2, 4 of Expanse. Book 3 is Abaddon's Gate."
-- Check availability: Gutenberg, LibriVox, OL lending, Standard Ebooks
-
-### I3: Book DNA Card
-- Shareable image: genres, hours read, streaks, favorite author
-- Like Spotify Wrapped for books
-
-### I4: Want-to-Read Sync
-- Import from Open Library reading log
-- Cross-reference: "You wanted 47 books — you own 12"
-
-## Next: Library & Delivery (Priority: MEDIUM)
-
-### L1: Bulk Operations UI
-- Multi-select books for batch tagging, enrichment, deletion, conversion
-
-### L2: Virtual Libraries (Saved Filter Presets)
-- Save and recall filter combinations as named virtual libraries
-
-### L3: Hierarchical Tag Browser
-- Tree-structured tag navigation with parent/child relationships
-
-### L4: Kindle Email Configuration
-- In-app setup for Kindle email delivery addresses
-
-### L5: OTA Delivery to E-Readers (OPDS Push)
-- Push books directly to e-readers via OPDS
-
-### L6: Audiobook Chapter Retagging + Format Optimization
-- Re-tag chapter metadata and optimize audio format for playback
-
-### L7: News Recipes (RSS→EPUB Scheduled)
-- Scheduled conversion of RSS feeds into EPUB periodicals
-
-## Next: Ecosystem (Priority: LOW)
-
-### E1: Kavita/Komga OPDS Testing
-- Verify our OPDS import works with their feeds
-- Document setup for each server
-
-### E2: KOReader/Moon+ Reader Testing
-- Verify OPDS catalog works with popular reading apps
-- Document connection setup
-
-### E3: FanFicFare Integration
-- Download from AO3, FFN, Wattpad, Royal Road
-- Convert to EPUB3, auto-enrich
-
-## Next: ebook-convert-rs Integration (Priority: MEDIUM)
-
-### Status: 3,553 lines of Rust, actively developed
-
-A Rust-based ebook converter that could reduce/eliminate the Calibre dependency.
-Currently handles EPUB, MOBI, PDF, DOCX, HTML, TXT, SVG.
-
-### Integration Plan
-
-**Phase 1: Supplement (now)**
-- Compile ebook-convert-rs as a single binary
-- Add to Docker image alongside Calibre's ebook-convert
-- Use for: EPUB→MOBI (Kindle delivery), DOCX→EPUB (upload), HTML→EPUB (feeds)
-- Keep Calibre for: PDF→EPUB, Huffman MOBI, KF8/AZW3, obscure formats
-- Fallback chain: ebook-convert-rs → Calibre ebook-convert → WeasyPrint
-
-**Phase 2: Primary (when Huffman + KF8 are implemented)**
-- ebook-convert-rs becomes the default converter
-- Calibre becomes optional (for edge cases)
-- Docker image shrinks by ~300MB
-
-**Phase 3: Standalone (when font embedding + PDF metrics are done)**
-- Full Calibre independence for conversion
-- Calibre only needed for its plugin ecosystem and metadata sources
-
-### What Works vs What's Missing
-
-| Feature | ebook-convert-rs | Calibre | Gap |
-|---|---|---|---|
-| EPUB↔MOBI | ✅ PalmDOC + images | ✅ + Huffman + KF8 | 20% of MOBI files |
-| EPUB↔PDF | ⚠️ No font embedding | ✅ Full | Font support |
-| EPUB↔DOCX | ✅ WordprocessingML | ✅ Full | Edge cases |
-| Performance | 🔥 10-50x faster | Baseline | Rust wins |
-| Binary size | ~5MB | ~300MB | 60x smaller |
-| DRM detection | ✅ Clear error | ✅ + plugin removal | Same |
-
-## Architecture: Ingest Pipeline
-
-```
-Upload (any format)
-    │
-    ▼
-Format Detection
-    │
-    ├─ EPUB? ──► Validate + Clean
-    ├─ PDF? ───► Store as-is + extract text
-    └─ Other? ─► ebook-convert → EPUB3
-                    │
-                    ▼
-              Canonical EPUB3
-                    │
-    ┌───────────────┼───────────────┐
-    ▼               ▼               ▼
-ISBN Scan     Cover Chain     Enrichment (10 sources)
-    │               │               │
-    └───────────────┼───────────────┘
-                    ▼
-              Merge + Quality Score
-                    │
-                    ▼
-              Writeback into EPUB3
-                    │
-                    ▼
-              Store in PostgreSQL
-                    │
-                    ▼
-              Push to Calibre (via plugin)
-```
-
-## Architecture: Calibre Companion
-
-```
-┌─────────────────────┐     ┌──────────────────────────┐
-│     Calibre          │     │      BrainyCat            │
-│                      │     │                          │
-│  metadata.db ◄──READ──────── catalog queries          │
-│  book files  ◄──READ──────── file serving             │
-│                      │     │                          │
-│  db.new_api ◄──PLUGIN──────── enriched metadata       │
-│  (safe writes)       │     │  cleaned EPUB3           │
-│                      │     │  covers, ISBNs, genres   │
-│                      │     │                          │
-│                      │     │  PostgreSQL:             │
-│                      │     │  - fingerprints          │
-│                      │     │  - embeddings            │
-│                      │     │  - taste profiles        │
-│                      │     │  - sleep events          │
-│                      │     │  - reading progress      │
-│                      │     │  - social/clubs          │
-│                      │     │  - MCP tools             │
-└─────────────────────┘     └──────────────────────────┘
-```
+### Nice to Have
+- [ ] Recipe extraction from cookbook PDFs
+- [ ] Comic/manga metadata from ComicVine
+- [ ] Children's book age ratings (Lexile/AR)
+- [ ] Sheet music metadata from MusicBrainz
+- [ ] Publisher analytics (aggregate reading trends)
+- [ ] Alembic migration coverage (currently 2 migrations for 33+ tables)
+- [ ] mypy enforcement
+- [ ] Test coverage improvement (182 tests, needs DB fixtures)
