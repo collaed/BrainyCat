@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 
 from brainycat import collections, convert, db, metadata, podcast, restoration, stats, stt, translation, tts
 from brainycat.auth import get_current_user, require_admin
+from brainycat.concurrency import heavy
 from brainycat.http_client import get_client
 
 if TYPE_CHECKING:
@@ -509,6 +510,7 @@ async def bulk_tag(body: BulkTagBody, _u: Any = Depends(get_current_user)) -> di
 
 
 @router.post("/bulk/enrich")
+@heavy
 async def bulk_enrich(body: BulkEnrichBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Trigger enrichment for multiple books."""
     enriched = 0
@@ -544,6 +546,7 @@ async def batch_tag(body: BatchTagBody, _u: Any = Depends(get_current_user)) -> 
 
 
 @router.post("/books/batch/enrich")
+@heavy
 async def batch_enrich(body: BatchEnrichBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Trigger enrichment for multiple books."""
     enriched = 0
