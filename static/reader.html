@@ -68,6 +68,7 @@ async function init() {
 
     const data = await BC.get('/books/' + bookId);
     document.getElementById('book-title').textContent = data.title || 'Unknown';
+    bookLang = data.language || '';
 
     const epubFile = (data.files || []).find(f => f.format === 'epub');
     const mobiFile = !epubFile && (data.files || []).find(f => ['mobi','azw3','azw','kfx'].includes(f.format));
@@ -280,31 +281,99 @@ function setupDictionary() {
     if (!rendition) return;
     rendition.on('selected', async (cfiRange, contents) => {
         const text = rendition.getRange(cfiRange)?.toString().trim();
-        if (!text || text.includes(' ') || text.length < 2 || text.length > 30) return;
+        if (!text || text.length < 2) return;
         const popup = document.getElementById('dict-popup');
-        document.getElementById('dict-word').textContent = text;
-        document.getElementById('dict-def').textContent = 'Looking up...';
+        const wordEl = document.getElementById('dict-word');
+        const defEl = document.getElementById('dict-def');
         popup.style.display = '';
-        popup.style.top = '100px'; popup.style.left = '50%'; popup.style.transform = 'translateX(-50%)';
-        try {
-            const resp = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(text.toLowerCase())}`);
-            if (resp.ok) {
-                const data = await resp.json();
-                const meanings = data[0]?.meanings || [];
-                let html = '';
-                for (const m of meanings.slice(0, 2)) {
-                    html += `<div style="margin-bottom:6px"><em style="color:#94a3b8">${m.partOfSpeech}</em>`;
-                    for (const d of m.definitions.slice(0, 2)) {
-                        html += `<div style="margin-left:8px">• ${d.definition}</div>`;
+        popup.style.top = '80px'; popup.style.left = '50%'; popup.style.transform = 'translateX(-50%)';
+
+        const wordCount = text.split(/\s+/).length;
+
+        if (wordCount === 1 && text.length <= 30) {
+            // ── Single word: dictionary lookup ──
+            wordEl.textContent = text;
+            defEl.textContent = 'Looking up...';
+            // Try book's language first, fall back to English
+            const lang = (bookLang || 'en').slice(0, 2);
+            let found = false;
+            for (const tryLang of [lang, 'en'].filter((v,i,a) => a.indexOf(v)===i)) {
+                try {
+                    const resp = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/${tryLang}/${encodeURIComponent(text.toLowerCase())}`);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        const meanings = data[0]?.meanings || [];
+                        let html = '';
+                        if (data[0]?.phonetic) html += `<div style="color:#64748b;margin-bottom:4px">${data[0].phonetic}</div>`;
+                        for (const m of meanings.slice(0, 3)) {
+                            html += `<div style="margin-bottom:6px"><em style="color:#94a3b8">${m.partOfSpeech}</em>`;
+                            for (const d of m.definitions.slice(0, 2)) {
+                                html += `<div style="margin-left:8px">• ${d.definition}</div>`;
+                            }
+                            html += '</div>';
+                        }
+                        defEl.innerHTML = html || 'No definition found';
+                        found = true; break;
                     }
-                    html += '</div>';
-                }
-                document.getElementById('dict-def').innerHTML = html || 'No definition found';
-            } else {
-                document.getElementById('dict-def').textContent = 'No definition found for "' + text + '"';
+                } catch(e) {}
             }
-        } catch(e) { document.getElementById('dict-def').textContent = 'Dictionary unavailable'; }
+            if (!found) defEl.textContent = 'No definition found for "' + text + '"';
+
+        } else {
+            // ── Multi-word: clipping + explain ──
+            const short = text.length > 80 ? text.slice(0, 80) + '…' : text;
+            wordEl.textContent = '📎 "' + short + '"';
+            defEl.innerHTML = `
+                <div style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap">
+                    <button onclick="saveClipping()" style="padding:4px 10px;border-radius:4px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;cursor:pointer;font-size:.8rem">📋 Save clipping</button>
+                    <button onclick="explainSelection()" style="padding:4px 10px;border-radius:4px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;cursor:pointer;font-size:.8rem">💡 Explain</button>
+                    <button onclick="translateSelection()" style="padding:4px 10px;border-radius:4px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;cursor:pointer;font-size:.8rem">🌐 Translate</button>
+                </div>
+                <div id="explain-result"></div>`;
+            window._selectedText = text;
+            window._selectedCfi = cfiRange;
+        }
     });
+}
+
+let bookLang = '';
+
+async function saveClipping() {
+    const text = window._selectedText;
+    if (!text) return;
+    try {
+        await BC.post('/books/' + bookId + '/clippings', {text, cfi: window._selectedCfi, created_at: new Date().toISOString()});
+        document.getElementById('explain-result').innerHTML = '<span style="color:#22c55e">✓ Saved</span>';
+    } catch(e) {
+        document.getElementById('explain-result').textContent = 'Save failed';
+    }
+}
+
+async function explainSelection() {
+    const text = window._selectedText;
+    if (!text) return;
+    const el = document.getElementById('explain-result');
+    el.textContent = 'Thinking...';
+    try {
+        const resp = await BC.post('/ai/explain', {text, book_id: bookId});
+        el.innerHTML = resp.explanation || resp.error || 'No explanation available';
+    } catch(e) {
+        // Graceful fallback without Intello
+        el.textContent = 'AI explanation unavailable (Intello not connected)';
+    }
+}
+
+async function translateSelection() {
+    const text = window._selectedText;
+    if (!text) return;
+    const el = document.getElementById('explain-result');
+    el.textContent = 'Translating...';
+    try {
+        const resp = await BC.post('/ai/translate', {text, book_id: bookId});
+        el.innerHTML = resp.translation || resp.error || 'Translation unavailable';
+    } catch(e) {
+        el.textContent = 'Translation unavailable (Intello not connected)';
+    }
 }
 
 // ── Auto-scroll ──────────────────────────────────────────────────────────

@@ -17,15 +17,15 @@ async def _tts_via_intello(text: str, language: str = "en", engine: str = "auto"
     """Call Intello TTS endpoint. Supports Piper and Orpheus engines.
 
     Orpheus supports emotion tags: [cheerful], [sad], [whisper], [angry], [neutral].
-    When engine='orpheus', we auto-detect appropriate emotion from text context.
+    When engine='groq', we auto-detect appropriate emotion from text context.
     """
     try:
         client = get_client()
         # Try Orpheus first (expressive, human-like voices)
-        if engine in ("auto", "orpheus"):
+        if engine in ("auto", "groq"):
             resp = await client.post(
                 f"{settings.intello_url}/api/v1/voice/synthesize",
-                data={"text": text[:50000], "language": language, "engine": "orpheus", "voice": ""},
+                data={"text": text[:50000], "language": language, "engine": "groq", "voice": ""},
             )
             if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("audio/"):
                 return resp.content
@@ -174,7 +174,7 @@ async def list_voices() -> list[dict[str, str]]:
     """List available voices from Intello or local."""
     try:
         client = get_client()
-        resp = await client.get(f"{settings.intello_url}/api/v1/voice/status")
+        resp = await client.get(f"{settings.intello_url}/api/v1/tts/voices")
         if resp.status_code == 200:
             data = resp.json()
             voices = data.get("voices", [])
@@ -184,5 +184,6 @@ async def list_voices() -> list[dict[str, str]]:
         pass
     return [
         {"id": "en", "language": "en", "name": "Default (local espeak)"},
-        {"id": "orpheus-en", "language": "en", "name": "Orpheus (expressive, via Intello)"},
+        {"id": "groq-en", "language": "en", "name": "Groq (expressive, via Intello)"},
+        {"id": "voxtral-fr", "language": "fr", "name": "Voxtral (French, via Intello)"},
     ]

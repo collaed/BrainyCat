@@ -4070,3 +4070,91 @@ async def update_settings(body: dict[str, Any], user: Any = Depends(get_current_
     sets = ", ".join(f"{k} = ${i + 2}" for i, k in enumerate(updates))
     await db.execute(f"UPDATE users SET {sets} WHERE id = $1", user["id"], *updates.values())
     return {"ok": True, **updates}
+
+
+# ── Clippings ─────────────────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/clippings")
+async def save_clipping(book_id: str, body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from uuid import UUID as _UUID
+
+    await db.execute(
+        "INSERT INTO clippings (user_id, book_id, text, cfi, created_at) VALUES ($1, $2, $3, $4, now())",
+        user["id"],
+        _UUID(book_id),
+        body.get("text", "")[:2000],
+        body.get("cfi"),
+    )
+    return {"ok": True}
+
+
+@app.get("/api/v1/books/{book_id}/clippings")
+async def get_clippings(book_id: str, user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from uuid import UUID as _UUID
+
+    rows = await db.fetch_all(
+        "SELECT text, cfi, created_at FROM clippings WHERE user_id = $1 AND book_id = $2 ORDER BY created_at DESC",
+        user["id"],
+        _UUID(book_id),
+    )
+    return [dict(r) for r in rows]
+
+
+# ── AI explain / translate (via Intello, graceful fallback) ───────────────
+@app.post("/api/v1/ai/explain")
+async def ai_explain(body: dict[str, Any], _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    text = body.get("text", "")[:1000]
+    if not text:
+        return {"error": "no text"}
+    try:
+        from brainycat.http_client import get_client
+
+        client = get_client()
+        resp = await client.post(
+            "http://intello:8000/api/v1/llm/chat",
+            json={
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": f'Explain this passage briefly (2-3 sentences). If it\'s from a book, provide context:\n\n"{text}"',
+                    }
+                ],
+                "max_tokens": 200,
+            },
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return {"explanation": data.get("choices", [{}])[0].get("message", {}).get("content", "")}
+    except Exception:
+        pass
+    return {"error": "AI explanation unavailable — Intello not connected"}
+
+
+@app.post("/api/v1/ai/translate")
+async def ai_translate(body: dict[str, Any], _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    text = body.get("text", "")[:1000]
+    if not text:
+        return {"error": "no text"}
+    try:
+        from brainycat.http_client import get_client
+
+        client = get_client()
+        resp = await client.post(
+            "http://intello:8000/api/v1/llm/chat",
+            json={
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": f'Translate this to English. If already English, translate to French. Just the translation, nothing else:\n\n"{text}"',
+                    }
+                ],
+                "max_tokens": 300,
+            },
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return {"translation": data.get("choices", [{}])[0].get("message", {}).get("content", "")}
+    except Exception:
+        pass
+    return {"error": "Translation unavailable — Intello not connected"}
