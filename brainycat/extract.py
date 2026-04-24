@@ -5,6 +5,36 @@ from __future__ import annotations
 import os
 from typing import Any
 
+_LANG_MAP = {
+    "en": "eng",
+    "fr": "fra",
+    "de": "deu",
+    "es": "spa",
+    "it": "ita",
+    "pt": "por",
+    "nl": "nld",
+    "ja": "jpn",
+    "zh": "zho",
+    "ru": "rus",
+    "ar": "ara",
+    "ko": "kor",
+    "sv": "swe",
+    "no": "nor",
+    "da": "dan",
+    "pl": "pol",
+    "cs": "ces",
+    "tr": "tur",
+    "el": "ell",
+    "he": "heb",
+}
+
+
+def _norm_lang(code: str | None) -> str | None:
+    if not code or code.lower() in ("und", "unknown"):
+        return None
+    short = code.lower().split("-")[0].strip()[:3]
+    return _LANG_MAP.get(short[:2], short if len(short) == 3 else None)
+
 
 def extract_metadata(file_path: str) -> dict[str, Any]:
     """Extract metadata from a file based on its extension."""
@@ -103,7 +133,7 @@ def _extract_epub(path: str) -> dict[str, Any]:
             "format": "epub",
             "title": title[0][0] if title else None,
             "author": author[0][0] if author else None,
-            "language": lang[0][0] if lang else None,
+            "language": _norm_lang(lang[0][0]) if lang else None,
             "description": desc[0][0] if desc else None,
             "isbn": isbn_meta[0][0] if isbn_meta else None,
             "cover_data": cover_data,
