@@ -692,6 +692,24 @@ async function initPdfViewer(bookId, pdfFile) {
         else if (e.key === 'ArrowLeft') viewer.scrollBy(0, -viewer.clientHeight * 0.9);
     });
 
+    // Resize pen canvas to cover all PDF pages
+    setTimeout(resizePenCanvas, 500);
+
+    // Load pen annotations for current page on scroll
+    let penSaveTimer = null;
+    viewer.addEventListener('scroll', () => {
+        clearTimeout(penSaveTimer);
+        penSaveTimer = setTimeout(() => {
+            const scrollMid = viewer.scrollTop + viewer.clientHeight / 2;
+            for (const cv of canvases) {
+                if (cv.canvas.offsetTop + cv.canvas.offsetHeight > scrollMid) {
+                    loadPenAnnotations('pdf-page-' + cv.canvas.dataset.page);
+                    break;
+                }
+            }
+        }, 500);
+    });
+
     log('');
 }
 
