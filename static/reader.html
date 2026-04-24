@@ -33,6 +33,10 @@
 <button onclick="prevPage()" title="Previous chapter">◀</button>
 <button onclick="nextPage()" title="Next chapter">▶</button>
 <button onclick="toggleAutoScroll()" id="auto-scroll-btn" title="Auto-scroll">⏬</button>
+<button onclick="togglePen()" id="pen-btn" title="Stylus annotations (pen/highlighter)">✏️</button>
+<select id="pen-color" onchange="penColor=this.value" title="Pen color" style="display:none;width:40px">
+<option value="#000000">⚫</option><option value="#ffeb3b">🟡</option><option value="#4caf50">🟢</option>
+<option value="#f44336">🔴</option><option value="#2196f3">🔵</option></select>
 <button id="sync-btn" style="display:none" onclick="switchToAudio()" title="Switch to audio version">🎧</button>
 <span id="reading-speed" style="font-size:.7rem;color:#94a3b8;margin-left:auto"></span>
 </div>
@@ -52,6 +56,9 @@
 
 <!-- Night mode overlay (blue light filter) -->
 <div id="night-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,140,0,0.08);pointer-events:none;z-index:50"></div>
+
+<!-- Stylus annotation canvas -->
+<canvas id="pen-canvas" style="position:fixed;top:45px;left:0;width:100%;height:calc(100vh - 45px);z-index:40;pointer-events:none;touch-action:none"></canvas>
 <div id="status">Loading...</div>
 
 <script src="api.js"></script>
@@ -433,6 +440,117 @@ function trackPageTurn() {
     }
 }
 
+
+// ── Stylus annotation layer ───────────────────────────────────────────────
+let penActive = false, penColor = '#000000', penWidth = 2;
+let penStrokes = []; // current page strokes
+let currentStroke = null;
+const penCanvas = document.getElementById('pen-canvas');
+const penCtx = penCanvas.getContext('2d');
+
+function resizePenCanvas() {
+    penCanvas.width = window.innerWidth;
+    penCanvas.height = window.innerHeight - 45;
+    redrawStrokes();
+}
+window.addEventListener('resize', resizePenCanvas);
+resizePenCanvas();
+
+function togglePen() {
+    penActive = !penActive;
+    const btn = document.getElementById('pen-btn');
+    const colorPicker = document.getElementById('pen-color');
+    btn.style.background = penActive ? '#3b82f6' : '#0f172a';
+    colorPicker.style.display = penActive ? '' : 'none';
+    penCanvas.style.pointerEvents = penActive ? 'auto' : 'none';
+}
+
+penCanvas.addEventListener('pointerdown', (e) => {
+    if (!penActive) return;
+    const isPen = e.pointerType === 'pen';
+    const pressure = isPen ? e.pressure : 0.5;
+    currentStroke = {
+        points: [[e.clientX, e.clientY - 45, pressure]],
+        color: penColor,
+        width: penColor === '#ffeb3b' ? 16 : penWidth, // highlighter = wide
+        opacity: penColor === '#ffeb3b' ? 0.3 : 1,
+    };
+    penCanvas.setPointerCapture(e.pointerId);
+});
+
+penCanvas.addEventListener('pointermove', (e) => {
+    if (!currentStroke) return;
+    const pressure = e.pointerType === 'pen' ? e.pressure : 0.5;
+    currentStroke.points.push([e.clientX, e.clientY - 45, pressure]);
+    // Draw incrementally
+    const pts = currentStroke.points;
+    if (pts.length < 2) return;
+    const p1 = pts[pts.length - 2], p2 = pts[pts.length - 1];
+    penCtx.beginPath();
+    penCtx.moveTo(p1[0], p1[1]);
+    penCtx.lineTo(p2[0], p2[1]);
+    penCtx.strokeStyle = currentStroke.color;
+    penCtx.lineWidth = currentStroke.width * (p2[2] + 0.5);
+    penCtx.globalAlpha = currentStroke.opacity;
+    penCtx.lineCap = 'round';
+    penCtx.lineJoin = 'round';
+    penCtx.stroke();
+    penCtx.globalAlpha = 1;
+});
+
+penCanvas.addEventListener('pointerup', async () => {
+    if (!currentStroke || currentStroke.points.length < 2) { currentStroke = null; return; }
+    penStrokes.push(currentStroke);
+    currentStroke = null;
+    // Save to server
+    const cfi = rendition?.location?.start?.cfi || '';
+    const pct = rendition?.location?.start?.percentage || 0;
+    try {
+        await BC.post('/books/' + bookId + '/pen-annotations', {
+            cfi, page_pct: pct,
+            strokes: penStrokes.map(s => ({
+                points: s.points, color: s.color, width: s.width, opacity: s.opacity
+            }))
+        });
+    } catch(e) {}
+});
+
+function redrawStrokes() {
+    penCtx.clearRect(0, 0, penCanvas.width, penCanvas.height);
+    for (const s of penStrokes) {
+        if (s.points.length < 2) continue;
+        penCtx.strokeStyle = s.color;
+        penCtx.lineWidth = s.width;
+        penCtx.globalAlpha = s.opacity;
+        penCtx.lineCap = 'round';
+        penCtx.lineJoin = 'round';
+        penCtx.beginPath();
+        penCtx.moveTo(s.points[0][0], s.points[0][1]);
+        for (let i = 1; i < s.points.length; i++) {
+            const p = s.points[i];
+            penCtx.lineWidth = s.width * (p[2] + 0.5);
+            penCtx.lineTo(p[0], p[1]);
+        }
+        penCtx.stroke();
+    }
+    penCtx.globalAlpha = 1;
+}
+
+// Load annotations when page changes
+async function loadPenAnnotations(cfi) {
+    try {
+        const data = await BC.get('/books/' + bookId + '/pen-annotations?cfi=' + encodeURIComponent(cfi));
+        penStrokes = data.strokes || [];
+        redrawStrokes();
+    } catch(e) { penStrokes = []; redrawStrokes(); }
+}
+
+// Hook into page navigation
+if (typeof rendition !== 'undefined' && rendition) {
+    rendition.on('relocated', (loc) => {
+        if (loc.start?.cfi) loadPenAnnotations(loc.start.cfi);
+    });
+}
 
 // Pinch-to-zoom → font size (tablet support)
 let pinchStartDist = 0;

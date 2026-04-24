@@ -348,3 +348,41 @@ async def set_reading_goal(body: dict[str, Any], user: Any = Depends(get_current
         target,
     )
     return {"ok": True, "year": year, "target": target}
+
+
+# ── Pen/stylus annotations ───────────────────────────────────────────────
+@router.post("/books/{book_id}/pen-annotations")
+async def save_pen_annotations(book_id: str, body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Save stylus strokes for a page position."""
+    import json
+
+    cfi = body.get("cfi", "")
+    pct = body.get("page_pct", 0)
+    strokes = body.get("strokes", [])
+    await db.execute(
+        "INSERT INTO pen_annotations (user_id, book_id, cfi, page_pct, strokes) "
+        "VALUES ($1, $2, $3, $4, $5) "
+        "ON CONFLICT (user_id, book_id, cfi) DO UPDATE SET strokes = $5, updated_at = now()",
+        user["id"],
+        UUID(book_id),
+        cfi,
+        pct,
+        json.dumps(strokes),
+    )
+    return {"ok": True}
+
+
+@router.get("/books/{book_id}/pen-annotations")
+async def get_pen_annotations(book_id: str, cfi: str = "", user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get stylus strokes for a page position."""
+    import json
+
+    row = await db.fetch_one(
+        "SELECT strokes FROM pen_annotations WHERE user_id = $1 AND book_id = $2 AND cfi = $3",
+        user["id"],
+        UUID(book_id),
+        cfi,
+    )
+    if row and row["strokes"]:
+        return {"strokes": json.loads(row["strokes"]) if isinstance(row["strokes"], str) else row["strokes"]}
+    return {"strokes": []}
