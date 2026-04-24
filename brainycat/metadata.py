@@ -122,6 +122,34 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
                     tag_row["id"],
                 )
 
+    # Map tags to BISAC/Thema codes
+    if merged.get("genres"):
+        import json as _json
+
+        from brainycat.bisac import map_tag_to_bisac
+
+        codes = []
+        for g in merged["genres"]:
+            m = map_tag_to_bisac(g)
+            if m:
+                codes.append({"bisac": m[0], "name": m[1], "thema": m[2]})
+        if codes:
+            await execute(
+                "UPDATE books SET extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || $1::jsonb WHERE id = $2",
+                _json.dumps({"bisac_codes": codes}),
+                UUID(book_id),
+            )
+
+    # Store pubdate from enrichment
+    if merged.get("pubdate") and not row.get("pubdate"):
+        try:
+            from dateutil.parser import parse as _parse_date
+
+            pd = _parse_date(str(merged["pubdate"]))
+            await execute("UPDATE books SET pubdate = $1 WHERE id = $2", pd, UUID(book_id))
+        except Exception:
+            pass
+
     # Cover chain: source results → Apple Books → Bookcover API → OL → Generate
     if not row["cover_path"]:
         import os
