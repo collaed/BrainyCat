@@ -254,7 +254,7 @@ async def ocr_last_page_for_isbn(book_id: str) -> dict[str, Any]:
 
         # Extract text from last 2 pages + first 2 pages (copyright page)
         text = ""
-        for page_idx in list(range(max(0, num_pages - 2), num_pages)) + list(range(min(2, num_pages))):
+        for page_idx in list(range(min(10, num_pages))) + list(range(max(0, num_pages - 3), num_pages)):
             text += doc[page_idx].get_text() + "\n"
         doc.close()
 
