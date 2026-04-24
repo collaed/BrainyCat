@@ -1,0 +1,40 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrainyCat — Setup</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a1a2e;color:#e2e8f0;font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh}
+.card{background:#16213e;border:1px solid #334155;border-radius:12px;padding:2rem;max-width:400px;width:90%}
+h1{font-size:1.5rem;margin-bottom:.5rem}
+p{color:#94a3b8;font-size:.9rem;margin-bottom:1.5rem}
+label{display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem}
+input{width:100%;padding:.6rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:1rem;margin-bottom:1rem}
+button{width:100%;padding:.7rem;border-radius:6px;border:none;background:#3b82f6;color:#fff;font-size:1rem;cursor:pointer;font-weight:600}
+button:hover{background:#2563eb}
+.msg{margin-top:1rem;padding:.5rem;border-radius:6px;font-size:.85rem}
+.err{background:#7f1d1d;color:#fca5a5}.ok{background:#14532d;color:#86efac}
+</style></head><body>
+<div class="card">
+<h1>🐱 BrainyCat Setup</h1>
+<p>Create your admin account to get started.</p>
+<label>Username</label>
+<input id="user" placeholder="admin" autofocus>
+<label>Password</label>
+<input id="pass" type="password" placeholder="••••••••">
+<button onclick="setup()">Create Admin & Start</button>
+<div id="msg"></div>
+</div>
+<script>
+async function setup() {
+    const user = document.getElementById('user').value.trim();
+    const pass = document.getElementById('pass').value;
+    const msg = document.getElementById('msg');
+    if (!user || pass.length < 4) { msg.className='msg err'; msg.textContent='Username and password (4+ chars) required'; return; }
+    try {
+        const r = await fetch('/brainycat/api/v1/setup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:user,password:pass})});
+        const d = await r.json();
+        if (d.ok) { msg.className='msg ok'; msg.textContent='✓ '+d.message; setTimeout(()=>location='/brainycat/',1500); }
+        else { msg.className='msg err'; msg.textContent=d.error||'Setup failed'; }
+    } catch(e) { msg.className='msg err'; msg.textContent='Connection error'; }
+}
+document.getElementById('pass').addEventListener('keyup', e => { if(e.key==='Enter') setup(); });
+</script></body></html>

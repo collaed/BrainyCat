@@ -57,7 +57,10 @@ app = FastAPI(title="BrainyCat", version="0.1.0", lifespan=lifespan)
 
 @app.get("/")
 async def root() -> RedirectResponse:
-    """Redirect root to the static UI. Uses './' so browsers resolve relative to request path."""
+    """Redirect to setup if no users, otherwise to library."""
+    count = await db.fetch_one("SELECT count(*) as c FROM users")
+    if count["c"] == 0:
+        return RedirectResponse(url="./static/setup.html")
     return RedirectResponse(url="./static/index.html")
 
 
@@ -3748,3 +3751,26 @@ async def ai_translate(body: dict[str, Any], _u: Any = Depends(get_current_user)
 
 # ── AI explain/translate already added above ──────────────────────────────
 # (endpoints POST /api/v1/ai/explain and /api/v1/ai/translate)
+
+
+# ── First-run setup ──────────────────────────────────────────────────────
+@app.get("/api/v1/setup/status")
+async def setup_status() -> dict[str, Any]:
+    count = await db.fetch_one("SELECT count(*) as c FROM users")
+    return {"needs_setup": count["c"] == 0}
+
+
+@app.post("/api/v1/setup")
+async def first_run_setup(body: dict[str, Any]) -> dict[str, Any]:
+    """Create the first admin user. Only works when no users exist."""
+    count = await db.fetch_one("SELECT count(*) as c FROM users")
+    if count["c"] > 0:
+        return {"error": "Setup already completed"}
+    username = body.get("username", "").strip()
+    password = body.get("password", "")
+    if not username or len(password) < 4:
+        return {"error": "Username and password (4+ chars) required"}
+    from brainycat.auth import _upsert_user
+
+    await _upsert_user(username, password=password, role="admin")
+    return {"ok": True, "message": f"Admin user '{username}' created. You can now log in."}

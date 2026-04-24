@@ -14,8 +14,24 @@ class Settings(BaseSettings):
     incoming_dir: str = "/data/incoming"
 
     # Auth
-    secret_key: str = "change-me-in-production"
+    secret_key: str = ""
     session_max_age: int = 86400 * 7  # 7 days
+
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        if not self.secret_key:
+            import os
+            import secrets
+
+            key_file = os.path.join(os.path.dirname(self.data_dir), ".secret_key")
+            if os.path.isfile(key_file):
+                with open(key_file) as kf:
+                    self.secret_key = kf.read().strip()
+            else:
+                self.secret_key = secrets.token_hex(32)
+                os.makedirs(os.path.dirname(key_file), exist_ok=True)
+                with open(key_file, "w") as f:
+                    f.write(self.secret_key)
 
     # External services
     intello_url: str = "http://intello:8000"

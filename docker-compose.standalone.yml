@@ -1,0 +1,42 @@
+# BrainyCat — standalone deployment (includes PostgreSQL)
+# Usage: cp .env.example .env && docker compose -f docker-compose.standalone.yml up -d
+
+services:
+  brainycat:
+    build: .
+    container_name: brainycat
+    restart: unless-stopped
+    ports:
+      - "${BRAINYCAT_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      - BRAINYCAT_DATABASE_URL=postgresql://brainycat:brainycat@postgres:5432/brainycat
+    volumes:
+      - brainycat-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "for i in 1 2 3 4 5; do alembic upgrade head && break || sleep 3; done;
+             uvicorn brainycat.web:app --host 0.0.0.0 --port 8000"
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: brainycat-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: brainycat
+      POSTGRES_PASSWORD: brainycat
+      POSTGRES_DB: brainycat
+    volumes:
+      - brainycat-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brainycat"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  brainycat-data:
+  brainycat-pgdata:

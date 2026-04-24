@@ -53,10 +53,23 @@ Self-hosted unified personal library for ebooks and audiobooks.
 ## Quick Start
 
 ```bash
-cp .env.example .env  # Edit with your settings
-docker compose up -d
-# → http://localhost:8000
+git clone https://github.com/collaed/BrainyCat.git
+cd BrainyCat
+cp .env.example .env
+docker compose -f docker-compose.standalone.yml up -d
+# → http://localhost:8000 → Setup wizard creates your admin account
 ```
+
+Includes PostgreSQL with pgvector. No external dependencies required.
+
+**With existing PostgreSQL:**
+```bash
+# Edit .env with your DATABASE_URL
+docker compose up -d
+```
+
+**With Intello (AI features):**
+Set `BRAINYCAT_INTELLO_URL=http://your-intello:8000` in `.env` to enable TTS, STT, OCR, and LLM features. BrainyCat works fully without Intello — AI features degrade gracefully.
 
 ## Genre Color Coding
 
