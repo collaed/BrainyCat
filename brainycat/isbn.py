@@ -62,6 +62,10 @@ def _clean_isbn(raw: str) -> str | None:
             return digits
     elif len(digits) == 10 and _verify_isbn10(digits):
         return digits
+    # 12 digits starting with 978/979 — missing check digit (misprint)
+    elif len(digits) == 12 and digits.startswith(("978", "979")):
+        check = (10 - sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(digits)) % 10) % 10
+        return digits + str(check)
     return None
 
 
