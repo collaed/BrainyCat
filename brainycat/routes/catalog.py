@@ -450,3 +450,141 @@ async def free_computer_books(q: str = Query(""), _u: Any = Depends(get_current_
     except Exception:
         pass
     return {"books": []}
+
+
+# ── Additional free catalog sources ───────────────────────────────────────
+
+
+@router.get("/feedbooks/search")
+async def search_feedbooks(q: str = Query(...), limit: int = Query(20)) -> dict[str, Any]:
+    """Search Feedbooks public domain catalog (OPDS)."""
+    client = get_client()
+    resp = await client.get(
+        f"https://catalog.feedbooks.com/publicdomain/browse/search.atom?query={q}",
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        return {"results": [], "error": f"HTTP {resp.status_code}"}
+    import re
+
+    entries = re.findall(r"<entry>(.*?)</entry>", resp.text, re.DOTALL)
+    results = []
+    for entry in entries[:limit]:
+        title = re.search(r"<title>([^<]+)</title>", entry)
+        author = re.search(r"<name>([^<]+)</name>", entry)
+        epub_link = re.search(r'href="([^"]+\.epub)"', entry)
+        cover = re.search(r'href="([^"]+)"[^>]*type="image', entry)
+        results.append(
+            {
+                "title": title.group(1) if title else "",
+                "author": author.group(1) if author else "",
+                "epub_url": epub_link.group(1) if epub_link else None,
+                "cover_url": cover.group(1) if cover else None,
+                "source": "feedbooks",
+            }
+        )
+    return {"results": results}
+
+
+@router.get("/archive/search")
+async def search_internet_archive(q: str = Query(...), limit: int = Query(20)) -> dict[str, Any]:
+    """Search Internet Archive for free ebooks."""
+    client = get_client()
+    resp = await client.get(
+        "https://archive.org/advancedsearch.php",
+        params={
+            "q": f"{q} AND mediatype:texts AND format:epub",
+            "fl[]": "identifier,title,creator,description,year",
+            "rows": limit,
+            "output": "json",
+        },
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        return {"results": []}
+    data = resp.json()
+    results = []
+    for doc in data.get("response", {}).get("docs", []):
+        ident = doc.get("identifier", "")
+        results.append(
+            {
+                "title": doc.get("title", ""),
+                "author": doc.get("creator", ""),
+                "description": (doc.get("description", "") or "")[:300],
+                "year": doc.get("year"),
+                "epub_url": f"https://archive.org/download/{ident}/{ident}.epub",
+                "cover_url": f"https://archive.org/services/img/{ident}",
+                "source": "internet_archive",
+                "id": ident,
+            }
+        )
+    return {"results": results}
+
+
+@router.get("/doab/search")
+async def search_doab(q: str = Query(...), limit: int = Query(20)) -> dict[str, Any]:
+    """Search Directory of Open Access Books."""
+    client = get_client()
+    resp = await client.get(
+        f"https://directory.doabooks.org/rest/search?query={q}&expand=metadata",
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        return {"results": []}
+    items = resp.json() if isinstance(resp.json(), list) else resp.json().get("items", [])
+    results = []
+    for item in items[:limit]:
+        meta = {}
+        for m in item.get("metadata", []):
+            meta[m.get("key", "")] = m.get("value", "")
+        results.append(
+            {
+                "title": meta.get("dc.title", ""),
+                "author": meta.get("dc.contributor.author", ""),
+                "isbn": meta.get("dc.identifier.isbn", ""),
+                "description": meta.get("dc.description.abstract", "")[:300],
+                "source": "doab",
+            }
+        )
+    return {"results": results}
+
+
+@router.get("/loyalbooks/search")
+async def search_loyalbooks(q: str = Query(...), limit: int = Query(20)) -> dict[str, Any]:
+    """Search Loyal Books free audiobooks."""
+    client = get_client()
+    resp = await client.get(f"http://www.loyalbooks.com/search?q={q}", timeout=10)
+    if resp.status_code != 200:
+        return {"results": []}
+    import re
+
+    titles = re.findall(r'<a href="/book/([^"]+)"[^>]*>([^<]+)</a>', resp.text)
+    results = []
+    for slug, title in titles[:limit]:
+        results.append(
+            {
+                "title": title.strip(),
+                "url": f"http://www.loyalbooks.com/book/{slug}",
+                "source": "loyalbooks",
+            }
+        )
+    return {"results": results}
+
+
+# ── Available catalog sources ─────────────────────────────────────────────
+@router.get("/sources")
+async def catalog_sources() -> list[dict[str, Any]]:
+    """List all available free catalog sources."""
+    return [
+        {"id": "gutenberg", "name": "Project Gutenberg", "count": "70,000+", "type": "ebooks", "api": True},
+        {"id": "standard-ebooks", "name": "Standard Ebooks", "count": "700+", "type": "ebooks", "api": True},
+        {"id": "librivox", "name": "LibriVox", "count": "18,000+", "type": "audiobooks", "api": True},
+        {"id": "feedbooks", "name": "Feedbooks Public Domain", "count": "5,000+", "type": "ebooks", "api": True},
+        {"id": "archive", "name": "Internet Archive", "count": "28M+", "type": "ebooks", "api": True},
+        {"id": "oapen", "name": "OAPEN", "count": "20,000+", "type": "academic", "api": True},
+        {"id": "openstax", "name": "OpenStax", "count": "50+", "type": "textbooks", "api": True},
+        {"id": "doab", "name": "DOAB", "count": "60,000+", "type": "academic", "api": True},
+        {"id": "loyalbooks", "name": "Loyal Books", "count": "7,000+", "type": "audiobooks", "api": True},
+        {"id": "manybooks", "name": "ManyBooks", "count": "50,000+", "type": "ebooks", "api": True},
+        {"id": "github", "name": "GitHub Ebooks", "count": "varies", "type": "tech", "api": True},
+    ]

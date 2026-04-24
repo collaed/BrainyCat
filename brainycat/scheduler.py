@@ -139,10 +139,13 @@ async def _ocr_loop() -> None:
                         status = data.get("status", "unknown")
                         if status == "complete":
                             await execute("UPDATE async_jobs SET status = 'complete' WHERE id = $1", job["id"])
-                            # Download result if available
+                            # Download result via proper API endpoint
                             result_path = data.get("result_path")
                             if result_path:
-                                dl = await client.get(f"http://intello:8000{result_path}", timeout=60)
+                                dl = await client.get(
+                                    f"http://intello:8000/api/v1/ocr/jobs/{job['remote_job_id']}/result",
+                                    timeout=120,
+                                )
                                 if dl.status_code == 200:
                                     import os
 

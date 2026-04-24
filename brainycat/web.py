@@ -5,17 +5,15 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
 from brainycat import (
     auth,
     books,
     db,
 )
-from brainycat.auth import get_current_user
 from brainycat.http_client import get_client
 from brainycat.logging import setup_logging
 
@@ -119,140 +117,6 @@ app.get("/api/v1/books/{book_id}/file/{file_id}")(books.serve_file)
 
 
 # ── Author update
-class AuthorUpdate(BaseModel):
-    author: str
-
-
-class CreateSeriesBody(BaseModel):
-    series_name: str
-    book_ids: list[str]
-
-
-class MergeAuthorsBody(BaseModel):
-    keep_id: str
-    merge_id: str
-
-
-class LinkDuplicateBody(BaseModel):
-    book_a_id: str
-    book_b_id: str
-    link_type: str = "edition"
-
-
-class BatchActionsBody(BaseModel):
-    actions: list[dict[str, Any]]
-
-
-class ProgressUpdate(BaseModel):
-    position: str | None = None
-    position_timestamp: float | None = None
-    percentage: float = 0
-    is_finished: bool = False
-
-
-class BookmarkCreate(BaseModel):
-    position: str
-    title: str | None = None
-
-
-class AnnotationCreate(BaseModel):
-    cfi_range: str
-    text_content: str | None = None
-    note: str | None = None
-    color: str = "#ffeb3b"
-
-
-class NoteBody(BaseModel):
-    content: str
-
-
-def _extract_paragraphs(epub_path: str) -> list[str]:
-    """Extract all paragraphs from an EPUB."""
-    try:
-        import ebooklib
-        from bs4 import BeautifulSoup
-        from ebooklib import epub
-
-        book = epub.read_epub(epub_path, options={"ignore_ncx": True})
-        paragraphs = []
-        for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
-            soup = BeautifulSoup(item.get_content(), "html.parser")
-            for p in soup.find_all("p"):
-                text = p.get_text(strip=True)
-                if text and len(text) > 5:
-                    paragraphs.append(text)
-        return paragraphs
-    except Exception:
-        return []
-
-
-class BulkTagBody(BaseModel):
-    book_ids: list[str]
-    tag: str
-    action: str = "add"  # add or remove
-
-
-class BulkEnrichBody(BaseModel):
-    book_ids: list[str]
-
-
-class BatchTagBody(BaseModel):
-    book_ids: list[str]
-    tags: list[str]
-
-
-class BatchEnrichBody(BaseModel):
-    book_ids: list[str]
-
-
-class BatchDeleteBody(BaseModel):
-    book_ids: list[str]
-
-
-class MergeBody(BaseModel):
-    book_ids: list[str]
-    title: str
-    author: str = ""
-
-
-@app.get("/api/v1/cover-settings")
-async def get_cover_prefs(user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    from brainycat.cover_settings import get_cover_settings
-
-    return await get_cover_settings(str(user["id"]))
-
-
-@app.post("/api/v1/cover-settings")
-async def set_cover_prefs(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    from brainycat.cover_settings import update_cover_settings
-
-    body = await request.json()
-    return await update_cover_settings(str(user["id"]), body)
-
-
-def _enrichment_priority(region: dict | None) -> list[str]:
-    """Given an ISBN region, return the optimal enrichment source order."""
-    if not region:
-        return ["google_books", "open_library", "amazon"]
-    sources = region.get("best_sources", [])
-    # Add national bibliography based on country
-    countries = region.get("countries", [])
-    if "FR" in countries:
-        sources = ["bnf", *sources]
-    elif "DE" in countries or "AT" in countries or "CH" in countries:
-        sources = ["dnb", *sources]
-    elif "GB" in countries or "UK" in countries:
-        sources = ["british_library", *sources]
-    elif "ES" in countries:
-        sources = ["bne", *sources]
-    elif "JP" in countries:
-        sources = ["ndl", "rakuten", *sources]
-    # Always include google_books as fallback
-    if "google_books" not in sources:
-        sources.append("google_books")
-    return sources
-
-
 @app.get("/api/v1/setup/status")
 async def setup_status() -> dict[str, Any]:
     count = await db.fetch_one("SELECT count(*) as c FROM users")
