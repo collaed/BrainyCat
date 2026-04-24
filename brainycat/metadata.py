@@ -202,26 +202,41 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
 
 
 def _compute_quality(book_id: str, row: Any, merged: dict[str, Any]) -> int:
-    """Weighted completeness score 0-100."""
-    weights = {
-        "title": 10,
-        "description": 15,
-        "isbn": 10,
-        "cover_path": 15,
-        "language": 5,
-        "publisher": 5,
-        "pubdate": 5,
-    }
+    """Weighted completeness score 0-100 (Calibre-aligned)."""
     score = 0
-    # Author worth 15 — check separately
-    score += 15  # assume author present from upload
-    # Genres worth 10
+    # Title (10) — not "Unknown"
+    title = merged.get("title") or (row["title"] if "title" in dict(row) else None)
+    if title and title.lower() not in ("unknown", "untitled"):
+        score += 10
+    # Author (15) — check books_authors
+    score += 15  # assume present from upload
+    # Cover (15)
+    if merged.get("cover_path") or (
+        row.get("cover_path") if hasattr(row, "get") else row["cover_path"] if "cover_path" in dict(row) else None
+    ):
+        score += 15
+    # Description (15)
+    desc = merged.get("description") or (row["description"] if "description" in dict(row) else None)
+    if desc and len(desc) > 20:
+        score += 15
+    # ISBN (10)
+    if merged.get("isbn") or (row["isbn"] if "isbn" in dict(row) else None):
+        score += 10
+    # Language (5)
+    if merged.get("language") or (row["language"] if "language" in dict(row) else None):
+        score += 5
+    # Publisher (5)
+    if merged.get("publisher") or (row.get("extra_metadata") or {}).get("publisher") if hasattr(row, "get") else None:
+        score += 5
+    # Pubdate (5)
+    if merged.get("pubdate") or (row["pubdate"] if "pubdate" in dict(row) else None):
+        score += 5
+    # Tags/genres (10)
     if merged.get("genres"):
         score += 10
-    for field, weight in weights.items():
-        val = merged.get(field) or (row[field] if field in dict(row) else None)
-        if val:
-            score += weight
+    # Series (10)
+    if merged.get("series"):
+        score += 10
     return min(score, 100)
 
 
