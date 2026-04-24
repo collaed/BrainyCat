@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from brainycat.logging import log
 
@@ -44,9 +45,13 @@ async def _fingerprint_loop() -> None:
     while True:
         try:
             # Generate embeddings for books without them
-            from brainycat.embeddings import embed_all_books
+            from brainycat.db import fetch_all as _fa
+            from brainycat.embeddings import embed_book
 
-            await embed_all_books(limit=20)
+            unembedded = await _fa("SELECT id FROM books WHERE embedding IS NULL AND description IS NOT NULL LIMIT 20")
+            for r in unembedded:
+                with contextlib.suppress(Exception):
+                    await embed_book(str(r["id"]))
 
             from brainycat.fingerprints import compute_all_fingerprints, find_duplicates_by_content
 

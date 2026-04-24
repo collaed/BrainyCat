@@ -203,33 +203,44 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
 
 def _compute_quality(book_id: str, row: Any, merged: dict[str, Any]) -> int:
     """Weighted completeness score 0-100 (Calibre-aligned)."""
+    rd = dict(row)  # asyncpg Record → dict for safe .get()
     score = 0
-    # Title (10) — not "Unknown"
-    title = merged.get("title") or (row["title"] if "title" in dict(row) else None)
-    if title and title.lower() not in ("unknown", "untitled"):
+
+    def _val(field: str) -> Any:
+        return merged.get(field) or rd.get(field)
+
+    # Title (10)
+    title = _val("title")
+    if title and str(title).lower() not in ("unknown", "untitled"):
         score += 10
-    # Author (15) — check books_authors
-    score += 15  # assume present from upload
+    # Author (15)
+    score += 15
     # Cover (15)
-    if merged.get("cover_path") or (
-        row.get("cover_path") if hasattr(row, "get") else row["cover_path"] if "cover_path" in dict(row) else None
-    ):
+    if _val("cover_path"):
         score += 15
     # Description (15)
-    desc = merged.get("description") or (row["description"] if "description" in dict(row) else None)
-    if desc and len(desc) > 20:
+    desc = _val("description")
+    if desc and len(str(desc)) > 20:
         score += 15
     # ISBN (10)
-    if merged.get("isbn") or (row["isbn"] if "isbn" in dict(row) else None):
+    if _val("isbn"):
         score += 10
     # Language (5)
-    if merged.get("language") or (row["language"] if "language" in dict(row) else None):
+    if _val("language"):
         score += 5
     # Publisher (5)
-    if merged.get("publisher") or (row.get("extra_metadata") or {}).get("publisher") if hasattr(row, "get") else None:
+    extra = rd.get("extra_metadata") or {}
+    if isinstance(extra, str):
+        import json as _json
+
+        try:
+            extra = _json.loads(extra)
+        except Exception:
+            extra = {}
+    if merged.get("publisher") or extra.get("publisher"):
         score += 5
     # Pubdate (5)
-    if merged.get("pubdate") or (row["pubdate"] if "pubdate" in dict(row) else None):
+    if _val("pubdate"):
         score += 5
     # Tags/genres (10)
     if merged.get("genres"):
