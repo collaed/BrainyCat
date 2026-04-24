@@ -189,4 +189,4 @@ BrainyCat uses a visual color system in book covers and reader margins:
 
 ## License
 
-Private project.
+AGPL-3.0 — see [LICENSE](LICENSE)

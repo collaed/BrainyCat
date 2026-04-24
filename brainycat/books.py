@@ -34,9 +34,15 @@ async def upload_book(
     if ext not in ALLOWED_FORMATS:
         raise HTTPException(status_code=400, detail=f"Unsupported format: {ext}")
 
-    content = await file.read()
+    # Stream to disk (not into memory) to handle large audiobooks
     book_id = str(uuid4())
-    file_path = await storage.save_upload(book_id, file.filename, content)
+    file_path = storage.upload_path(book_id, file.filename)
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    size = 0
+    with open(file_path, "wb") as out:
+        while chunk := await file.read(1024 * 1024):  # 1MB chunks
+            out.write(chunk)
+            size += len(chunk)
 
     # Extract metadata
     meta = extract_metadata(file_path)
@@ -87,7 +93,7 @@ async def upload_book(
         meta.get("format", ext.lstrip(".")),
         file_path,
         file.filename,
-        len(content),
+        size,
         mime,
         meta.get("bitrate"),
         meta.get("duration_seconds"),
@@ -307,11 +313,15 @@ async def delete_book(book_id: str, _admin: Any = Depends(require_admin)) -> dic
 
 
 async def serve_cover(book_id: str) -> FileResponse:
-    """GET /api/v1/books/{book_id}/cover"""
+    """GET /api/v1/books/{book_id}/cover — with cache headers."""
     row = await fetch_one("SELECT cover_path FROM books WHERE id = $1", UUID(book_id))
     if not row or not row["cover_path"] or not os.path.isfile(row["cover_path"]):
         raise HTTPException(status_code=404, detail="No cover")
-    return FileResponse(row["cover_path"], media_type="image/jpeg")
+    return FileResponse(
+        row["cover_path"],
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400", "ETag": book_id},
+    )
 
 
 MIME_MAP = {

@@ -15,6 +15,11 @@ def book_dir(book_id: str) -> str:
     return path
 
 
+def upload_path(book_id: str, filename: str) -> str:
+    """Return the path where an upload should be saved."""
+    return os.path.join(book_dir(book_id), filename)
+
+
 async def save_upload(book_id: str, filename: str, content: bytes) -> str:
     """Save uploaded file, return path. Strips directory components from filename."""
     safe_name = os.path.basename(filename)  # Strip any directory path
