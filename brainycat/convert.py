@@ -76,7 +76,7 @@ async def send_to_kindle(book_id: str, user_id: str) -> dict[str, Any]:
 
     msg = EmailMessage()
     msg["Subject"] = title
-    msg["From"] = "brainycat@ecb.pm"
+    msg["From"] = f"brainycat@{settings.smtp_host}"
     msg["To"] = user["kindle_email"]
     msg.set_content(f"Sent from BrainyCat: {title}")
 
@@ -99,7 +99,7 @@ async def send_to_device(book_id: str, email: str) -> dict[str, Any]:
 
     msg = EmailMessage()
     msg["Subject"] = title
-    msg["From"] = "brainycat@ecb.pm"
+    msg["From"] = f"brainycat@{settings.smtp_host}"
     msg["To"] = email
     msg.set_content(f"Sent from BrainyCat: {title}")
 

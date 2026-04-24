@@ -9,8 +9,8 @@ import re
 import pytest
 from playwright.sync_api import Page, expect, sync_playwright
 
-BASE = "https://tools.ecb.pm/brainycat/"
-LOGIN_URL = "https://tools.ecb.pm/login/"
+BASE = "https://localhost:8000/"
+LOGIN_URL = "https://localhost:8000/login/"
 
 
 @pytest.fixture(scope="module")
@@ -28,7 +28,7 @@ def authed_page(browser):
     page = ctx.new_page()
     # Login
     page.goto(LOGIN_URL)
-    page.fill('input[name="user"]', "ecb")
+    page.fill('input[name="user"]', "admin")
     page.fill('input[name="pass"]', "Bl4ckL0tu$")
     page.click('button[type="submit"], input[type="submit"]')
     page.wait_for_timeout(2000)

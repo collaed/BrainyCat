@@ -1,4 +1,4 @@
-"""Integration tests — hit the live deployment at tools.ecb.pm/brainycat.
+"""Integration tests — hit the live deployment at localhost:8000.
 
 These tests verify real endpoints on the real server with real data.
 Not mocks. Not stubs. Real HTTP requests, real database, real responses.
@@ -12,7 +12,7 @@ import subprocess
 
 import pytest
 
-BASE = "https://tools.ecb.pm/brainycat"
+BASE = "https://localhost:8000"
 COOKIE_FILE = "/tmp/cookies3.txt"
 
 
@@ -51,7 +51,7 @@ class TestHealth:
         code, body = _curl("GET", "/api/v1/me")
         assert code == 200
         d = _json(body)
-        assert d.get("user", {}).get("username") == "ecb"
+        assert d.get("user", {}).get("username") == "admin"
 
     def test_unauthenticated(self) -> None:
         code, _ = _curl("GET", "/api/v1/me", auth=False)

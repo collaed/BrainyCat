@@ -166,7 +166,7 @@ Claude: [calls convert_format(book_id="...", target_format="epub")]
 Converted to EPUB (2.1 MB).
 
 [calls send_to_kindle(book_id="...")]
-Sent to your Kindle (ecb@kindle.com).
+Sent to your Kindle (user@kindle.com).
 ```
 
 **Available tools:** search_books, get_book, edit_book, delete_book, similar_books, enrich_book, batch_enrich, classify_book, search_content, recap, ask_book, library_stats, efficiency, book_sources, send_to_kindle, convert_tts, convert_format, merge_authors, create_series, taste_recommendations, epub_check, epub_lint, count_pages

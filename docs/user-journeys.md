@@ -1,12 +1,12 @@
 # BrainyCat — User Journeys
 
 ## UJ-01: First Visit & Authentication
-1. User navigates to `tools.ecb.pm/brainycat`
+1. User navigates to `your-server:8000`
 2. Caddy forward_auth redirects to ECB login page
-3. User enters credentials (ecb / password)
+3. User enters credentials (admin / password)
 4. Redirect back to `/brainycat/` → 307 → `/brainycat/static/index.html`
 5. Library UI loads with empty state: "No books yet. Upload or import from the catalog!"
-6. `GET /api/v1/me` returns `{"user": {"username": "ecb", "role": "admin"}}`
+6. `GET /api/v1/me` returns `{"user": {"username": "admin", "role": "admin"}}`
 
 ## UJ-02: Upload an Ebook
 1. User drags an EPUB file onto the drop zone (or clicks Upload button)
@@ -198,7 +198,7 @@
 4. `GET /api/v1/notes/export` exports all notes as JSON
 
 ## UJ-28: OPDS Feed
-1. User adds `tools.ecb.pm/brainycat/api/v1/opds/catalog.xml` to Moon+ Reader
+1. User adds `your-server:8000/api/v1/opds/catalog.xml` to Moon+ Reader
 2. OPDS 1.2 feed lists all books with covers and download links
 3. Search via OPDS: `GET /api/v1/opds/search?q=...`
 
@@ -216,7 +216,7 @@
 5. Calibre import: point to metadata.db + book files directory
 
 ## UJ-31: Multi-User
-1. Three users: ecb (admin), mafalda (reader), lilian (reader)
+1. Three users: admin, reader1, reader2
 2. Each has own reading progress, bookmarks, annotations, collections
 3. All share the same book files (no duplication)
 4. Admin can manage users via `GET /api/v1/users`, `PATCH /api/v1/users/{id}`

@@ -4,18 +4,18 @@ from brainycat.social import decode_profile_hash, generate_profile_hash
 
 
 def test_generate_hash() -> None:
-    result = generate_profile_hash("tools.ecb.pm/brainycat", "ecb")
+    result = generate_profile_hash("localhost:8000", "admin")
     assert "hash" in result
     assert "public_key" in result
     assert len(result["hash"]) > 10
 
 
 def test_roundtrip_hash() -> None:
-    result = generate_profile_hash("tools.ecb.pm/brainycat", "ecb")
+    result = generate_profile_hash("localhost:8000", "admin")
     decoded = decode_profile_hash(result["hash"])
     assert decoded is not None
-    assert decoded["server_url"] == "tools.ecb.pm/brainycat"
-    assert decoded["username"] == "ecb"
+    assert decoded["server_url"] == "localhost:8000"
+    assert decoded["username"] == "admin"
     assert decoded["public_key"] == result["public_key"]
 
 

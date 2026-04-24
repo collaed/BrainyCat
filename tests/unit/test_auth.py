@@ -16,7 +16,7 @@ from brainycat.auth import (
 )
 
 
-def _mock_user(username: str = "ecb", role: str = "admin") -> MagicMock:
+def _mock_user(username: str = "admin", role: str = "admin") -> MagicMock:
     uid = uuid4()
     row = MagicMock()
     row.__getitem__ = lambda self, key: {
@@ -46,12 +46,12 @@ def test_user_dict() -> None:
 async def test_get_current_user_from_header() -> None:
     """User resolved from X-Auth-User header."""
     mock_req = MagicMock()
-    mock_req.headers = {"X-Auth-User": "ecb"}
+    mock_req.headers = {"X-Auth-User": "admin"}
     mock_req.cookies = {}
     user = _mock_user()
     with patch("brainycat.auth._upsert_user", new_callable=AsyncMock, return_value=user):
         result = await get_current_user(mock_req)
-    assert result["username"] == "ecb"
+    assert result["username"] == "admin"
 
 
 @pytest.mark.asyncio
@@ -62,10 +62,10 @@ async def test_get_current_user_from_cookie() -> None:
     mock_req = MagicMock()
     mock_req.headers = {}
     mock_req.cookies = {COOKIE_NAME: token}
-    user = _mock_user("mafalda", "reader")
+    user = _mock_user("reader1", "reader")
     with patch("brainycat.auth._get_user_by_id", new_callable=AsyncMock, return_value=user):
         result = await get_current_user(mock_req)
-    assert result["username"] == "mafalda"
+    assert result["username"] == "reader1"
 
 
 @pytest.mark.asyncio
@@ -88,6 +88,6 @@ async def test_seed_users() -> None:
         await seed_users()
     assert mock.call_count == 3
     calls = [c.args[0] for c in mock.call_args_list]
-    assert "ecb" in calls
-    assert "mafalda" in calls
-    assert "lilian" in calls
+    assert "admin" in calls
+    assert "reader1" in calls
+    assert "reader2" in calls

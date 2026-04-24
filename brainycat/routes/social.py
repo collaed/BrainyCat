@@ -96,7 +96,7 @@ async def activity_feed(limit: int = Query(20), _u: Any = Depends(get_current_us
 async def enable_profile(user: Any = Depends(get_current_user)) -> dict[str, Any]:
     from brainycat.social import enable_public_profile
 
-    return await enable_public_profile(str(user["id"]), "tools.ecb.pm/brainycat")
+    return await enable_public_profile(str(user["id"]), "localhost")
 
 
 @router.get("/social/following")

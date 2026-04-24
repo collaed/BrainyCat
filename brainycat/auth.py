@@ -225,5 +225,6 @@ def _user_dict(row: asyncpg.Record | None) -> dict[str, Any]:
 
 async def seed_users() -> None:
     """Create default users if they don't exist."""
-    for username, role in [("ecb", "admin"), ("mafalda", "reader"), ("lilian", "reader")]:
+    # Default seed users — override via setup wizard
+    for username, role in [("admin", "admin")]:
         await _upsert_user(username, role=role)

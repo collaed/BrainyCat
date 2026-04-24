@@ -52,7 +52,7 @@
 
 | Decision | Why | Trade-off |
 |---|---|---|
-| PostgreSQL (not SQLite) | pgvector for semantic search, pg_trgm for fuzzy match | Heavier to deploy (mitigated by standalone compose) |
+| PostgreSQL (not SQLite) | pgvector for semantic search, pg_trgm for fuzzy match | Heavier to deploy |
 | Vanilla HTML/JS (not React) | Simpler, no build step, fast iteration | Will get painful if UI grows much more |
 | Python/FastAPI (not Node) | 3x more concise, better async, auto-generates OpenAPI | Smaller ecosystem than Express |
 | Calibre as fallback converter | Handles 25+ formats with edge cases | Heavy dependency (500MB+ in Docker) |

@@ -19,7 +19,7 @@ class ConfigWidget:
 
         layout.addWidget(QLabel("BrainyCat Server URL:"), 0, 0)
         self.server_url = QLineEdit(prefs["server_url"])
-        self.server_url.setPlaceholderText("https://tools.ecb.pm/brainycat")
+        self.server_url.setPlaceholderText("http://localhost:8000")
         layout.addWidget(self.server_url, 0, 1)
 
         layout.addWidget(QLabel("API Key:"), 1, 0)
