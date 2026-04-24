@@ -149,6 +149,7 @@ async def list_books(
     language: str | None = Query(None),
     tag: str | None = Query(None),
     author: str | None = Query(None),
+    missing: str | None = Query(None),
     sort: str = Query("updated_at"),
     order: str = Query("desc"),
     limit: int = Query(50, le=2000),
@@ -173,6 +174,18 @@ async def list_books(
         )
         params.append(clean_q)
         idx += 1
+
+    if missing:
+        if missing == "no_isbn":
+            conditions.append("b.isbn IS NULL")
+        elif missing == "no_desc":
+            conditions.append("(b.description IS NULL OR b.description = '')")
+        elif missing == "no_cover":
+            conditions.append("b.cover_path IS NULL")
+        elif missing == "no_tags":
+            conditions.append("NOT EXISTS (SELECT 1 FROM books_tags bt WHERE bt.book_id = b.id)")
+        elif missing == "low_quality":
+            conditions.append("(b.quality_score IS NULL OR b.quality_score < 30)")
 
     if book_format:
         conditions.append(f"EXISTS (SELECT 1 FROM book_files bf WHERE bf.book_id = b.id AND bf.format = ${idx})")

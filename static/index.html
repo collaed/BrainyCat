@@ -110,6 +110,7 @@ nav a:hover{background:var(--surface);color:var(--text)}
 <div class="container">
 <div class="toolbar">
 <select id="filter-format"><option value="">All formats</option><option>epub</option><option>pdf</option><option>mobi</option><option>mp3</option><option>m4b</option></select>
+<select id="filter-missing" onchange="page=0;allBooks=[];hasMore=true;loadBooks()"><option value="">All books</option><option value="no_isbn">Missing ISBN</option><option value="no_desc">Missing description</option><option value="no_cover">Missing cover</option><option value="no_tags">No tags/genre</option><option value="low_quality">Low quality (&lt;30)</option></select>
 <select id="sort"><option value="updated_at">Recent</option><option value="title">Title</option><option value="quality_score">Quality</option><option value="created_at">Added</option></select>
 <div class="view-toggle">
 <button class="btn active" id="btn-grid" onclick="setView('grid')">▦</button>
@@ -156,10 +157,10 @@ function setView(v){view=v;document.getElementById('btn-grid').classList.toggle(
 async function loadBooks(append=false){
     if(loading)return;loading=true;
     if(!append){page=0;allBooks=[];hasMore=true;}
-    const q=searchInput.value,fmt=document.getElementById('filter-format').value,auth=document.getElementById('filter-author').value;
+    const q=searchInput.value,fmt=document.getElementById('filter-format').value,auth=document.getElementById('filter-author').value,missing=document.getElementById('filter-missing').value;
     const lim=q?500:PAGE_SIZE;
     const params=new URLSearchParams({sort:sortField,order:sortOrder,limit:String(lim),offset:String(page*lim)});
-    if(q)params.set('q',q);if(fmt)params.set('format',fmt);if(auth)params.set('author',auth);
+    if(q)params.set('q',q);if(fmt)params.set('format',fmt);if(auth)params.set('author',auth);if(missing)params.set('missing',missing);
     try{
         const data=await BC.get('/books?'+params);
         const books=data.books||[];
