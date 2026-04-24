@@ -587,4 +587,127 @@ async def catalog_sources() -> list[dict[str, Any]]:
         {"id": "loyalbooks", "name": "Loyal Books", "count": "7,000+", "type": "audiobooks", "api": True},
         {"id": "manybooks", "name": "ManyBooks", "count": "50,000+", "type": "ebooks", "api": True},
         {"id": "github", "name": "GitHub Ebooks", "count": "varies", "type": "tech", "api": True},
+        {"id": "arxiv", "name": "arXiv", "count": "2.4M+", "type": "papers", "api": True},
+        {"id": "semantic-scholar", "name": "Semantic Scholar", "count": "200M+", "type": "papers", "api": True},
+        {"id": "core", "name": "CORE", "count": "200M+", "type": "papers", "api": True},
+        {"id": "unpaywall", "name": "Unpaywall", "count": "DOI lookup", "type": "papers", "api": True},
     ]
+
+
+# ── Science papers (open access) ──────────────────────────────────────────
+
+
+@router.get("/arxiv/search")
+async def search_arxiv(q: str = Query(...), limit: int = Query(20)) -> dict[str, Any]:
+    """Search arXiv preprints (physics, math, CS, biology, etc.)."""
+    client = get_client()
+    resp = await client.get(
+        "http://export.arxiv.org/api/query",
+        params={"search_query": f"all:{q}", "max_results": limit},
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        return {"results": []}
+    import re
+
+    entries = re.findall(r"<entry>(.*?)</entry>", resp.text, re.DOTALL)
+    results = []
+    for entry in entries:
+        title = re.search(r"<title>([^<]+)</title>", entry)
+        authors = re.findall(r"<name>([^<]+)</name>", entry)
+        summary = re.search(r"<summary>([^<]+)</summary>", entry)
+        pdf = re.search(r'href="([^"]+)"[^>]*title="pdf"', entry)
+        arxiv_id = re.search(r"<id>http://arxiv.org/abs/([^<]+)</id>", entry)
+        doi = re.search(r'href="http://dx.doi.org/([^"]+)"', entry)
+        results.append(
+            {
+                "title": (title.group(1) if title else "").strip().replace("\n", " "),
+                "authors": authors[:5],
+                "abstract": (summary.group(1) if summary else "").strip()[:300],
+                "pdf_url": pdf.group(1) if pdf else None,
+                "doi": doi.group(1) if doi else None,
+                "arxiv_id": arxiv_id.group(1) if arxiv_id else None,
+                "source": "arxiv",
+            }
+        )
+    return {"results": results}
+
+
+@router.get("/semantic-scholar/search")
+async def search_semantic_scholar(q: str = Query(...), limit: int = Query(20)) -> dict[str, Any]:
+    """Search Semantic Scholar (40M+ papers, open access PDFs when available)."""
+    client = get_client()
+    resp = await client.get(
+        "https://api.semanticscholar.org/graph/v1/paper/search",
+        params={"query": q, "limit": limit, "fields": "title,authors,abstract,year,openAccessPdf,externalIds"},
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        return {"results": []}
+    data = resp.json()
+    results = []
+    for paper in data.get("data", []):
+        oa = paper.get("openAccessPdf") or {}
+        results.append(
+            {
+                "title": paper.get("title", ""),
+                "authors": [a.get("name", "") for a in (paper.get("authors") or [])[:5]],
+                "abstract": (paper.get("abstract") or "")[:300],
+                "year": paper.get("year"),
+                "pdf_url": oa.get("url"),
+                "doi": (paper.get("externalIds") or {}).get("DOI"),
+                "source": "semantic_scholar",
+            }
+        )
+    return {"results": results}
+
+
+@router.get("/core/search")
+async def search_core(q: str = Query(...), limit: int = Query(20)) -> dict[str, Any]:
+    """Search CORE (200M+ open access papers)."""
+    client = get_client()
+    resp = await client.get(
+        "https://api.core.ac.uk/v3/search/works",
+        params={"q": q, "limit": limit},
+        headers={"Authorization": "Bearer free"},  # CORE has a free tier
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        return {"results": []}
+    data = resp.json()
+    results = []
+    for item in data.get("results", []):
+        results.append(
+            {
+                "title": item.get("title", ""),
+                "authors": [a.get("name", "") for a in (item.get("authors") or [])[:5]],
+                "abstract": (item.get("abstract") or "")[:300],
+                "year": item.get("yearPublished"),
+                "pdf_url": item.get("downloadUrl"),
+                "doi": item.get("doi"),
+                "source": "core",
+            }
+        )
+    return {"results": results}
+
+
+@router.get("/unpaywall/doi/{doi:path}")
+async def unpaywall_lookup(doi: str) -> dict[str, Any]:
+    """Find open access PDF for a DOI via Unpaywall."""
+    client = get_client()
+    resp = await client.get(
+        f"https://api.unpaywall.org/v2/{doi}",
+        params={"email": "brainycat@selfhosted.local"},
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        return {"open_access": False}
+    data = resp.json()
+    best = data.get("best_oa_location") or {}
+    return {
+        "open_access": data.get("is_oa", False),
+        "pdf_url": best.get("url_for_pdf"),
+        "title": data.get("title"),
+        "doi": doi,
+        "source": "unpaywall",
+    }
