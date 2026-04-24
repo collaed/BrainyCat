@@ -98,6 +98,29 @@ nav a:hover{background:var(--surface);color:var(--text)}
     }
   };
 })();
+
+async function openSettings() {
+    const modal = document.getElementById('settings-modal');
+    modal.style.display = 'flex';
+    try {
+        const s = await BC.get('/settings');
+        document.getElementById('set-kindle').value = s.kindle_email || '';
+        document.getElementById('set-email').value = s.email || '';
+        const g = await BC.get('/reading-goals');
+        document.getElementById('set-goal').value = g.target || '';
+    } catch(e) {}
+}
+async function saveSettings() {
+    const kindle = document.getElementById('set-kindle').value.trim();
+    const email = document.getElementById('set-email').value.trim();
+    const goal = parseInt(document.getElementById('set-goal').value) || 0;
+    const updates = {};
+    if (kindle) updates.kindle_email = kindle;
+    if (email) updates.email = email;
+    if (Object.keys(updates).length) await BC.patch('/settings', updates);
+    if (goal > 0) await BC.post('/reading-goals', {target: goal});
+    document.getElementById('settings-modal').style.display = 'none';
+}
 </script>
 </head>
 <body>
@@ -125,6 +148,7 @@ nav a:hover{background:var(--surface);color:var(--text)}
 </div>
 <button class="btn primary" onclick="document.getElementById('file-input').click()" title="Upload ebook files">⬆ Upload</button>
 <button class="btn primary" onclick="uploadDirectory()" title="Upload entire folder">📁 Folder</button>
+<button class="btn" onclick="openSettings()" title="Settings">⚙️</button>
 <button id="batch-del-btn" class="btn danger" style="display:none" onclick="batchDelete()">🗑️ <span id="sel-count">0</span></button>
 <select id="skin-select" onchange="switchSkin(this.value)" title="UI Skin">
 <option value="default">🐱 Classic</option>
@@ -162,7 +186,30 @@ nav a:hover{background:var(--surface);color:var(--text)}
 <div id="modal-content"></div>
 </div></div>
 
-<script src="api.js"></script>
+<script src="api.js">
+async function openSettings() {
+    const modal = document.getElementById('settings-modal');
+    modal.style.display = 'flex';
+    try {
+        const s = await BC.get('/settings');
+        document.getElementById('set-kindle').value = s.kindle_email || '';
+        document.getElementById('set-email').value = s.email || '';
+        const g = await BC.get('/reading-goals');
+        document.getElementById('set-goal').value = g.target || '';
+    } catch(e) {}
+}
+async function saveSettings() {
+    const kindle = document.getElementById('set-kindle').value.trim();
+    const email = document.getElementById('set-email').value.trim();
+    const goal = parseInt(document.getElementById('set-goal').value) || 0;
+    const updates = {};
+    if (kindle) updates.kindle_email = kindle;
+    if (email) updates.email = email;
+    if (Object.keys(updates).length) await BC.patch('/settings', updates);
+    if (goal > 0) await BC.post('/reading-goals', {target: goal});
+    document.getElementById('settings-modal').style.display = 'none';
+}
+</script>
 <script>
 let allBooks=[],view='grid',sortField='updated_at',sortOrder='desc',page=0,loading=false,hasMore=true,currentBookIdx=-1;
 const PAGE_SIZE=60,content=document.getElementById('content'),searchInput=document.getElementById('search');
@@ -357,7 +404,47 @@ document.getElementById('filter-author').addEventListener('input',()=>{clearTime
 document.getElementById('sort').addEventListener('change',e=>{sortField=e.target.value;page=0;allBooks=[];hasMore=true;loadBooks();});
 document.addEventListener('keydown',e=>{if(e.key==='/'&&document.activeElement!==searchInput){e.preventDefault();searchInput.focus();}if(e.key==='Escape')closeModal();if(e.key==='ArrowLeft'&&document.getElementById('modal').classList.contains('active'))navBook(-1);if(e.key==='ArrowRight'&&document.getElementById('modal').classList.contains('active'))navBook(1);});
 loadBooks();
+
+async function openSettings() {
+    const modal = document.getElementById('settings-modal');
+    modal.style.display = 'flex';
+    try {
+        const s = await BC.get('/settings');
+        document.getElementById('set-kindle').value = s.kindle_email || '';
+        document.getElementById('set-email').value = s.email || '';
+        const g = await BC.get('/reading-goals');
+        document.getElementById('set-goal').value = g.target || '';
+    } catch(e) {}
+}
+async function saveSettings() {
+    const kindle = document.getElementById('set-kindle').value.trim();
+    const email = document.getElementById('set-email').value.trim();
+    const goal = parseInt(document.getElementById('set-goal').value) || 0;
+    const updates = {};
+    if (kindle) updates.kindle_email = kindle;
+    if (email) updates.email = email;
+    if (Object.keys(updates).length) await BC.patch('/settings', updates);
+    if (goal > 0) await BC.post('/reading-goals', {target: goal});
+    document.getElementById('settings-modal').style.display = 'none';
+}
 </script>
+
+<!-- Settings modal -->
+<div id="settings-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:200;display:none;justify-content:center;align-items:center">
+<div style="background:#16213e;border:1px solid #334155;border-radius:12px;padding:2rem;max-width:450px;width:90%">
+<h3 style="margin-bottom:1rem">⚙️ Settings</h3>
+<label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Kindle Email</label>
+<input id="set-kindle" placeholder="user@kindle.com" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:1rem">
+<p style="font-size:.75rem;color:#64748b;margin-bottom:1rem">Find this in Amazon → Manage Your Content and Devices → Preferences → Personal Document Settings</p>
+<label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Email</label>
+<input id="set-email" placeholder="you@example.com" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:1rem">
+<label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Reading Goal (books per year)</label>
+<input id="set-goal" type="number" placeholder="50" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:1rem">
+<div style="display:flex;gap:8px;justify-content:flex-end">
+<button onclick="document.getElementById('settings-modal').style.display='none'" style="padding:.5rem 1rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;cursor:pointer">Cancel</button>
+<button onclick="saveSettings()" style="padding:.5rem 1rem;border-radius:6px;border:none;background:#3b82f6;color:#fff;cursor:pointer">Save</button>
+</div>
+</div></div>
 </body></html>
 <script>
 // Set skin selector to current skin on load
@@ -365,4 +452,27 @@ document.addEventListener('DOMContentLoaded', function() {
   const sel = document.getElementById('skin-select');
   if (sel) sel.value = localStorage.getItem('brainycat-skin') || 'default';
 });
+
+async function openSettings() {
+    const modal = document.getElementById('settings-modal');
+    modal.style.display = 'flex';
+    try {
+        const s = await BC.get('/settings');
+        document.getElementById('set-kindle').value = s.kindle_email || '';
+        document.getElementById('set-email').value = s.email || '';
+        const g = await BC.get('/reading-goals');
+        document.getElementById('set-goal').value = g.target || '';
+    } catch(e) {}
+}
+async function saveSettings() {
+    const kindle = document.getElementById('set-kindle').value.trim();
+    const email = document.getElementById('set-email').value.trim();
+    const goal = parseInt(document.getElementById('set-goal').value) || 0;
+    const updates = {};
+    if (kindle) updates.kindle_email = kindle;
+    if (email) updates.email = email;
+    if (Object.keys(updates).length) await BC.patch('/settings', updates);
+    if (goal > 0) await BC.post('/reading-goals', {target: goal});
+    document.getElementById('settings-modal').style.display = 'none';
+}
 </script>
