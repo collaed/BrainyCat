@@ -24,16 +24,16 @@
 </style></head><body>
 <div id="toolbar">
 <a href="index.html">← Library</a>
-<button onclick="toggleToc()">☰</button>
+<button onclick="toggleToc()" title="Table of contents">☰</button>
 <span class="title" id="book-title">Loading...</span>
-<select id="theme" onchange="setTheme(this.value)"><option value="dark">Dark</option><option value="light">Light</option><option value="sepia">Sepia</option><option value="night">🌙 Night</option></select>
-<select id="font-family" onchange="setFont(this.value)"><option value="">Default</option><option value="OpenDyslexic">OpenDyslexic</option><option value="Georgia,serif">Serif</option><option value="system-ui,sans-serif">Sans</option><option value="'Courier New',monospace">Mono</option></select>
-<button onclick="changeFontSize(-2)">A-</button>
-<button onclick="changeFontSize(2)">A+</button>
-<button onclick="prevPage()">◀</button>
-<button onclick="nextPage()">▶</button>
+<select id="theme" title="Reading theme" onchange="setTheme(this.value)"><option value="dark">Dark</option><option value="light">Light</option><option value="sepia">Sepia</option><option value="night">🌙 Night</option></select>
+<select id="font-family" title="Font family" onchange="setFont(this.value)"><option value="">Default</option><option value="OpenDyslexic">OpenDyslexic</option><option value="Georgia,serif">Serif</option><option value="system-ui,sans-serif">Sans</option><option value="'Courier New',monospace">Mono</option></select>
+<button onclick="changeFontSize(-2)" title="Decrease font size">A-</button>
+<button onclick="changeFontSize(2)" title="Increase font size">A+</button>
+<button onclick="prevPage()" title="Previous chapter">◀</button>
+<button onclick="nextPage()" title="Next chapter">▶</button>
 <button onclick="toggleAutoScroll()" id="auto-scroll-btn" title="Auto-scroll">⏬</button>
-<button id="sync-btn" style="display:none" onclick="switchToAudio()">🎧</button>
+<button id="sync-btn" style="display:none" onclick="switchToAudio()" title="Switch to audio version">🎧</button>
 <span id="reading-speed" style="font-size:.7rem;color:#94a3b8;margin-left:auto"></span>
 </div>
 <div id="toc"><h3>Table of Contents</h3></div>

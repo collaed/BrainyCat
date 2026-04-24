@@ -116,15 +116,15 @@ nav a:hover{background:var(--surface);color:var(--text)}
 <div class="container">
 <div class="toolbar">
 <label style="font-size:.8rem;display:inline-flex;align-items:center;gap:.25rem;cursor:pointer"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)"> All</label>
-<select id="filter-format"><option value="">All formats</option><option>epub</option><option>pdf</option><option>mobi</option><option>mp3</option><option>m4b</option></select>
-<select id="filter-missing" onchange="page=0;allBooks=[];hasMore=true;loadBooks()"><option value="">All books</option><option value="no_isbn">Missing ISBN</option><option value="no_desc">Missing description</option><option value="no_cover">Missing cover</option><option value="no_tags">No tags/genre</option><option value="low_quality">Low quality (&lt;30)</option></select>
-<select id="sort"><option value="updated_at">Recent</option><option value="title">Title</option><option value="quality_score">Quality</option><option value="created_at">Added</option></select>
+<select id="filter-format" title="Filter by file format"><option value="">All formats</option><option>epub</option><option>pdf</option><option>mobi</option><option>mp3</option><option>m4b</option></select>
+<select id="filter-missing" title="Filter by missing data" onchange="page=0;allBooks=[];hasMore=true;loadBooks()"><option value="">All books</option><option value="no_isbn">Missing ISBN</option><option value="no_desc">Missing description</option><option value="no_cover">Missing cover</option><option value="no_tags">No tags/genre</option><option value="low_quality">Low quality (&lt;30)</option></select>
+<select id="sort" title="Sort order"><option value="updated_at">Recent</option><option value="title">Title</option><option value="quality_score">Quality</option><option value="created_at">Added</option></select>
 <div class="view-toggle">
-<button class="btn active" id="btn-grid" onclick="setView('grid')">▦</button>
-<button class="btn" id="btn-list" onclick="setView('list')">☰</button>
+<button class="btn active" id="btn-grid" onclick="setView('grid')" title="Grid view">▦</button>
+<button class="btn" id="btn-list" onclick="setView('list')" title="List view">☰</button>
 </div>
-<button class="btn primary" onclick="document.getElementById('file-input').click()">⬆ Upload</button>
-<button class="btn primary" onclick="uploadDirectory()">📁 Folder</button>
+<button class="btn primary" onclick="document.getElementById('file-input').click()" title="Upload ebook files">⬆ Upload</button>
+<button class="btn primary" onclick="uploadDirectory()" title="Upload entire folder">📁 Folder</button>
 <button id="batch-del-btn" class="btn danger" style="display:none" onclick="batchDelete()">🗑️ <span id="sel-count">0</span></button>
 <select id="skin-select" onchange="switchSkin(this.value)" title="UI Skin">
 <option value="default">🐱 Classic</option>
@@ -145,12 +145,12 @@ nav a:hover{background:var(--surface);color:var(--text)}
 
 <div id="bulk-bar">
 <span id="bulk-count" style="font-size:.85rem;font-weight:600"></span>
-<button class="btn primary" onclick="bulkTag()">🏷️ Tag</button>
-<button class="btn danger" onclick="bulkDelete()">🗑️ Delete</button>
-<button class="btn success" onclick="bulkEnrich()">✨ Enrich</button>
-<button class="btn" onclick="bulkConvert()">📄 Convert to EPUB</button>
-<button class="btn warn" onclick="bulkKindle()">📱 Send to Kindle</button>
-<button class="btn sm" onclick="clearSelection()">✕ Clear</button>
+<button class="btn primary" onclick="bulkTag()" title="Add tags to selected books">🏷️ Tag</button>
+<button class="btn danger" onclick="bulkDelete()" title="Delete selected books">🗑️ Delete</button>
+<button class="btn success" onclick="bulkEnrich()" title="Fetch metadata for selected books">✨ Enrich</button>
+<button class="btn" onclick="bulkConvert()" title="Convert selected books to EPUB">📄 Convert to EPUB</button>
+<button class="btn warn" onclick="bulkKindle()" title="Email selected books to Kindle">📱 Send to Kindle</button>
+<button class="btn sm" onclick="clearSelection()" title="Deselect all">✕ Clear</button>
 </div>
 
 <div class="modal-overlay" id="modal"><div class="modal">
@@ -247,12 +247,12 @@ async function openBook(id){
         <div id="job-status"><span id="job-msg"></span><div class="bar"><div class="fill" id="job-bar"></div></div></div>
         <div id="similar" style="margin-top:.5rem"></div>
         <div class="actions">
-            ${canRead?`<button class="btn primary" onclick="openReader('${id}',${hasEpub})" style="font-size:1.1em;padding:.5em 1.2em">📖 Read</button>`:''}
-            ${hasAudio?`<button class="btn primary" onclick="location='player.html?id=${id}'" style="font-size:1.1em;padding:.5em 1.2em">🎧 Listen</button>`:''}
-            ${hasEpub?`<button class="btn" onclick="location='bilingual.html?id=${id}'">🌐 Bilingual</button>`:''}
-            <button class="btn success" id="btn-enrich" onclick="enrich('${id}')">✨ Enrich</button>
-            <button class="btn" onclick="dlCover('${id}',this)">🖼️ Cover</button>
-            <button class="btn warn" onclick="sendKindle('${id}')">📱 Kindle</button>
+            ${canRead?`<button class="btn primary" onclick="openReader('${id}',${hasEpub})" style="font-size:1.1em;padding:.5em 1.2em" title="Open in reader">📖 Read</button>`:''}
+            ${hasAudio?`<button class="btn primary" onclick="location='player.html?id=${id}'" style="font-size:1.1em;padding:.5em 1.2em" title="Open audio player">🎧 Listen</button>`:''}
+            ${hasEpub?`<button class="btn" onclick="location='bilingual.html?id=${id}'" title="Side-by-side bilingual reader">🌐 Bilingual</button>`:''}
+            <button class="btn success" id="btn-enrich" onclick="enrich('${id}')" title="Fetch metadata from 32 sources">✨ Enrich</button>
+            <button class="btn" onclick="dlCover('${id}',this)" title="Download cover image">🖼️ Cover</button>
+            <button class="btn warn" onclick="sendKindle('${id}')" title="Send to Kindle via email">📱 Kindle</button>
             ${hasEpub?`<button class="btn" onclick="convertTTS('${id}')">🔊 TTS</button>`:''}
             ${hasEpub?`<button class="btn" onclick="translateBook('${id}')">🌐 Translate</button>`:''}
             ${hasPdf?`<button class="btn" onclick="ocrBook('${id}')">📝 OCR</button>`:''}
