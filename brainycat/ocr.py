@@ -1,17 +1,17 @@
-"""OCR via Intello — job-based for large PDFs, produces searchable PDF with images."""
+"""OCR — submit scanned PDFs to Intello, scheduler handles polling."""
 
 from __future__ import annotations
 
 import os
-from uuid import UUID
+import uuid
 
 from brainycat.config import settings
-from brainycat.db import fetch_one
+from brainycat.db import execute, fetch_one
 from brainycat.http_client import get_client
-from brainycat.jobs import create_job, run_in_background, update_job
 
 
 def extract_pdf_cover(pdf_path: str, output_path: str) -> bool:
+    """Extract cover image from first page of a PDF."""
     try:
         import fitz
 
@@ -25,96 +25,60 @@ def extract_pdf_cover(pdf_path: str, output_path: str) -> bool:
             pix = page.get_pixmap(matrix=fitz.Matrix(scale * 1.5, scale * 1.5))
         pix.save(output_path)
         doc.close()
-        return os.path.isfile(output_path)
+        return True
     except Exception:
         return False
 
 
 async def ocr_pdf(book_id: str, user_id: str | None = None) -> str:
-    """OCR a scanned PDF via Intello's job-based endpoint. Returns BrainyCat job ID."""
-    job_id = await create_job("ocr", book_id=book_id, user_id=user_id)
+    """Submit a PDF for OCR via Intello. Returns job ID. Scheduler polls for results."""
+    from uuid import UUID
 
-    async def _run() -> None:
-        file_row = await fetch_one(
-            "SELECT * FROM book_files WHERE book_id = $1 AND format = 'pdf' LIMIT 1",
-            UUID(book_id),
-        )
-        if not file_row:
-            await update_job(job_id, status="failed", error="No PDF file")
-            return
+    file_row = await fetch_one(
+        "SELECT file_path, file_size FROM book_files WHERE book_id = $1 AND format = 'pdf' LIMIT 1",
+        UUID(book_id),
+    )
+    if not file_row:
+        return ""
 
-        src = file_row["file_path"]
-        await update_job(job_id, progress=5)
+    # Detect language
+    book = await fetch_one("SELECT language FROM books WHERE id = $1", UUID(book_id))
+    lang = (book["language"] if book else None) or "eng"
 
-        # Step 1: Submit OCR job to Intello
-        try:
-            client = get_client()
-            with open(src, "rb") as f:
-                resp = await client.post(
-                    f"{settings.intello_url}/api/v1/ocr/jobs",
-                    files={"file": (os.path.basename(src), f, "application/pdf")},
-                    data={"language": "fra+eng+deu", "output": "searchable_pdf"},
-                )
-            if resp.status_code != 200:
-                await update_job(job_id, status="failed", error=f"Intello rejected: {resp.status_code}")
-                return
-            intello_job = resp.json()
-            intello_job_id = intello_job.get("job_id")
-            if not intello_job_id:
-                await update_job(job_id, status="failed", error=f"No job ID: {intello_job}")
-                return
-        except Exception as e:
-            await update_job(job_id, status="failed", error=f"Submit failed: {e}")
-            return
+    # Submit to Intello
+    client = get_client()
+    src = file_row["file_path"]
 
-        await update_job(job_id, progress=10)
+    # Split large PDFs (>30MB) into chunks
+    submit_path = src
+    if (file_row["file_size"] or 0) > 30_000_000:
+        from brainycat.scheduler import _split_pdf_chunk
 
-        # Step 2: Poll Intello job until complete
-        import asyncio
+        chunk = await _split_pdf_chunk(src, 30_000_000)
+        if chunk:
+            submit_path = chunk
 
-        for _ in range(600):  # max 10 minutes
-            await asyncio.sleep(3)
-            try:
-                client = get_client()
-                resp = await client.get(f"{settings.intello_url}/api/v1/ocr/jobs/{intello_job_id}")
-                if resp.status_code != 200:
-                    continue
-                status = resp.json()
-                pct = status.get("progress", 0)
-                await update_job(job_id, progress=10 + pct * 0.8)
+    try:
+        with open(submit_path, "rb") as f:
+            resp = await client.post(
+                f"{settings.intello_url}/api/v1/ocr/jobs",
+                files={"file": ("book.pdf", f, "application/pdf")},
+                data={"language": lang, "output": "hybrid"},
+                timeout=90,
+            )
+    finally:
+        if submit_path != src and os.path.exists(submit_path):
+            os.unlink(submit_path)
 
-                if status.get("status") == "complete":
-                    break
-                if status.get("status") == "failed":
-                    await update_job(job_id, status="failed", error=status.get("error", "Intello OCR failed"))
-                    return
-            except Exception:
-                continue
+    if resp.status_code != 200:
+        return ""
 
-        # Step 3: Download the searchable PDF result
-        await update_job(job_id, progress=92)
-        try:
-            client = get_client()
-            resp = await client.get(f"{settings.intello_url}/api/v1/ocr/jobs/{intello_job_id}/result")
-            if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("application/pdf"):
-                # Replace original with searchable PDF
-                with open(src, "wb") as out:
-                    out.write(resp.content)
-                await update_job(job_id, progress=100)
-            else:
-                # Maybe it returned JSON with text
-
-                try:
-                    data = resp.json()
-                    await update_job(
-                        job_id,
-                        progress=100,
-                        result={"pages": data.get("pages", 0), "chars": data.get("total_chars", 0)},
-                    )
-                except Exception:
-                    await update_job(job_id, status="failed", error="Could not download result")
-        except Exception as e:
-            await update_job(job_id, status="failed", error=f"Download failed: {e}")
-
-    await run_in_background(job_id, _run())
-    return job_id
+    remote_id = resp.json().get("job_id", "")
+    job_id = uuid.uuid4()
+    await execute(
+        "INSERT INTO async_jobs (id, book_id, job_type, remote_job_id, status) VALUES ($1, $2, 'ocr', $3, 'submitted')",
+        job_id,
+        UUID(book_id),
+        remote_id,
+    )
+    return str(job_id)
