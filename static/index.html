@@ -271,15 +271,8 @@ async function openBook(id){
 
 function closeModal(){document.getElementById('modal').classList.remove('active');}
 function openReader(id, hasEpub) {
-    if (hasEpub) { location = 'reader.html?id=' + id; }
-    else {
-        // PDF: find the file ID and open directly
-        BC.get('/books/' + id).then(b => {
-            const pdf = (b.files || []).find(f => f.format === 'pdf');
-            if (pdf) window.open(API + '/books/' + id + '/file/' + pdf.id, '_blank');
-            else alert('No readable file found');
-        });
-    }
+    location = 'reader.html?id=' + id;
+}
 }
 function searchTag(t){searchInput.value=t;page=0;allBooks=[];hasMore=true;loadBooks();closeModal();}
 function showJobStatus(m,p){const el=document.getElementById('job-status');el.style.display='block';document.getElementById('job-msg').textContent=m;document.getElementById('job-bar').style.width=p+'%';}

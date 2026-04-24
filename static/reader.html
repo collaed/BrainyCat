@@ -80,7 +80,8 @@ async function init() {
 
     const epubFile = (data.files || []).find(f => f.format === 'epub');
     const mobiFile = !epubFile && (data.files || []).find(f => ['mobi','azw3','azw','kfx'].includes(f.format));
-    const pdfFile = !epubFile && !mobiFile && (data.files || []).find(f => f.format === 'pdf');
+    const pdfFile = !epubFile && !mobiFile && (data.files || []).find(f => f.format === 'pdf' && f.file_name === 'ocr_result.pdf')
+        || !epubFile && !mobiFile && (data.files || []).find(f => f.format === 'pdf');
     // Set up genre margin strips
     const genre = detectGenre(data.title, data.description, []);
     setupMargins(genre);
@@ -572,6 +573,50 @@ if (typeof rendition !== 'undefined' && rendition) {
     });
 }
 
+
+// ── Side-by-side PDF comparison ──────────────────────────────────────────
+let compareMode = false;
+async function toggleCompare(pdfs) {
+    if (compareMode) { location.reload(); return; }
+    compareMode = true;
+    const viewer = document.getElementById('viewer');
+    viewer.innerHTML = '';
+    viewer.style.display = 'flex';
+    viewer.style.gap = '4px';
+
+    for (const pdf of pdfs.slice(0, 2)) {
+        const col = document.createElement('div');
+        col.style.cssText = 'flex:1;overflow:auto;height:calc(100vh - 45px);';
+        const label = document.createElement('div');
+        label.style.cssText = 'position:sticky;top:0;background:#16213e;padding:4px 8px;font-size:.8rem;color:#94a3b8;z-index:5';
+        label.textContent = pdf.file_name === 'ocr_result.pdf' ? '🔍 OCR (hybrid)' : '📄 Original';
+        label.textContent += ` (${(pdf.file_size/1048576).toFixed(1)}MB)`;
+        col.appendChild(label);
+
+        const resp = await fetch(API + '/books/' + bookId + '/file/' + pdf.id, {credentials: 'same-origin'});
+        const buf = await resp.arrayBuffer();
+        const pdfDoc = await pdfjsLib.getDocument({data: buf}).promise;
+        const scale = window.devicePixelRatio * 1.2;
+
+        for (let i = 1; i <= Math.min(pdfDoc.numPages, 20); i++) {
+            const page = await pdfDoc.getPage(i);
+            const vp = page.getViewport({scale});
+            const canvas = document.createElement('canvas');
+            canvas.width = vp.width; canvas.height = vp.height;
+            canvas.style.cssText = 'width:100%;height:auto;display:block;margin:0 0 2px';
+            col.appendChild(canvas);
+            page.render({canvasContext: canvas.getContext('2d'), viewport: vp});
+        }
+        viewer.appendChild(col);
+    }
+    // Sync scroll
+    const cols = viewer.children;
+    if (cols.length === 2) {
+        cols[0].addEventListener('scroll', () => { cols[1].scrollTop = cols[0].scrollTop; });
+        cols[1].addEventListener('scroll', () => { cols[0].scrollTop = cols[1].scrollTop; });
+    }
+}
+
 // Pinch-to-zoom → font size (tablet support)
 let pinchStartDist = 0;
 let pinchStartSize = fontSize;
@@ -691,6 +736,17 @@ async function initPdfViewer(bookId, pdfFile) {
         if (e.key === 'ArrowRight') viewer.scrollBy(0, viewer.clientHeight * 0.9);
         else if (e.key === 'ArrowLeft') viewer.scrollBy(0, -viewer.clientHeight * 0.9);
     });
+
+    // Show compare button if multiple PDFs
+    const allPdfs = (data.files || []).filter(f => f.format === 'pdf');
+    if (allPdfs.length > 1) {
+        const cmpBtn = document.createElement('button');
+        cmpBtn.textContent = '⚖️ Compare versions';
+        cmpBtn.title = 'Side-by-side comparison of original vs OCR';
+        cmpBtn.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:60;padding:8px 16px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;cursor:pointer;font-size:.85rem';
+        cmpBtn.onclick = () => toggleCompare(allPdfs);
+        document.body.appendChild(cmpBtn);
+    }
 
     // Resize pen canvas to cover all PDF pages
     setTimeout(resizePenCanvas, 500);
