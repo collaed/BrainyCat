@@ -269,3 +269,82 @@ async def koreader_get_progress(document: str, user: Any = Depends(get_current_u
 
 
 # ── ISFDB (Sci-Fi/Fantasy metadata) ──────────────────────────────────────
+
+
+# ── Export highlights to Markdown (Obsidian/Notion compatible) ────────────
+@router.get("/books/{book_id}/export/highlights")
+async def export_highlights(book_id: str, user: Any = Depends(get_current_user)) -> Any:
+    """Export all highlights, annotations, and clippings as Markdown."""
+    from fastapi.responses import PlainTextResponse
+
+    book = await db.fetch_one("SELECT title FROM books WHERE id = $1", UUID(book_id))
+    title = book["title"] if book else "Unknown"
+
+    annotations = await db.fetch_all(
+        "SELECT text, note, created_at FROM annotations WHERE user_id = $1 AND book_id = $2 ORDER BY created_at",
+        user["id"],
+        UUID(book_id),
+    )
+    clippings = await db.fetch_all(
+        "SELECT text, created_at FROM clippings WHERE user_id = $1 AND book_id = $2 ORDER BY created_at",
+        user["id"],
+        UUID(book_id),
+    )
+
+    md = f"# {title}\n\n"
+    if annotations:
+        md += "## Annotations\n\n"
+        for a in annotations:
+            md += f"> {a['text']}\n"
+            if a.get("note"):
+                md += f"\n{a['note']}\n"
+            md += f"\n— *{a['created_at'].strftime('%Y-%m-%d')}*\n\n"
+    if clippings:
+        md += "## Clippings\n\n"
+        for c in clippings:
+            md += f"> {c['text']}\n\n"
+
+    return PlainTextResponse(md, media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="{title[:50]}.md"'})
+
+
+# ── Reading goals ─────────────────────────────────────────────────────────
+@router.get("/reading-goals")
+async def get_reading_goals(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get reading goal progress for current year."""
+    import datetime
+
+    year = datetime.date.today().year
+    finished = await db.fetch_one(
+        "SELECT count(*) as cnt FROM reading_progress WHERE user_id = $1 AND is_finished = true AND updated_at >= $2",
+        user["id"],
+        datetime.date(year, 1, 1),
+    )
+    goal = await db.fetch_one(
+        "SELECT target FROM reading_goals WHERE user_id = $1 AND year = $2",
+        user["id"],
+        year,
+    )
+    target = goal["target"] if goal else 0
+    count = finished["cnt"] if finished else 0
+    return {
+        "year": year,
+        "target": target,
+        "completed": count,
+        "progress_pct": round(count / max(target, 1) * 100) if target else 0,
+    }
+
+
+@router.post("/reading-goals")
+async def set_reading_goal(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Set reading goal: {target: 50, year: 2026}."""
+    import datetime
+
+    target = body.get("target", 50)
+    year = body.get("year", datetime.date.today().year)
+    await db.execute(
+        "INSERT INTO reading_goals (user_id, year, target) VALUES ($1, $2, $3) ON CONFLICT (user_id, year) DO UPDATE SET target = $3",
+        user["id"],
+        year,
+        target,
+    )
+    return {"ok": True, "year": year, "target": target}

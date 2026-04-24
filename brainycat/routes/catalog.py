@@ -803,3 +803,19 @@ async def import_from_catalog(body: dict[str, Any], user: Any = Depends(get_curr
         )
 
     return {"ok": True, "book_id": str(book_id), "title": title, "format": fmt, "size_mb": round(len(resp.content) / 1048576, 1)}
+
+
+# ── OPDS catalog subscriptions ────────────────────────────────────────────
+@router.get("/opds-subscriptions")
+async def list_opds_subscriptions(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.opds_catalogs import get_catalogs
+
+    return await get_catalogs()
+
+
+@router.get("/opds-browse")
+async def browse_opds_catalog(url: str = Query(...), q: str = Query(None), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.opds_catalogs import browse_opds
+
+    results = await browse_opds(url, q)
+    return {"results": results}
