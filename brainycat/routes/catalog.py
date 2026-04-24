@@ -711,3 +711,95 @@ async def unpaywall_lookup(doi: str) -> dict[str, Any]:
         "doi": doi,
         "source": "unpaywall",
     }
+
+
+# ── Universal catalog import ──────────────────────────────────────────────
+@router.post("/import")
+async def import_from_catalog(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Download a book/paper from any catalog source directly into the library.
+
+    Body: {url: "https://...", title: "...", author: "...", source: "arxiv", format: "pdf",
+           doi: "...", isbn: "...", description: "..."}
+    """
+    import os
+    import uuid as _uuid
+
+    from brainycat.storage import book_dir
+
+    url = body.get("url") or body.get("pdf_url") or body.get("epub_url")
+    if not url:
+        return {"error": "No download URL provided"}
+
+    title = body.get("title", "Unknown")
+    author = body.get("author") or ", ".join(body.get("authors") or ["Unknown"])
+    fmt = body.get("format") or ("pdf" if url.endswith(".pdf") else "epub")
+
+    # Download the file
+    client = get_client()
+    resp = await client.get(url, timeout=120, follow_redirects=True)
+    if resp.status_code != 200:
+        return {"error": f"Download failed: HTTP {resp.status_code}"}
+    if len(resp.content) < 1000:
+        return {"error": "Downloaded file too small"}
+
+    # Create book entry
+    book_id = _uuid.uuid4()
+    bdir = book_dir(str(book_id))
+    os.makedirs(bdir, exist_ok=True)
+
+    filename = f"{title[:80].replace('/', '_')}.{fmt}"
+    filepath = os.path.join(bdir, filename)
+    with open(filepath, "wb") as f:
+        f.write(resp.content)
+
+    await db.execute(
+        "INSERT INTO books (id, title, isbn, description, language, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, now(), now())",
+        book_id,
+        title,
+        body.get("isbn") or body.get("doi"),
+        (body.get("description") or body.get("abstract") or "")[:2000],
+        body.get("language"),
+    )
+    await db.execute(
+        "INSERT INTO book_files (book_id, file_path, format, file_size, file_name) VALUES ($1, $2, $3, $4, $5)",
+        book_id,
+        filepath,
+        fmt,
+        len(resp.content),
+        filename,
+    )
+
+    # Link author
+    if author and author != "Unknown":
+        author_id = await db.fetch_one(
+            "INSERT INTO authors (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = $1 RETURNING id",
+            author,
+        )
+        if author_id:
+            await db.execute(
+                "INSERT INTO books_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                book_id,
+                author_id["id"],
+            )
+
+    # Store source metadata
+    import json
+
+    meta = {
+        k: v
+        for k, v in {
+            "catalog_source": body.get("source"),
+            "arxiv_id": body.get("arxiv_id"),
+            "doi": body.get("doi"),
+            "catalog_url": url,
+        }.items()
+        if v
+    }
+    if meta:
+        await db.execute(
+            "UPDATE books SET extra_metadata = $1::jsonb WHERE id = $2",
+            json.dumps(meta),
+            book_id,
+        )
+
+    return {"ok": True, "book_id": str(book_id), "title": title, "format": fmt, "size_mb": round(len(resp.content) / 1048576, 1)}
