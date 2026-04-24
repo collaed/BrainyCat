@@ -175,4 +175,35 @@ async def run_title_cleanup_cycle() -> dict[str, Any]:
     """One cycle of the title cleanup background process."""
     r1 = await extract_isbn_from_filename(10)
     r2 = await fix_titles_from_api(5)
-    return {"isbn_from_filename": r1, "api_title_fix": r2}
+    r3 = await ocr_last_pages_for_isbn(3)
+    return {"isbn_from_filename": r1, "api_title_fix": r2, "isbn_from_ocr": r3}
+
+
+async def ocr_last_pages_for_isbn(limit: int = 3) -> dict[str, int]:
+    """OCR last pages of scanned PDFs that have no ISBN."""
+    rows = await fetch_all(
+        """
+        SELECT b.id FROM books b
+        JOIN book_files bf ON bf.book_id = b.id
+        WHERE b.isbn IS NULL AND bf.format = 'pdf' AND bf.file_size > 500000
+          AND (b.extra_metadata IS NULL OR NOT extra_metadata ? 'isbn_ocr_tried')
+        LIMIT $1
+    """,
+        limit,
+    )
+    found = 0
+    for r in rows:
+        from brainycat.isbn import ocr_last_page_for_isbn
+
+        result = await ocr_last_page_for_isbn(str(r["id"]))
+        if result.get("ok"):
+            found += 1
+        # Mark as tried so we don't retry
+        import json as _j
+
+        await execute(
+            "UPDATE books SET extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || $2::jsonb WHERE id = $1",
+            r["id"],
+            _j.dumps({"isbn_ocr_tried": True}),
+        )
+    return {"found": found, "checked": len(rows)}

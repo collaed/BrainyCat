@@ -234,6 +234,85 @@ def extract_from_text(text: str) -> dict[str, Any]:
     return result
 
 
+async def ocr_last_page_for_isbn(book_id: str) -> dict[str, Any]:
+    """OCR just the last 2 pages of a scanned PDF to find the ISBN barcode area."""
+    row = await fetch_one(
+        "SELECT file_path FROM book_files WHERE book_id = $1 AND format = 'pdf' LIMIT 1",
+        UUID(book_id),
+    )
+    if not row or not os.path.isfile(row["file_path"]):
+        return {"ok": False, "reason": "no pdf"}
+
+    try:
+        import fitz
+
+        doc = fitz.open(row["file_path"])
+        num_pages = len(doc)
+        if num_pages == 0:
+            doc.close()
+            return {"ok": False, "reason": "empty pdf"}
+
+        # Extract text from last 2 pages + first 2 pages (copyright page)
+        text = ""
+        for page_idx in list(range(max(0, num_pages - 2), num_pages)) + list(range(min(2, num_pages))):
+            text += doc[page_idx].get_text() + "\n"
+        doc.close()
+
+        # If we got text, scan for ISBN
+        if len(text.strip()) > 20:
+            result = extract_from_text(text)
+            isbn = result.get("isbn") or result.get("isbn_10")
+            if isbn:
+                current = await fetch_one("SELECT isbn FROM books WHERE id = $1", UUID(book_id))
+                if not current or not current["isbn"]:
+                    await execute("UPDATE books SET isbn = $1, updated_at = now() WHERE id = $2", isbn, UUID(book_id))
+                    return {"ok": True, "isbn": isbn, "source": "last_page_text"}
+
+        # No text on last pages — try OCR via Intello on just the last page
+        import fitz as _fitz
+
+        doc = _fitz.open(row["file_path"])
+        last_page = doc[num_pages - 1]
+        # Render last page as image
+        pix = last_page.get_pixmap(dpi=300)
+        img_bytes = pix.tobytes("png")
+        doc.close()
+
+        # Submit just this image for OCR
+        import tempfile
+
+        tmp = tempfile.mktemp(suffix=".png")
+        with open(tmp, "wb") as f:
+            f.write(img_bytes)
+
+        # Try Tesseract locally first (faster than Intello for one page)
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                ["tesseract", tmp, "-", "--psm", "6"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                ocr_text = result.stdout
+                isbn_result = extract_from_text(ocr_text)
+                isbn = isbn_result.get("isbn") or isbn_result.get("isbn_10")
+                if isbn:
+                    await execute("UPDATE books SET isbn = $1, updated_at = now() WHERE id = $2", isbn, UUID(book_id))
+                    os.unlink(tmp)
+                    return {"ok": True, "isbn": isbn, "source": "last_page_ocr"}
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        os.unlink(tmp)
+        return {"ok": False, "reason": "no isbn found on last pages"}
+
+    except Exception as e:
+        return {"ok": False, "reason": str(e)[:100]}
+
+
 async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
     """Extract ISBN + metadata from a book's files and update the DB."""
     # Try EPUB/PDF first, then any format via ebook-convert

@@ -3825,3 +3825,12 @@ async def regenerate_cover(book_id: str, _u: Any = Depends(get_current_user)) ->
         f.write(cover_data)
     await db.execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, _UUID(book_id))
     return {"ok": True, "path": cover_path, "size": len(cover_data)}
+
+
+# ── Last-page OCR for ISBN ────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/ocr-isbn")
+async def ocr_isbn(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """OCR just the last page of a scanned PDF to find the ISBN barcode."""
+    from brainycat.isbn import ocr_last_page_for_isbn
+
+    return await ocr_last_page_for_isbn(book_id)
