@@ -21,6 +21,7 @@ const BC = {
     base: BASE,
     get: (p) => api(p),
     post: (p, body) => api(p, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
+    put: (p, body) => api(p, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
     patch: (p, body) => api(p, { method: 'PATCH', body: JSON.stringify(body) }),
     del: (p) => api(p, { method: 'DELETE' }),
     upload: async (p, file) => {

@@ -2,6 +2,7 @@
 <title>BrainyCat — Reader</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}body{background:#1a1a2e;color:#e2e8f0;font-family:system-ui}
 #toolbar{background:#16213e;padding:.5rem 1rem;display:flex;gap:.8rem;align-items:center;border-bottom:1px solid #334155;z-index:20;position:relative}
@@ -70,10 +71,16 @@ async function init() {
 
     const epubFile = (data.files || []).find(f => f.format === 'epub');
     const mobiFile = !epubFile && (data.files || []).find(f => ['mobi','azw3','azw','kfx'].includes(f.format));
+    const pdfFile = !epubFile && !mobiFile && (data.files || []).find(f => f.format === 'pdf');
     // Set up genre margin strips
     const genre = detectGenre(data.title, data.description, []);
     setupMargins(genre);
     document.getElementById('book-title').title = 'Genre: ' + genre;
+
+    // PDF viewer
+    if (pdfFile) {
+        return initPdfViewer(bookId, pdfFile);
+    }
 
     if (!epubFile && mobiFile) {
         log('Converting ' + mobiFile.format.toUpperCase() + ' to EPUB...');
@@ -114,10 +121,13 @@ async function init() {
             flow: 'scrolled-doc',
         });
 
-        // Apply dark theme
+        // Apply dark theme + image scaling
         rendition.themes.default({
-            body: { background: '#1a1a2e !important', color: '#e2e8f0 !important' },
+            body: { background: '#1a1a2e !important', color: '#e2e8f0 !important', 'max-width': '800px !important', margin: '0 auto !important', padding: '1rem !important' },
             'p, div, span, h1, h2, h3, h4, h5, h6, li, a': { color: '#e2e8f0 !important' },
+            'img': { 'max-width': '100% !important', height: 'auto !important', display: 'block !important', margin: '0 auto !important' },
+            'svg': { 'max-width': '100% !important', height: 'auto !important' },
+            'image': { 'max-width': '100% !important' },
         });
         rendition.themes.fontSize(fontSize + 'px');
 
@@ -141,7 +151,7 @@ async function init() {
             document.getElementById('progress-bar').style.width = pct + '%';
             scrollMargins(pct);
             if (loc.start.cfi) {
-                BC.post('/progress/' + bookId, { position: loc.start.cfi, percentage: pct });
+                BC.put('/progress/' + bookId, { position: loc.start.cfi, percentage: pct });
             }
             statusEl.textContent = Math.round(pct) + '%';
             trackPageTurn();
@@ -349,5 +359,107 @@ document.addEventListener('touchmove', e => {
         }
     }
 }, {passive: true});
+
+// ── PDF Viewer ───────────────────────────────────────────────────────────
+async function initPdfViewer(bookId, pdfFile) {
+    log('Loading PDF...');
+    const viewer = document.getElementById('viewer');
+    viewer.style.overflow = 'auto';
+    viewer.style.textAlign = 'center';
+    viewer.style.padding = '0';
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    const resp = await fetch(API + '/books/' + bookId + '/file/' + pdfFile.id, {credentials: 'same-origin'});
+    const arrayBuffer = await resp.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+    const totalPages = pdf.numPages;
+    log(`PDF: ${totalPages} pages`);
+
+    // Load saved position
+    let currentPage = 1;
+    try {
+        const progress = await BC.get('/progress/' + bookId);
+        if (progress && progress.position) currentPage = parseInt(progress.position) || 1;
+    } catch(e) {}
+
+    // Render pages into canvases
+    const container = document.createElement('div');
+    container.id = 'pdf-pages';
+    container.style.cssText = 'max-width:900px;margin:0 auto;';
+    viewer.appendChild(container);
+
+    const canvases = [];
+    const scale = window.devicePixelRatio * 1.5;
+
+    for (let i = 1; i <= totalPages; i++) {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({scale});
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.cssText = 'width:100%;height:auto;display:block;margin:0 auto 2px;';
+        canvas.dataset.page = i;
+        container.appendChild(canvas);
+        canvases.push({canvas, page, viewport, rendered: false});
+    }
+
+    // Lazy render visible pages
+    function renderVisible() {
+        const viewTop = viewer.scrollTop - 500;
+        const viewBot = viewer.scrollTop + viewer.clientHeight + 500;
+        for (const c of canvases) {
+            if (c.rendered) continue;
+            const top = c.canvas.offsetTop;
+            const bot = top + c.canvas.offsetHeight;
+            if (bot > viewTop && top < viewBot) {
+                c.rendered = true;
+                c.page.render({canvasContext: c.canvas.getContext('2d'), viewport: c.viewport});
+            }
+        }
+    }
+
+    // Track scroll position for progress
+    let saveTimer = null;
+    viewer.addEventListener('scroll', () => {
+        renderVisible();
+        // Find current page
+        const scrollMid = viewer.scrollTop + viewer.clientHeight / 2;
+        for (const c of canvases) {
+            if (c.canvas.offsetTop + c.canvas.offsetHeight > scrollMid) {
+                const pg = parseInt(c.canvas.dataset.page);
+                const pct = (pg / totalPages) * 100;
+                document.getElementById('progress-bar').style.width = pct + '%';
+                statusEl.textContent = `Page ${pg}/${totalPages} (${Math.round(pct)}%)`;
+                scrollMargins(pct);
+                clearTimeout(saveTimer);
+                saveTimer = setTimeout(() => {
+                    BC.put('/progress/' + bookId, {position: String(pg), percentage: pct});
+                }, 1000);
+                break;
+            }
+        }
+    });
+
+    // Scroll to saved page
+    if (currentPage > 1 && canvases[currentPage - 1]) {
+        // Render first few pages + target page area
+        renderVisible();
+        setTimeout(() => {
+            canvases[currentPage - 1].canvas.scrollIntoView();
+            renderVisible();
+        }, 100);
+    } else {
+        renderVisible();
+    }
+
+    // Keyboard nav
+    document.addEventListener('keyup', e => {
+        if (e.key === 'ArrowRight') viewer.scrollBy(0, viewer.clientHeight * 0.9);
+        else if (e.key === 'ArrowLeft') viewer.scrollBy(0, -viewer.clientHeight * 0.9);
+    });
+
+    log('');
+}
 
 </script></body></html>
