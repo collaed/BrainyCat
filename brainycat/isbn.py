@@ -47,7 +47,7 @@ NUMBER_LINE_RE = re.compile(r"(?:^|\n)\s*((?:\d+\s+){3,}\d+)\s*(?:\n|$)")
 def _clean_isbn(raw: str) -> str | None:
     """Clean and validate ISBN with checksum verification.
     Rejects ASINs (Amazon IDs starting with B) and other non-ISBN identifiers."""
-    digits = re.sub(r"[^0-9Xx]", "", raw)
+    digits = re.sub(r"[^0-9Xx]", "", raw.translate({0x2010: "", 0x2011: "", 0x2012: "", 0x2013: "", 0x2014: ""}))
 
     # Reject ASINs (Amazon IDs: start with B, 10 chars alphanumeric)
     if raw.strip().startswith("B") and len(raw.strip()) == 10:
@@ -166,10 +166,12 @@ def extract_from_text(text: str) -> dict[str, Any]:
     search_zones = front + "\n" + back + "\n" + impressum_section + "\n" + acheve_section
 
     # Find all ISBN-like sequences near "ISBN" anchors, prefer 13 over 10
-    isbn_anchor_re = re.compile(r"ISBN[-:\s]*(\d[\d\s-]{9,20}[\dXx])", re.IGNORECASE)
+    isbn_anchor_re = re.compile(
+        r"ISBN[\-\u2010\u2011\u2012\u2013\u2014:\s]*([\d][\d\s\-\u2010\u2011\u2012\u2013\u2014]{9,20}[\dXx])", re.IGNORECASE
+    )
     for m in isbn_anchor_re.finditer(search_zones):
         raw = m.group(1)
-        digits = re.sub(r"[^0-9Xx]", "", raw)
+        digits = re.sub(r"[^0-9Xx]", "", raw.translate({0x2010: "", 0x2011: "", 0x2012: "", 0x2013: "", 0x2014: ""}))
         # Try ISBN-13 first (first 13 digits)
         if len(digits) >= 13:
             isbn = _clean_isbn(digits[:13])
