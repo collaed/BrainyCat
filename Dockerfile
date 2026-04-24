@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     wget \
     calibre \
+    libzbar0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Piper TTS voice model

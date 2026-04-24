@@ -285,6 +285,27 @@ async def ocr_last_page_for_isbn(book_id: str) -> dict[str, Any]:
         with open(tmp, "wb") as f:
             f.write(img_bytes)
 
+        # Try barcode decoding first (reads EAN-13 ISBN barcodes from images)
+        try:
+            import io
+
+            from PIL import Image
+            from pyzbar.pyzbar import decode
+
+            img = Image.open(io.BytesIO(img_bytes))
+            barcodes = decode(img)
+            for barcode in barcodes:
+                data = barcode.data.decode("utf-8", errors="ignore")
+                isbn = _clean_isbn(data)
+                if isbn:
+                    await execute("UPDATE books SET isbn = $1, updated_at = now() WHERE id = $2", isbn, UUID(book_id))
+                    os.unlink(tmp)
+                    return {"ok": True, "isbn": isbn, "source": "barcode_scan"}
+        except ImportError:
+            pass  # pyzbar not installed
+        except Exception:
+            pass
+
         # Try Tesseract locally first (faster than Intello for one page)
         import subprocess
 

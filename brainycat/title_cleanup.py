@@ -17,6 +17,29 @@ from brainycat.isbn import _clean_isbn
 from brainycat.rate_limit import rate_limiter
 
 
+async def extract_isbn_from_title(limit: int = 20) -> dict[str, int]:
+    """Find ISBNs embedded in book titles (e.g. 'isbn 9781118146415')."""
+    import re
+
+    rows = await fetch_all(
+        """
+        SELECT id, title FROM books
+        WHERE isbn IS NULL AND (title ~* '978[0-9-]{10,}' OR title ~* 'isbn')
+        LIMIT $1
+    """,
+        limit,
+    )
+    found = 0
+    for r in rows:
+        for m in re.finditer(r"97[89][\d-]{10,17}", r["title"]):
+            isbn = _clean_isbn(m.group())
+            if isbn:
+                await execute("UPDATE books SET isbn = $1 WHERE id = $2 AND isbn IS NULL", isbn, r["id"])
+                found += 1
+                break
+    return {"found": found, "checked": len(rows)}
+
+
 async def extract_isbn_from_filename(limit: int = 20) -> dict[str, int]:
     """Find ISBNs embedded in filenames and store them."""
     rows = await fetch_all(
@@ -173,10 +196,11 @@ async def cleanup_titles_regex(limit: int = 20) -> dict[str, int]:
 
 async def run_title_cleanup_cycle() -> dict[str, Any]:
     """One cycle of the title cleanup background process."""
+    r0 = await extract_isbn_from_title(10)
     r1 = await extract_isbn_from_filename(10)
     r2 = await fix_titles_from_api(5)
     r3 = await ocr_last_pages_for_isbn(3)
-    return {"isbn_from_filename": r1, "api_title_fix": r2, "isbn_from_ocr": r3}
+    return {"isbn_from_title": r0, "isbn_from_filename": r1, "api_title_fix": r2, "isbn_from_ocr": r3}
 
 
 async def ocr_last_pages_for_isbn(limit: int = 3) -> dict[str, int]:

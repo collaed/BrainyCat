@@ -32,5 +32,5 @@ sqlalchemy==2.0.41
 Pillow==11.2.1
 weasyprint==68.1
 mcp==1.27.0
-pdf-craft>=1.0.0
 isbnlib>=3.10
+pyzbar>=0.1.9
