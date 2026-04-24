@@ -146,6 +146,44 @@ async def _title_cleanup_loop() -> None:
         await log.ainfo("title_cleanup", isbn_found=isbn_found, titles_fixed=titles_fixed, genres_added=genres_added)
 
 
+async def _split_pdf_chunk(pdf_path: str, max_bytes: int) -> str | None:
+    """Split a large PDF into a chunk under max_bytes. Returns temp file path."""
+    import os
+    import tempfile
+
+    import fitz
+
+    try:
+        src = fitz.open(pdf_path)
+        total_pages = len(src)
+        file_size = os.path.getsize(pdf_path)
+        bytes_per_page = file_size / max(total_pages, 1)
+        pages_per_chunk = max(1, int(max_bytes / bytes_per_page))
+
+        # Take the first N pages that fit under the limit
+        dst = fitz.open()
+        dst.insert_pdf(src, from_page=0, to_page=min(pages_per_chunk, total_pages) - 1)
+
+        tmp = tempfile.mktemp(suffix=".pdf")
+        dst.save(tmp)
+        dst.close()
+        src.close()
+
+        # Verify it's under the limit, shrink if needed
+        if os.path.getsize(tmp) > max_bytes:
+            os.unlink(tmp)
+            src = fitz.open(pdf_path)
+            dst = fitz.open()
+            dst.insert_pdf(src, from_page=0, to_page=max(1, pages_per_chunk // 2) - 1)
+            dst.save(tmp)
+            dst.close()
+            src.close()
+
+        return tmp
+    except Exception:
+        return None
+
+
 # ── OCR polling + submission ──────────────────────────────────────────────
 async def _ocr_loop() -> None:
     from brainycat.config import settings
