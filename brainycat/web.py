@@ -3791,3 +3791,37 @@ async def extract_identifiers(book_id: str, _u: Any = Depends(get_current_user))
         )
 
     return {"identifiers": identifiers, "scanned_chars": len(text)}
+
+
+# ── Cover regeneration ────────────────────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/generate-cover")
+async def regenerate_cover(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Regenerate cover from current title/author (after title cleanup)."""
+    from uuid import UUID as _UUID
+
+    from brainycat.atomic import atomic_write
+    from brainycat.covers import generate_cover
+
+    book = await db.fetch_one(
+        """
+        SELECT b.title, array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
+        FROM books b LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id
+        WHERE b.id = $1 GROUP BY b.id
+    """,
+        _UUID(book_id),
+    )
+    if not book:
+        return {"error": "not found"}
+    cover_data = generate_cover(book["title"], ", ".join(book["authors"] or []))
+    if not cover_data:
+        return {"error": "cover generation failed"}
+    import os
+
+    from brainycat.storage import book_dir
+
+    cover_path = os.path.join(book_dir(book_id), "cover.jpg")
+    os.makedirs(os.path.dirname(cover_path), exist_ok=True)
+    with atomic_write(cover_path) as f:
+        f.write(cover_data)
+    await db.execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, _UUID(book_id))
+    return {"ok": True, "path": cover_path, "size": len(cover_data)}

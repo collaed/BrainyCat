@@ -113,6 +113,40 @@ async def fix_titles_from_api(limit: int = 10) -> dict[str, int]:
     return {"fixed": fixed, "checked": len(rows)}
 
 
+async def regen_covers_after_cleanup(limit: int = 5) -> dict[str, int]:
+    """Regenerate covers for books whose titles were recently cleaned."""
+    import os
+
+    from brainycat.atomic import atomic_write
+    from brainycat.covers import generate_cover
+    from brainycat.storage import book_dir
+
+    rows = await fetch_all(
+        """
+        SELECT b.id, b.title, array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
+        FROM books b
+        LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id
+        WHERE b.quality_score = 0 AND b.cover_path IS NOT NULL
+        GROUP BY b.id LIMIT $1
+    """,
+        limit,
+    )
+    regen = 0
+    for r in rows:
+        try:
+            data = generate_cover(r["title"], ", ".join(r["authors"] or []))
+            if data:
+                path = os.path.join(book_dir(str(r["id"])), "cover.jpg")
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with atomic_write(path) as f:
+                    f.write(data)
+                await execute("UPDATE books SET cover_path = $1 WHERE id = $2", path, r["id"])
+                regen += 1
+        except Exception:
+            pass
+    return {"regenerated": regen}
+
+
 async def cleanup_titles_regex(limit: int = 20) -> dict[str, int]:
     """Regex cleanup of obviously dirty titles."""
     await execute("""
