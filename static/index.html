@@ -71,6 +71,12 @@ nav a:hover{background:var(--surface);color:var(--text)}
 .empty{text-align:center;padding:2rem;color:var(--muted)}
 #loading{text-align:center;padding:.5rem;color:var(--muted);display:none}
 #book-count{color:var(--muted);font-size:.75rem;margin-left:auto}
+/* Grid checkbox */
+.grid .card{position:relative}
+.grid .card .grid-cb{position:absolute;top:4px;left:4px;z-index:2;cursor:pointer;accent-color:var(--accent)}
+/* Floating action bar */
+#bulk-bar{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:2px solid var(--accent);padding:.5rem 1rem;display:none;align-items:center;gap:.5rem;z-index:50;justify-content:center}
+#bulk-bar.active{display:flex}
 </style>
 <link id="skin-css" rel="stylesheet" href="">
 <script>
@@ -109,6 +115,7 @@ nav a:hover{background:var(--surface);color:var(--text)}
 </header>
 <div class="container">
 <div class="toolbar">
+<label style="font-size:.8rem;display:inline-flex;align-items:center;gap:.25rem;cursor:pointer"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)"> All</label>
 <select id="filter-format"><option value="">All formats</option><option>epub</option><option>pdf</option><option>mobi</option><option>mp3</option><option>m4b</option></select>
 <select id="filter-missing" onchange="page=0;allBooks=[];hasMore=true;loadBooks()"><option value="">All books</option><option value="no_isbn">Missing ISBN</option><option value="no_desc">Missing description</option><option value="no_cover">Missing cover</option><option value="no_tags">No tags/genre</option><option value="low_quality">Low quality (&lt;30)</option></select>
 <select id="sort"><option value="updated_at">Recent</option><option value="title">Title</option><option value="quality_score">Quality</option><option value="created_at">Added</option></select>
@@ -134,6 +141,16 @@ nav a:hover{background:var(--surface);color:var(--text)}
 <div id="drop-zone">Drop files here to upload</div>
 <div id="content"></div>
 <div id="loading">Loading more...</div>
+</div>
+
+<div id="bulk-bar">
+<span id="bulk-count" style="font-size:.85rem;font-weight:600"></span>
+<button class="btn primary" onclick="bulkTag()">🏷️ Tag</button>
+<button class="btn danger" onclick="bulkDelete()">🗑️ Delete</button>
+<button class="btn success" onclick="bulkEnrich()">✨ Enrich</button>
+<button class="btn" onclick="bulkConvert()">📄 Convert to EPUB</button>
+<button class="btn warn" onclick="bulkKindle()">📱 Send to Kindle</button>
+<button class="btn sm" onclick="clearSelection()">✕ Clear</button>
 </div>
 
 <div class="modal-overlay" id="modal"><div class="modal">
@@ -181,6 +198,7 @@ function renderGrid(){
     content.className='grid';
     content.innerHTML=allBooks.map((b,i)=>`
         <div class="card" onclick="openBookAt(${i})">
+            <input type="checkbox" class="grid-cb book-cb" data-id="${b.id}" onchange="updateSelection()" onclick="event.stopPropagation()">
             <img src="${API}/books/${b.id}/cover" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 300%22><rect fill=%22%23334155%22 width=%22200%22 height=%22300%22/><text x=%2250%25%22 y=%2250%25%22 fill=%22%2394a3b8%22 text-anchor=%22middle%22 font-size=%2240%22>📚</text></svg>'">
             <div class="info">
                 <div class="title" title="${b.title}">${b.title}</div>
@@ -307,8 +325,15 @@ async function regenCover(id){await BC.post('/books/'+id+'/download-cover');setT
 async function deleteBook(id){if(!confirm('Delete this book?'))return;await BC.del('/books/'+id);closeModal();loadBooks();}
 
 // Batch selection
-function updateSelection(){selectedBooks.clear();document.querySelectorAll('.book-cb:checked').forEach(cb=>selectedBooks.add(cb.dataset.id));const btn=document.getElementById('batch-del-btn');btn.style.display=selectedBooks.size>0?'inline-flex':'none';document.getElementById('sel-count').textContent=selectedBooks.size;}
-async function batchDelete(){if(!confirm('Delete '+selectedBooks.size+' books?'))return;for(const id of selectedBooks)await BC.del('/books/'+id);selectedBooks.clear();loadBooks();}
+function updateSelection(){selectedBooks.clear();document.querySelectorAll('.book-cb:checked').forEach(cb=>selectedBooks.add(cb.dataset.id));const bar=document.getElementById('bulk-bar');const n=selectedBooks.size;bar.classList.toggle('active',n>0);document.getElementById('bulk-count').textContent=n+' selected';document.getElementById('batch-del-btn').style.display=n>0?'inline-flex':'none';document.getElementById('sel-count').textContent=n;document.getElementById('select-all').checked=n>0&&n===document.querySelectorAll('.book-cb').length;}
+function toggleSelectAll(checked){document.querySelectorAll('.book-cb').forEach(cb=>{cb.checked=checked;});updateSelection();}
+function clearSelection(){document.querySelectorAll('.book-cb').forEach(cb=>{cb.checked=false;});document.getElementById('select-all').checked=false;updateSelection();}
+async function bulkTag(){const t=prompt('Tag(s) to add (comma-separated):');if(!t)return;const tags=t.split(',').map(s=>s.trim()).filter(Boolean);if(!tags.length)return;await BC.post('/books/batch/tag',{book_ids:[...selectedBooks],tags});clearSelection();loadBooks();}
+async function bulkDelete(){if(!confirm('Delete '+selectedBooks.size+' books?'))return;await api('/books/batch',{method:'DELETE',body:JSON.stringify({book_ids:[...selectedBooks]}),headers:{'Content-Type':'application/json'}});clearSelection();loadBooks();}
+async function bulkEnrich(){const ids=[...selectedBooks];document.getElementById('bulk-bar').querySelector('.btn.success').textContent='⏳ Enriching...';await BC.post('/books/batch/enrich',{book_ids:ids});clearSelection();loadBooks();}
+async function bulkConvert(){for(const id of selectedBooks){await BC.post('/books/'+id+'/convert/epub');}clearSelection();loadBooks();}
+async function bulkKindle(){for(const id of selectedBooks){await BC.post('/books/'+id+'/send-to-kindle');}alert('Sent '+selectedBooks.size+' books to Kindle');clearSelection();}
+async function batchDelete(){if(!confirm('Delete '+selectedBooks.size+' books?'))return;await api('/books/batch',{method:'DELETE',body:JSON.stringify({book_ids:[...selectedBooks]}),headers:{'Content-Type':'application/json'}});clearSelection();loadBooks();}
 
 // Upload
 const dropZone=document.getElementById('drop-zone'),fileInput=document.getElementById('file-input');

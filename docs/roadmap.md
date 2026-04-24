@@ -7,6 +7,8 @@ Last updated: 2026-04-23
 ### Core (Phases 1-4)
 - Library CRUD, search, upload, collections, 5 UI skins
 - EPUB reader (themes, night mode, dictionary, speed tracking, auto-scroll)
+- PDF reader (pdf.js, progress tracking, lazy page rendering)
+- MOBI/AZW3 reading (auto-converts to EPUB on first open)
 - Audio player (chapters, speed, smart sleep mode, bookmark, download)
 - 10 format conversions via ebook-convert
 - OPDS 1.2 with pagination
@@ -16,10 +18,17 @@ Last updated: 2026-04-23
 - 10 enrichment sources in parallel (Google Books, OL, OL Enhanced, LoC, Amazon 6-country, Gutendex, VIAF, ISNI, Inventaire, BookBrainz)
 - Calibre-style merge + cover chain (Apple Books, Bookcover API) + dummy validation
 - ISBN extraction: 9 languages, checksum validation, 40+ formats
+- ISBN barcode scanning (pyzbar EAN-13 from scanned PDF back covers)
+- Multi-ISBN storage (print, ebook, PDF, audiobook ISBNs with type detection)
+- Edition detection (multilingual: English/French/German/Spanish)
+- Full-text metadata extraction
 - Content fingerprinting: Winnowing + MinHash + binary compare
 - TF-IDF embeddings: 11-language stopwords, pgvector similarity
 - Book Genome taste engine: 7 categories + NLP themes
 - Readability: Flesch-Kincaid + Gunning Fog
+- Calibre-aligned quality score (10-field weighted scoring, 100 max)
+- Language extraction (EPUB OPF metadata + ISBN region inference)
+- Missing data filter (ISBN, description, cover, tags, quality)
 - Library health report: 10 checks
 - Soundex author matching
 - Adaptive chapter splitting (silence detection)
@@ -103,21 +112,16 @@ Last updated: 2026-04-23
 
 ## Next: Reader & Player (Priority: MEDIUM)
 
-### R1: PDF Reader
-- In-browser PDF viewer (pdf.js)
-- Progress tracking, annotations
-- Currently PDFs open as raw file download
-
-### R2: Comic Reader (CBZ/CBR)
+### R1: Comic Reader (CBZ/CBR)
 - Page-turn interface for comic archives
 - Would attract Kavita/Komga users
 
-### R3: Annotation UI in Reader
+### R2: Annotation UI in Reader
 - Highlight text → save annotation
 - View others' shared annotations inline
 - Currently annotations are API-only
 
-### R4: Bookmarks UI
+### R3: Bookmarks UI
 - Visual bookmark list in reader sidebar
 - Jump to bookmarked positions
 
@@ -139,6 +143,29 @@ Last updated: 2026-04-23
 ### I4: Want-to-Read Sync
 - Import from Open Library reading log
 - Cross-reference: "You wanted 47 books — you own 12"
+
+## Next: Library & Delivery (Priority: MEDIUM)
+
+### L1: Bulk Operations UI
+- Multi-select books for batch tagging, enrichment, deletion, conversion
+
+### L2: Virtual Libraries (Saved Filter Presets)
+- Save and recall filter combinations as named virtual libraries
+
+### L3: Hierarchical Tag Browser
+- Tree-structured tag navigation with parent/child relationships
+
+### L4: Kindle Email Configuration
+- In-app setup for Kindle email delivery addresses
+
+### L5: OTA Delivery to E-Readers (OPDS Push)
+- Push books directly to e-readers via OPDS
+
+### L6: Audiobook Chapter Retagging + Format Optimization
+- Re-tag chapter metadata and optimize audio format for playback
+
+### L7: News Recipes (RSS→EPUB Scheduled)
+- Scheduled conversion of RSS feeds into EPUB periodicals
 
 ## Next: Ecosystem (Priority: LOW)
 

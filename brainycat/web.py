@@ -1368,6 +1368,67 @@ async def bulk_enrich(body: BulkEnrichBody, _u: Any = Depends(get_current_user))
     return {"enriched": enriched, "total": len(body.book_ids)}
 
 
+# ── Batch operations (v1) ────────────────────────────────────────────────
+class BatchTagBody(BaseModel):
+    book_ids: list[str]
+    tags: list[str]
+
+
+@app.post("/api/v1/books/batch/tag")
+async def batch_tag(body: BatchTagBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Add tags to multiple books."""
+    from uuid import UUID as _UUID
+
+    applied = 0
+    for tag_name in body.tags:
+        await db.execute("INSERT INTO tags (name) VALUES ($1) ON CONFLICT DO NOTHING", tag_name)
+        tag_row = await db.fetch_one("SELECT id FROM tags WHERE name = $1", tag_name)
+        if not tag_row:
+            continue
+        for bid in body.book_ids:
+            await db.execute(
+                "INSERT INTO books_tags (book_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+                _UUID(bid),
+                tag_row["id"],
+            )
+            applied += 1
+    return {"applied": applied}
+
+
+class BatchEnrichBody(BaseModel):
+    book_ids: list[str]
+
+
+@app.post("/api/v1/books/batch/enrich")
+async def batch_enrich(body: BatchEnrichBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Trigger enrichment for multiple books."""
+    enriched = 0
+    for bid in body.book_ids:
+        result = await metadata.enrich_book(bid)
+        if result.get("enriched"):
+            enriched += 1
+    return {"enriched": enriched, "total": len(body.book_ids)}
+
+
+class BatchDeleteBody(BaseModel):
+    book_ids: list[str]
+
+
+@app.delete("/api/v1/books/batch")
+async def batch_delete(body: BatchDeleteBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Delete multiple books."""
+    from uuid import UUID as _UUID
+
+    from brainycat import storage
+
+    deleted = 0
+    for bid in body.book_ids:
+        await db.execute("DELETE FROM books WHERE id = $1", _UUID(bid))
+        storage.delete_book_dir(bid)
+        deleted += 1
+    return {"deleted": deleted}
+
+
 # ── API Keys ─────────────────────────────────────────────────────────────
 @app.post("/api/v1/api-keys")
 async def create_api_key(name: str = Query("default"), user: Any = Depends(get_current_user)) -> dict[str, str]:
@@ -3864,3 +3925,148 @@ async def convert_to_epub(book_id: str, _u: Any = Depends(get_current_user)) -> 
         os.path.getsize(out_path),
     )
     return {"ok": True, "file_id": str(file_id)}
+
+
+# ── Audiobook chapter merge + retag ───────────────────────────────────────
+@app.post("/api/v1/books/{book_id}/audio/merge-chapters")
+async def merge_audio_chapters(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Merge multiple MP3 chapter files into a single M4B with chapter markers."""
+    import asyncio as _aio
+    from uuid import UUID
+
+    from brainycat.storage import book_dir
+
+    files = await db.fetch_all(
+        "SELECT id, file_path, file_size FROM book_files WHERE book_id = $1 AND format = 'mp3' ORDER BY file_path",
+        UUID(book_id),
+    )
+    if len(files) < 2:
+        return {"error": "need 2+ MP3 files to merge"}
+
+    book = await db.fetch_one(
+        "SELECT b.title, array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors "
+        "FROM books b LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id "
+        "WHERE b.id = $1 GROUP BY b.id",
+        UUID(book_id),
+    )
+    title = book["title"] or "Unknown"
+    author = ", ".join(book["authors"] or ["Unknown"])
+
+    bdir = book_dir(book_id)
+    concat_list = os.path.join(bdir, "concat.txt")
+    m4b_path = os.path.join(bdir, f"{title[:50]}.m4b")
+
+    # Build ffmpeg concat list and extract chapter info
+    chapters = []
+    offset = 0.0
+    with open(concat_list, "w") as f:
+        for fi in files:
+            f.write(f"file '{fi['file_path'].replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'\n")
+            # Get duration
+            probe = await _aio.create_subprocess_exec(
+                "ffprobe",
+                "-v",
+                "quiet",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+                fi["file_path"],
+                stdout=_aio.subprocess.PIPE,
+                stderr=_aio.subprocess.PIPE,
+            )
+            out, _ = await probe.communicate()
+            dur = float(out.decode().strip() or "0")
+            ch_title = os.path.splitext(os.path.basename(fi["file_path"]))[0]
+            chapters.append({"title": ch_title, "start": offset})
+            offset += dur
+
+    # Build chapter metadata file
+    meta_path = os.path.join(bdir, "chapters.txt")
+    with open(meta_path, "w") as f:
+        f.write(";FFMETADATA1\n")
+        f.write(f"title={title}\n")
+        f.write(f"artist={author}\n")
+        f.write(f"album={title}\n")
+        f.write("genre=Audiobook\n")
+        for i, ch in enumerate(chapters):
+            end = chapters[i + 1]["start"] if i + 1 < len(chapters) else offset
+            f.write("\n[CHAPTER]\nTIMEBASE=1/1000\n")
+            f.write(f"START={int(ch['start'] * 1000)}\n")
+            f.write(f"END={int(end * 1000)}\n")
+            f.write(f"title={ch['title']}\n")
+
+    # Merge: concat MP3s → re-encode to AAC 64k mono (speech quality) → M4B
+    proc = await _aio.create_subprocess_exec(
+        "ffmpeg",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        concat_list,
+        "-i",
+        meta_path,
+        "-map_metadata",
+        "1",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "64k",
+        "-ac",
+        "1",
+        "-ar",
+        "22050",
+        "-movflags",
+        "+faststart",
+        m4b_path,
+        stdout=_aio.subprocess.PIPE,
+        stderr=_aio.subprocess.PIPE,
+    )
+    _, err = await proc.communicate()
+    for _tmp in (concat_list, meta_path):
+        if os.path.exists(_tmp):
+            os.unlink(_tmp)
+
+    if proc.returncode != 0:
+        return {"error": f"ffmpeg failed: {err.decode()[-200:]}"}
+
+    size = os.path.getsize(m4b_path)
+    file_id = await db.fetch_val(
+        "INSERT INTO book_files (book_id, file_path, format, file_size) VALUES ($1, $2, 'm4b', $3) RETURNING id",
+        UUID(book_id),
+        m4b_path,
+        size,
+    )
+    await db.execute(
+        "UPDATE books SET duration_seconds = $1, narrator = COALESCE(narrator, $2) WHERE id = $3",
+        int(offset),
+        author,
+        UUID(book_id),
+    )
+    return {
+        "ok": True,
+        "file_id": str(file_id),
+        "chapters": len(chapters),
+        "duration_seconds": int(offset),
+        "size_mb": round(size / 1048576, 1),
+    }
+
+
+# ── User settings (Kindle email, preferences) ────────────────────────────
+@app.get("/api/v1/settings")
+async def get_settings(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    row = await db.fetch_one("SELECT kindle_email, email, role FROM users WHERE id = $1", user["id"])
+    return dict(row) if row else {}
+
+
+@app.patch("/api/v1/settings")
+async def update_settings(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    allowed = {"kindle_email", "email"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        return {"error": "no valid fields"}
+    sets = ", ".join(f"{k} = ${i + 2}" for i, k in enumerate(updates))
+    await db.execute(f"UPDATE users SET {sets} WHERE id = $1", user["id"], *updates.values())
+    return {"ok": True, **updates}

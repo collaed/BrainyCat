@@ -5,11 +5,21 @@ Self-hosted unified personal library for ebooks and audiobooks.
 ## Features
 
 - **Library Management** — Upload, organize, browse ebooks (EPUB/PDF/MOBI) and audiobooks (MP3/M4B/FLAC)
+- **Bulk Operations** — Multi-select books for batch tagging, enrichment, deletion, conversion
 - **EPUB Reader** — In-browser reader with progress tracking, bookmarks, annotations, themes, genre-coded margins
+- **PDF Reader** — In-browser PDF viewing with pdf.js, progress tracking, lazy page rendering
+- **MOBI/AZW3 Reading** — Auto-converts to EPUB on first open
 - **Audio Player** — Chapter navigation, speed control, sleep timer, Media Session API
 - **Metadata Enrichment** — Auto-fetch from Google Books, Open Library, Gutendex, Wikidata
+- **ISBN Barcode Scanner** — pyzbar decodes EAN-13 barcodes from scanned PDF back covers
+- **Multi-ISBN Extraction** — Stores print, ebook, PDF, audiobook ISBNs with type detection
+- **Edition Detection** — Multilingual (English/French/German/Spanish) edition number extraction
+- **Original Title Detection** — Extracts original title from translations
 - **Cover Generation** — Genre-styled covers (fiction: vertical stripe, non-fiction: horizontal stripe)
 - **Library Intelligence** — Quality analysis, series detection, author dedup, duplicate detection
+- **Quality Score** — Calibre-aligned 10-field weighted scoring (100 max)
+- **Language Detection** — From EPUB OPF metadata + ISBN region inference
+- **Missing Data Filter** — Filter library by missing ISBN, description, cover, tags, quality
 - **Text-to-Speech** — Piper TTS converts ebooks to per-chapter audiobooks
 - **Speech-to-Text** — Via Intello (Groq Whisper) with chapter splitting
 - **Format Conversion** — EPUB → PDF via WeasyPrint
@@ -27,6 +37,10 @@ Self-hosted unified personal library for ebooks and audiobooks.
 - **Multi-User** — Shared files, per-user progress/shelves/preferences
 - **Signal Notifications** — New books, job completions
 - **CLI Tool** — `brainycat upload`, `search`, `send-to-kindle`, `stats`
+
+## Library Stats
+
+📚 **1,551 books** — 97.1% ISBN · 94.3% language · 99.8% covers · 60% descriptions
 
 ## Tech Stack
 
