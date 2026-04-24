@@ -27,8 +27,12 @@ PRINTER_ANCHORS = re.compile(
     re.IGNORECASE,
 )
 EDITION_ANCHORS = re.compile(
-    r"(?:First|Second|Third|\d+(?:st|nd|rd|th))?\s*(?:Edition|Printing|Édition|Tirage|Auflage|Ausgabe"
-    r"|Edición|Reimpresión|Edizione|Ristampa|Edição|Tiragem|Ediția|Utgåva|Upplaga|版次|印次)",
+    r"(\d+(?:st|nd|rd|th|re|e|ère|ème|te|\.)?)\s*(?:Edition|Printing|Édition|Tirage|Auflage|Ausgabe"
+    r"|Edición|Reimpresión|Edizione|Ristampa|Edição|Tiragem|Ediția|Utgåva|Upplaga|版次|印次)"
+    r"|(?:First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth"
+    r"|Première|Deuxième|Troisième|Quatrième|Cinquième|Sixième"
+    r"|Erste|Zweite|Dritte|Vierte|Fünfte|Sechste)"
+    r"\s+(?:Edition|Édition|Auflage|Edición|Edizione|Edição)",
     re.IGNORECASE,
 )
 TRANSLATOR_ANCHORS = re.compile(
@@ -444,20 +448,23 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
                 UUID(book_id),
             )
 
-    # Store publisher if found and not already set
-    if extra.get("publisher"):
-        import json
+    # Store extracted metadata (publisher, edition, translator, printer)
+    import json
 
+    meta_update = {
+        k: v
+        for k, v in {
+            "publisher": extra.get("publisher"),
+            "printer": extra.get("printer"),
+            "edition": extra.get("edition"),
+            "translator": extra.get("translator"),
+        }.items()
+        if v
+    }
+    if meta_update:
         await execute(
-            "UPDATE books SET extra_metadata = extra_metadata || $1::jsonb WHERE id = $2",
-            json.dumps(
-                {
-                    "publisher": extra["publisher"],
-                    "printer": extra.get("printer"),
-                    "edition": extra.get("edition"),
-                    "translator": extra.get("translator"),
-                }
-            ),
+            "UPDATE books SET extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || $1::jsonb WHERE id = $2",
+            json.dumps(meta_update),
             UUID(book_id),
         )
 
