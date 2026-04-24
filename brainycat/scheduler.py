@@ -11,6 +11,7 @@ async def start_scheduler() -> None:
     asyncio.create_task(_enrichment_loop())  # noqa: RUF006
     asyncio.create_task(_fingerprint_loop())  # noqa: RUF006
     asyncio.create_task(_title_cleanup_loop())  # noqa: RUF006
+    asyncio.create_task(_ocr_loop())  # noqa: RUF006
     await log.ainfo("scheduler_started")
 
 
@@ -110,3 +111,86 @@ async def _title_cleanup_loop() -> None:
         except Exception as e:
             await log.awarning("title_cleanup_error", error=str(e))
         await asyncio.sleep(60)  # Every 60s
+
+
+async def _ocr_loop() -> None:
+    """Keep one OCR job in flight on Intello. Poll status, submit next."""
+    await asyncio.sleep(90)
+    while True:
+        try:
+            from brainycat.db import execute, fetch_all, fetch_one
+            from brainycat.http_client import get_client
+
+            # 1. Poll pending OCR jobs
+            pending = await fetch_all(
+                "SELECT id, book_id, remote_job_id FROM async_jobs WHERE job_type = 'ocr' AND status = 'submitted' LIMIT 5"
+            )
+            client = get_client()
+            for job in pending:
+                try:
+                    resp = await client.get(f"http://intello:8000/api/v1/ocr/jobs/{job['remote_job_id']}", timeout=10)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        status = data.get("status", "unknown")
+                        if status == "complete":
+                            await execute("UPDATE async_jobs SET status = 'complete' WHERE id = $1", job["id"])
+                            # Download result if available
+                            result_path = data.get("result_path")
+                            if result_path:
+                                dl = await client.get(f"http://intello:8000{result_path}", timeout=60)
+                                if dl.status_code == 200:
+                                    import os
+
+                                    from brainycat.storage import book_dir
+
+                                    out = os.path.join(book_dir(str(job["book_id"])), "ocr_result.pdf")
+                                    with open(out, "wb") as f:
+                                        f.write(dl.content)
+                                    await execute(
+                                        "INSERT INTO book_files (book_id, file_path, format, file_size, file_name) "
+                                        "VALUES ($1, $2, 'pdf', $3, 'ocr_result.pdf') ON CONFLICT DO NOTHING",
+                                        job["book_id"],
+                                        out,
+                                        len(dl.content),
+                                    )
+                            await log.ainfo("ocr_complete", book_id=str(job["book_id"]))
+                        elif status == "failed":
+                            await execute("UPDATE async_jobs SET status = 'failed' WHERE id = $1", job["id"])
+                except Exception:
+                    pass
+
+            # 2. If no pending jobs, submit the next scanned PDF without OCR
+            active = await fetch_one("SELECT id FROM async_jobs WHERE job_type = 'ocr' AND status = 'submitted' LIMIT 1")
+            if not active:
+                candidate = await fetch_one("""
+                    SELECT b.id, bf.file_path, b.language FROM books b
+                    JOIN book_files bf ON bf.book_id = b.id AND bf.format = 'pdf' AND bf.file_size > 500000
+                    WHERE NOT EXISTS (SELECT 1 FROM async_jobs aj WHERE aj.book_id = b.id AND aj.job_type = 'ocr')
+                    ORDER BY bf.file_size ASC LIMIT 1
+                """)
+                if candidate:
+                    import os
+
+                    if os.path.isfile(candidate["file_path"]):
+                        lang = (candidate["language"] or "eng")[:3]
+                        with open(candidate["file_path"], "rb") as f:
+                            resp = await client.post(
+                                "http://intello:8000/api/v1/ocr/jobs",
+                                files={"file": ("book.pdf", f, "application/pdf")},
+                                data={"language": lang, "output": "searchable_pdf"},
+                                timeout=60,
+                            )
+                        if resp.status_code == 200:
+                            import uuid
+
+                            remote_id = resp.json().get("job_id", "")
+                            await execute(
+                                "INSERT INTO async_jobs (id, book_id, job_type, remote_job_id, status) VALUES ($1, $2, 'ocr', $3, 'submitted')",
+                                uuid.uuid4(),
+                                candidate["id"],
+                                remote_id,
+                            )
+                            await log.ainfo("ocr_submitted", book_id=str(candidate["id"]))
+        except Exception as e:
+            await log.awarning("ocr_loop_error", error=str(e))
+        await asyncio.sleep(120)  # Check every 2 minutes

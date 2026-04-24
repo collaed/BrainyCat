@@ -27,6 +27,7 @@
 <button onclick="toggleToc()">☰</button>
 <span class="title" id="book-title">Loading...</span>
 <select id="theme" onchange="setTheme(this.value)"><option value="dark">Dark</option><option value="light">Light</option><option value="sepia">Sepia</option><option value="night">🌙 Night</option></select>
+<select id="font-family" onchange="setFont(this.value)"><option value="">Default</option><option value="OpenDyslexic">OpenDyslexic</option><option value="Georgia,serif">Serif</option><option value="system-ui,sans-serif">Sans</option><option value="'Courier New',monospace">Mono</option></select>
 <button onclick="changeFontSize(-2)">A-</button>
 <button onclick="changeFontSize(2)">A+</button>
 <button onclick="prevPage()">◀</button>
@@ -208,6 +209,31 @@ function setTheme(t) {
     document.getElementById('night-overlay').style.display = t === 'night' ? '' : 'none';
 }
 function switchToAudio() { location = 'player.html?id=' + bookId; }
+
+function setFont(f) {
+    if (!rendition) return;
+    if (f) {
+        rendition.themes.font(f);
+        rendition.themes.override('font-family', f + ' !important');
+    }
+}
+
+// Custom CSS injection — user can paste their own styles
+function injectCustomCSS() {
+    const css = prompt('Enter custom CSS (applied to book content):', localStorage.getItem('bc-custom-css') || '');
+    if (css !== null) {
+        localStorage.setItem('bc-custom-css', css);
+        if (rendition && css) rendition.themes.override('*', css);
+        // Re-render to apply
+        if (rendition) rendition.display(rendition.location?.start?.cfi);
+    }
+}
+
+// Load OpenDyslexic font
+const dyslexicLink = document.createElement('link');
+dyslexicLink.rel = 'stylesheet';
+dyslexicLink.href = 'https://fonts.cdnfonts.com/css/opendyslexic';
+document.head.appendChild(dyslexicLink);
 
 
 // Genre color coding for margins
