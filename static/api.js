@@ -27,7 +27,7 @@ const BC = {
     upload: async (p, file) => {
         const fd = new FormData();
         fd.append('file', file);
-        const r = await fetch(API + p, { method: 'POST', body: fd });
+        const r = await fetch(API + p, { method: 'POST', body: fd, credentials: 'same-origin' });
         return r.json();
     },
 };
