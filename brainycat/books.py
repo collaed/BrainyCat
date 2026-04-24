@@ -44,6 +44,28 @@ async def upload_book(
             out.write(chunk)
             size += len(chunk)
 
+    # If zip, extract and process each file inside
+    if ext == ".zip":
+        import zipfile
+
+        results = []
+        with zipfile.ZipFile(file_path) as zf:
+            for name in zf.namelist():
+                inner_ext = os.path.splitext(name)[1].lower()
+                if inner_ext in ALLOWED_FORMATS and inner_ext != ".zip":
+                    inner_path = os.path.join(storage.book_dir(book_id), os.path.basename(name))
+                    with zf.open(name) as src, open(inner_path, "wb") as dst:
+                        import shutil
+
+                        shutil.copyfileobj(src, dst)
+                    results.append(os.path.basename(name))
+            if not results:
+                return {"error": "No supported files in zip"}
+            # Use the first extracted file as the main book
+            file_path = os.path.join(storage.book_dir(book_id), results[0])
+            ext = os.path.splitext(results[0])[1].lower()
+        os.unlink(os.path.join(storage.book_dir(book_id), os.path.basename(file.filename)))
+
     # Extract metadata
     meta = extract_metadata(file_path)
     title = meta.get("title") or os.path.splitext(file.filename)[0]
