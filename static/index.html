@@ -273,7 +273,6 @@ function closeModal(){document.getElementById('modal').classList.remove('active'
 function openReader(id, hasEpub) {
     location = 'reader.html?id=' + id;
 }
-}
 function searchTag(t){searchInput.value=t;page=0;allBooks=[];hasMore=true;loadBooks();closeModal();}
 function showJobStatus(m,p){const el=document.getElementById('job-status');el.style.display='block';document.getElementById('job-msg').textContent=m;document.getElementById('job-bar').style.width=p+'%';}
 async function pollJob(jid){for(let i=0;i<300;i++){await new Promise(r=>setTimeout(r,2000));try{const j=await BC.get('/jobs/'+jid);if(!j)break;showJobStatus(`${j.job_type}: ${j.status} (${Math.round(j.progress||0)}%)`,j.progress||0);if(j.status==='complete'){showJobStatus('✅ Done!',100);loadBooks();return j;}if(j.status==='failed'){showJobStatus('❌ '+(j.error||'').slice(0,120),0);return j;}}catch{break;}}}
