@@ -1,208 +1,229 @@
-"""Background scheduler — periodic enrichment, fingerprinting, duplicate detection."""
+"""Background scheduler — supervised tasks with proper error handling."""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+from typing import Any
 
 from brainycat.logging import log
 
+# ── Supervised task runner ────────────────────────────────────────────────
+_tasks: list[asyncio.Task[None]] = []
+
 
 async def start_scheduler() -> None:
-    asyncio.create_task(_enrichment_loop())  # noqa: RUF006
-    asyncio.create_task(_fingerprint_loop())  # noqa: RUF006
-    asyncio.create_task(_title_cleanup_loop())  # noqa: RUF006
-    asyncio.create_task(_ocr_loop())  # noqa: RUF006
-    await log.ainfo("scheduler_started")
+    """Start all background loops with supervision."""
+    loops = [
+        ("enrichment", _enrichment_loop, 60),
+        ("fingerprint", _fingerprint_loop, 30),
+        ("title_cleanup", _title_cleanup_loop, 90),
+        ("ocr", _ocr_loop, 120),
+    ]
+    for name, fn, interval in loops:
+        task = asyncio.create_task(_supervised(name, fn, interval))
+        _tasks.append(task)
+    await log.ainfo("scheduler_started", tasks=len(loops))
 
 
-async def _enrichment_loop() -> None:
-    await asyncio.sleep(15)
+async def _supervised(name: str, fn: Any, interval: int) -> None:
+    """Run a loop function with supervision — restart on crash, log all errors."""
+    await asyncio.sleep(15 + hash(name) % 30)  # stagger startup
     while True:
         try:
-            from brainycat.db import get_pool
-            from brainycat.metadata import enrich_book
+            await fn()
+        except Exception as e:
+            # Log but don't die — the while True keeps us alive
+            with contextlib.suppress(Exception):
+                await log.awarning(f"{name}_error", error=str(e)[:200])
+        await asyncio.sleep(interval)
 
-            pool = await get_pool()
-            enriched = 0
-            # Use FOR UPDATE SKIP LOCKED to prevent concurrent enrichment of same book
-            async with pool.acquire() as conn, conn.transaction():
-                rows = await conn.fetch(
-                    "SELECT id, title FROM books WHERE quality_score < 50 ORDER BY updated_at ASC LIMIT 3 FOR UPDATE SKIP LOCKED"
-                )
-                for row in rows:
-                    await conn.execute("UPDATE books SET updated_at = now() WHERE id = $1", row["id"])
 
-            for row in rows:
+# ── Enrichment (with row locking) ────────────────────────────────────────
+async def _enrichment_loop() -> None:
+    from brainycat.db import get_pool
+    from brainycat.metadata import enrich_book
+
+    pool = await get_pool()
+    # Claim books atomically — no two workers touch the same book
+    async with pool.acquire() as conn, conn.transaction():
+        rows = await conn.fetch(
+            "SELECT id, title FROM books WHERE quality_score < 50 ORDER BY updated_at ASC LIMIT 3 FOR UPDATE SKIP LOCKED"
+        )
+        for row in rows:
+            await conn.execute("UPDATE books SET updated_at = now() WHERE id = $1", row["id"])
+
+    enriched = 0
+    for row in rows:
+        try:
+            async with asyncio.timeout(30):  # 30s max per book
                 result = await enrich_book(str(row["id"]))
                 if result.get("enriched"):
                     enriched += 1
-            if enriched:
-                await log.ainfo("auto_enriched", count=enriched, batch=len(rows))
-        except Exception as e:
-            await log.awarning("enrichment_error", error=str(e))
-        await asyncio.sleep(60)
+        except TimeoutError:
+            await log.awarning("enrichment_timeout", book_id=str(row["id"]))
+        except Exception:
+            pass
+    if enriched:
+        await log.ainfo("auto_enriched", count=enriched, batch=len(rows))
 
 
+# ── Fingerprints + embeddings ─────────────────────────────────────────────
 async def _fingerprint_loop() -> None:
-    await asyncio.sleep(45)
-    while True:
-        try:
-            # Generate embeddings for books without them
-            from brainycat.db import fetch_all as _fa
-            from brainycat.embeddings import embed_book
+    from brainycat.db import fetch_all
+    from brainycat.embeddings import embed_book
 
-            unembedded = await _fa("SELECT id FROM books WHERE embedding IS NULL AND description IS NOT NULL LIMIT 20")
-            for r in unembedded:
-                with contextlib.suppress(Exception):
-                    await embed_book(str(r["id"]))
+    unembedded = await fetch_all("SELECT id FROM books WHERE embedding IS NULL AND description IS NOT NULL LIMIT 20")
+    for r in unembedded:
+        with contextlib.suppress(Exception):
+            await embed_book(str(r["id"]))
 
-            from brainycat.fingerprints import compute_all_fingerprints, find_duplicates_by_content
+    from brainycat.fingerprints import compute_all_fingerprints, find_duplicates_by_content
 
-            result = await compute_all_fingerprints(batch_size=10)
-            if result["computed"] > 0:
-                await log.ainfo("fingerprints", **result)
+    result = await compute_all_fingerprints(batch_size=10)
+    if result["computed"] > 0:
+        await log.ainfo("fingerprints", **result)
 
-            if result.get("pending", 0) == 0:
-                dupes = await find_duplicates_by_content(batch_size=20)
-                if dupes["new_matches"] > 0:
-                    await log.ainfo("dupes_found", **dupes)
-        except Exception as e:
-            await log.awarning("fingerprint_error", error=str(e))
-        await asyncio.sleep(30)
+    if result.get("pending", 0) == 0:
+        dupes = await find_duplicates_by_content(batch_size=20)
+        if dupes["new_matches"] > 0:
+            await log.ainfo("dupes_found", **dupes)
 
 
+# ── Title cleanup + genre classification (with rate limiting) ─────────────
 async def _title_cleanup_loop() -> None:
-    """Background: extract ISBNs from filenames, fix titles from API."""
-    await asyncio.sleep(60)  # Wait 1 min before starting
-    while True:
+    from brainycat.title_cleanup import run_title_cleanup_cycle
+
+    result = await run_title_cleanup_cycle()
+    isbn_found = result.get("isbn_from_filename", {}).get("found", 0)
+    titles_fixed = result.get("api_title_fix", {}).get("fixed", 0)
+
+    # Classify untagged books via Google Books (rate-limited)
+    from brainycat.db import execute, fetch_one, get_pool
+    from brainycat.http_client import get_client
+    from brainycat.rate_limit import rate_limiter
+
+    pool = await get_pool()
+    async with pool.acquire() as conn, conn.transaction():
+        untagged = await conn.fetch("""
+            SELECT b.id, b.isbn FROM books b
+            WHERE b.isbn IS NOT NULL AND length(b.isbn) >= 10
+              AND NOT EXISTS (SELECT 1 FROM books_tags bt WHERE bt.book_id = b.id)
+            LIMIT 5 FOR UPDATE SKIP LOCKED
+        """)
+        for row in untagged:
+            await conn.execute("UPDATE books SET updated_at = now() WHERE id = $1", row["id"])
+
+    genres_added = 0
+    for row in untagged:
         try:
-            from brainycat.title_cleanup import run_title_cleanup_cycle
+            await rate_limiter.wait("google")
+            c = get_client()
+            async with asyncio.timeout(10):
+                resp = await c.get(f"https://www.googleapis.com/books/v1/volumes?q=isbn:{row['isbn']}&maxResults=1")
+            if resp.status_code == 200:
+                items = resp.json().get("items", [])
+                if items:
+                    for cat in items[0].get("volumeInfo", {}).get("categories", [])[:5]:
+                        await execute("INSERT INTO tags (name) VALUES ($1) ON CONFLICT DO NOTHING", cat.strip())
+                        tag = await fetch_one("SELECT id FROM tags WHERE name = $1", cat.strip())
+                        if tag:
+                            await execute(
+                                "INSERT INTO books_tags (book_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+                                row["id"],
+                                tag["id"],
+                            )
+                            genres_added += 1
+            elif resp.status_code == 429:
+                await rate_limiter.record_failure("google")
+                break  # stop hammering
+        except TimeoutError:
+            pass
+        except Exception:
+            pass
 
-            result = await run_title_cleanup_cycle()
-            isbn_found = result.get("isbn_from_filename", {}).get("found", 0)
-            titles_fixed = result.get("api_title_fix", {}).get("fixed", 0)
-
-            # Also classify untagged books
-            from brainycat.db import execute, fetch_all, fetch_one
-            from brainycat.http_client import get_client
-            from brainycat.rate_limit import rate_limiter
-
-            untagged = await fetch_all("""
-                SELECT b.id, b.isbn FROM books b
-                WHERE b.isbn IS NOT NULL AND length(b.isbn) >= 10
-                  AND NOT EXISTS (SELECT 1 FROM books_tags bt WHERE bt.book_id = b.id)
-                LIMIT 5
-            """)
-            genres_added = 0
-            for row in untagged:
-                try:
-                    await rate_limiter.wait("google")
-                    c = get_client()
-                    resp = await c.get(f"https://www.googleapis.com/books/v1/volumes?q=isbn:{row['isbn']}&maxResults=1")
-                    if resp.status_code == 200:
-                        items = resp.json().get("items", [])
-                        if items:
-                            for cat in items[0].get("volumeInfo", {}).get("categories", [])[:5]:
-                                await execute("INSERT INTO tags (name) VALUES ($1) ON CONFLICT DO NOTHING", cat.strip())
-                                tag = await fetch_one("SELECT id FROM tags WHERE name = $1", cat.strip())
-                                if tag:
-                                    await execute(
-                                        "INSERT INTO books_tags (book_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
-                                        row["id"],
-                                        tag["id"],
-                                    )
-                                    genres_added += 1
-                except Exception:
-                    pass
-            if isbn_found or titles_fixed or genres_added:
-                await log.ainfo("title_cleanup", isbn_found=isbn_found, titles_fixed=titles_fixed, genres_added=genres_added)
-        except Exception as e:
-            await log.awarning("title_cleanup_error", error=str(e))
-        await asyncio.sleep(60)  # Every 60s
+    if isbn_found or titles_fixed or genres_added:
+        await log.ainfo("title_cleanup", isbn_found=isbn_found, titles_fixed=titles_fixed, genres_added=genres_added)
 
 
+# ── OCR polling + submission ──────────────────────────────────────────────
 async def _ocr_loop() -> None:
-    """Keep one OCR job in flight on Intello. Poll status, submit next."""
-    await asyncio.sleep(90)
-    while True:
+    from brainycat.config import settings
+    from brainycat.db import execute, fetch_all, fetch_one
+    from brainycat.http_client import get_client
+
+    intello_url = settings.intello_url.rstrip("/")
+    client = get_client()
+
+    # 1. Poll pending OCR jobs
+    pending = await fetch_all("SELECT id, book_id, remote_job_id FROM async_jobs WHERE job_type = 'ocr' AND status = 'submitted' LIMIT 5")
+    for job in pending:
         try:
-            from brainycat.db import execute, fetch_all, fetch_one
-            from brainycat.http_client import get_client
+            async with asyncio.timeout(15):
+                resp = await client.get(f"{intello_url}/api/v1/ocr/jobs/{job['remote_job_id']}")
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            status = data.get("status", "unknown")
+            if status == "complete":
+                await execute("UPDATE async_jobs SET status = 'complete' WHERE id = $1", job["id"])
+                if data.get("result_path"):
+                    async with asyncio.timeout(120):
+                        dl = await client.get(f"{intello_url}/api/v1/ocr/jobs/{job['remote_job_id']}/result")
+                    if dl.status_code == 200:
+                        import os
 
-            # 1. Poll pending OCR jobs
-            pending = await fetch_all(
-                "SELECT id, book_id, remote_job_id FROM async_jobs WHERE job_type = 'ocr' AND status = 'submitted' LIMIT 5"
-            )
-            client = get_client()
-            for job in pending:
+                        from brainycat.storage import book_dir
+
+                        out = os.path.join(book_dir(str(job["book_id"])), "ocr_result.pdf")
+                        with open(out, "wb") as f:
+                            f.write(dl.content)
+                        await execute(
+                            "INSERT INTO book_files (book_id, file_path, format, file_size, file_name) "
+                            "VALUES ($1, $2, 'pdf', $3, 'ocr_result.pdf') ON CONFLICT DO NOTHING",
+                            job["book_id"],
+                            out,
+                            len(dl.content),
+                        )
+                await log.ainfo("ocr_complete", book_id=str(job["book_id"]))
+            elif status == "failed":
+                await execute("UPDATE async_jobs SET status = 'failed' WHERE id = $1", job["id"])
+        except TimeoutError:
+            pass
+        except Exception:
+            pass
+
+    # 2. Submit next if queue empty
+    active = await fetch_one("SELECT id FROM async_jobs WHERE job_type = 'ocr' AND status = 'submitted' LIMIT 1")
+    if not active:
+        candidate = await fetch_one("""
+            SELECT b.id, bf.file_path, b.language FROM books b
+            JOIN book_files bf ON bf.book_id = b.id AND bf.format = 'pdf' AND bf.file_size > 500000
+            WHERE NOT EXISTS (SELECT 1 FROM async_jobs aj WHERE aj.book_id = b.id AND aj.job_type = 'ocr')
+            ORDER BY bf.file_size ASC LIMIT 1
+        """)
+        if candidate:
+            import os
+            import uuid
+
+            if os.path.isfile(candidate["file_path"]):
+                lang = (candidate["language"] or "eng")[:3]
                 try:
-                    resp = await client.get(f"http://intello:8000/api/v1/ocr/jobs/{job['remote_job_id']}", timeout=10)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        status = data.get("status", "unknown")
-                        if status == "complete":
-                            await execute("UPDATE async_jobs SET status = 'complete' WHERE id = $1", job["id"])
-                            # Download result via proper API endpoint
-                            result_path = data.get("result_path")
-                            if result_path:
-                                dl = await client.get(
-                                    f"http://intello:8000/api/v1/ocr/jobs/{job['remote_job_id']}/result",
-                                    timeout=120,
-                                )
-                                if dl.status_code == 200:
-                                    import os
-
-                                    from brainycat.storage import book_dir
-
-                                    out = os.path.join(book_dir(str(job["book_id"])), "ocr_result.pdf")
-                                    with open(out, "wb") as f:
-                                        f.write(dl.content)
-                                    await execute(
-                                        "INSERT INTO book_files (book_id, file_path, format, file_size, file_name) "
-                                        "VALUES ($1, $2, 'pdf', $3, 'ocr_result.pdf') ON CONFLICT DO NOTHING",
-                                        job["book_id"],
-                                        out,
-                                        len(dl.content),
-                                    )
-                            await log.ainfo("ocr_complete", book_id=str(job["book_id"]))
-                        elif status == "failed":
-                            await execute("UPDATE async_jobs SET status = 'failed' WHERE id = $1", job["id"])
-                except Exception:
-                    pass
-
-            # 2. If no pending jobs, submit the next scanned PDF without OCR
-            active = await fetch_one("SELECT id FROM async_jobs WHERE job_type = 'ocr' AND status = 'submitted' LIMIT 1")
-            if not active:
-                candidate = await fetch_one("""
-                    SELECT b.id, bf.file_path, b.language FROM books b
-                    JOIN book_files bf ON bf.book_id = b.id AND bf.format = 'pdf' AND bf.file_size > 500000
-                    WHERE NOT EXISTS (SELECT 1 FROM async_jobs aj WHERE aj.book_id = b.id AND aj.job_type = 'ocr')
-                    ORDER BY bf.file_size ASC LIMIT 1
-                """)
-                if candidate:
-                    import os
-
-                    if os.path.isfile(candidate["file_path"]):
-                        lang = (candidate["language"] or "eng")[:3]
+                    async with asyncio.timeout(60):
                         with open(candidate["file_path"], "rb") as f:
                             resp = await client.post(
-                                "http://intello:8000/api/v1/ocr/jobs",
+                                f"{intello_url}/api/v1/ocr/jobs",
                                 files={"file": ("book.pdf", f, "application/pdf")},
                                 data={"language": lang, "output": "searchable_pdf"},
-                                timeout=60,
                             )
-                        if resp.status_code == 200:
-                            import uuid
-
-                            remote_id = resp.json().get("job_id", "")
-                            await execute(
-                                "INSERT INTO async_jobs (id, book_id, job_type, remote_job_id, status) VALUES ($1, $2, 'ocr', $3, 'submitted')",
-                                uuid.uuid4(),
-                                candidate["id"],
-                                remote_id,
-                            )
-                            await log.ainfo("ocr_submitted", book_id=str(candidate["id"]))
-        except Exception as e:
-            await log.awarning("ocr_loop_error", error=str(e))
-        await asyncio.sleep(120)  # Check every 2 minutes
+                    if resp.status_code == 200:
+                        remote_id = resp.json().get("job_id", "")
+                        await execute(
+                            "INSERT INTO async_jobs (id, book_id, job_type, remote_job_id, status) VALUES ($1, $2, 'ocr', $3, 'submitted')",
+                            uuid.uuid4(),
+                            candidate["id"],
+                            remote_id,
+                        )
+                        await log.ainfo("ocr_submitted", book_id=str(candidate["id"]))
+                except TimeoutError:
+                    await log.awarning("ocr_submit_timeout")
