@@ -136,7 +136,7 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
         for g in merged["genres"]:
             m = map_tag_to_bisac(g)
             if m:
-                codes.append({"bisac": m[0], "name": m[1], "thema": m[2]})
+                codes.append({"bisac": m[0], "name": m[1], "thema": m[2], "confidence": "confirmed"})
         if not codes:
             # LLM fallback for unmapped genres
             from brainycat.bisac import llm_classify_bisac

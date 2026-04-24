@@ -6,6 +6,7 @@ from typing import Any
 
 from brainycat.config import settings
 from brainycat.http_client import get_client
+from brainycat.llm_parse import parse_llm_json
 
 # BISAC top-level mapping from Google Books categories and common free-text tags
 # Format: free_text_lower → (bisac_code, bisac_name, thema_code)
@@ -95,14 +96,11 @@ async def llm_classify_bisac(title: str, author: str, tags: list[str], descripti
             timeout=15,
         )
         if resp.status_code == 200:
-            import json
-
             text = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
             # Extract JSON array from response
-            start = text.find("[")
-            end = text.rfind("]") + 1
-            if start >= 0 and end > start:
-                return json.loads(text[start:end])
+            result = parse_llm_json(text)
+            if isinstance(result, list):
+                return result
     except Exception:
         pass
     return []
