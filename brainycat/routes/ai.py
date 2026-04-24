@@ -43,7 +43,7 @@ async def ai_explain(body: dict[str, Any], _u: Any = Depends(get_current_user)) 
 
         client = get_client()
         resp = await client.post(
-            "http://intello:8000/api/v1/llm/chat",
+            "http://intello:8000/v1/chat/completions",
             json={
                 "messages": [
                     {
@@ -73,7 +73,7 @@ async def ai_translate(body: dict[str, Any], _u: Any = Depends(get_current_user)
 
         client = get_client()
         resp = await client.post(
-            "http://intello:8000/api/v1/llm/chat",
+            "http://intello:8000/v1/chat/completions",
             json={
                 "messages": [
                     {

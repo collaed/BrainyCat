@@ -133,6 +133,16 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
             m = map_tag_to_bisac(g)
             if m:
                 codes.append({"bisac": m[0], "name": m[1], "thema": m[2]})
+        if not codes:
+            # LLM fallback for unmapped genres
+            from brainycat.bisac import llm_classify_bisac
+
+            codes = await llm_classify_bisac(
+                merged.get("title", ""),
+                merged.get("author", ""),
+                merged["genres"],
+                merged.get("description", ""),
+            )
         if codes:
             await execute(
                 "UPDATE books SET extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || $1::jsonb WHERE id = $2",

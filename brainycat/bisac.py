@@ -60,15 +60,50 @@ BISAC_MAP: dict[str, tuple[str, str, str]] = {
 
 
 def map_tag_to_bisac(tag: str) -> tuple[str, str, str] | None:
-    """Map a free-text tag to BISAC + Thema codes. Returns (code, name, thema) or None."""
+    """Map a free-text tag to BISAC + Thema codes. Exact match only."""
     key = tag.lower().strip()
     if key in BISAC_MAP:
         return BISAC_MAP[key]
-    # Fuzzy: check if any BISAC key is contained in the tag
-    for k, v in BISAC_MAP.items():
-        if k in key or key in k:
-            return v
     return None
+
+
+async def llm_classify_bisac(title: str, author: str, tags: list[str], description: str = "") -> list[dict[str, str]]:
+    """Use Groq Llama 3.3 70B to classify a book into BISAC codes when exact mapping fails."""
+    try:
+        from brainycat.http_client import get_client
+
+        client = get_client()
+        tag_str = ", ".join(tags) if tags else "none"
+        prompt = (
+            f"Classify this book into 1-3 BISAC subject codes.\n"
+            f"Title: {title}\nAuthor: {author}\nTags: {tag_str}\n"
+            f"Description: {description[:200]}\n\n"
+            f"Reply ONLY with JSON array like: "
+            f'[{{"bisac":"FIC027000","name":"Fiction / Romance / General","thema":"FRD"}}]\n'
+            f"No explanation, just the JSON array."
+        )
+        resp = await client.post(
+            "http://intello:8000/v1/chat/completions",
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 200,
+                "temperature": 0,
+            },
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            import json
+
+            text = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+            # Extract JSON array from response
+            start = text.find("[")
+            end = text.rfind("]") + 1
+            if start >= 0 and end > start:
+                return json.loads(text[start:end])
+    except Exception:
+        pass
+    return []
 
 
 def map_google_category(category: str) -> tuple[str, str, str] | None:
