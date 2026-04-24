@@ -114,3 +114,36 @@
 - [ ] Alembic migration coverage (currently 2 migrations for 33+ tables)
 - [ ] mypy enforcement
 - [ ] Test coverage improvement (182 tests, needs DB fixtures)
+
+## Ideas Backlog 💡
+
+### Reading Experience
+- [ ] **Book status enum** — Want to Read / Currently Reading / Finished / Library Only. Enables "TBR pile" view, finished count for goals, and "currently reading" shelf. Simple `status` column on books table + filter in UI.
+- [ ] **Daily reading logs** — "I read 30 pages of X today." Track page counts per day per book. Enables: reading speed trends, streak calculation, "you read 2.5 hours this week" stats. Table: `reading_logs(user_id, book_id, date, pages, minutes)`.
+- [ ] **Monthly/yearly wrap-up card** — Spotify Wrapped for books. Shareable image: "In 2026 I read 47 books, 60% fiction, favorite author was Ursula Le Guin, longest streak 14 days, 312 hours total." Generate as SVG → PNG. All data already exists in reading_progress + books_tags + books_authors.
+- [ ] **Reading speed trends** — pages/hour over time, by genre, by time of day. Requires daily reading logs.
+- [ ] **"Currently reading" widget** — small card showing book cover + progress bar + ETA. Embeddable (iframe/SVG) for blogs, Notion, etc.
+
+### Discovery & Social
+- [ ] **"You already own this" check** — when browsing catalogs, cross-reference against library by ISBN/title. Prevents re-downloading.
+- [ ] **Reading challenges** — "Read 5 books from a new genre", "Read a book from every continent", "Read 3 books over 500 pages." Gamification with badge SVGs.
+- [ ] **Book DNA shareable card** — visual fingerprint of your reading taste. Radar chart: fiction/non-fiction, genres, languages, avg length, reading pace. Shareable URL or image.
+- [ ] **Granular privacy controls** — per-book visibility (public/friends/private). Currently all-or-nothing.
+- [ ] **Activity feed** — "Alice finished 'Dune', Bob started 'Neuromancer', Carol highlighted 3 passages in 'Sapiens'." Real-time via WebSocket.
+
+### Intelligence
+- [ ] **3-tier semantic memory** (Beever Atlas pattern) — Tier 2: passages/quotes extracted from books. Tier 1: chapter themes clustered from passages. Tier 0: book summary synthesized from themes. Pre-compiled, queryable, deterministic fallback if LLM fails.
+- [ ] **Wiki-first book pages** — pre-generate structured intelligence pages per book: summary, themes, characters, key concepts, related books. Cache as HTML. LLM generates, regex validates completeness, deterministic splice fills gaps.
+- [ ] **Character map / relationship graph** — extract named entities from fiction, build character relationship graph. "Who is related to whom in this 800-page epic?"
+- [ ] **Cross-book knowledge graph** — connect concepts across books. "These 3 books all discuss stoicism." Requires entity extraction + clustering.
+- [ ] **Recipe extraction** — detect cookbook PDFs, extract structured recipes (ingredients, steps, servings). Niche but passionate community.
+- [ ] **Citation extraction** — for academic papers, extract references as BibTeX. Link cited papers to library if owned.
+
+### Technical
+- [ ] **FTS5 page-level indexing** (Grimoire pattern) — index book content at page/chapter level with snippet(). "Find the passage about X in chapter 3." Currently we have pgvector for semantic search but no full-text page-level index.
+- [ ] **Scan-failed flag** (Grimoire pattern) — mark books that failed processing (OCR, extraction, conversion) so they're not retried forever. Currently we use `isbn_ocr_tried` in JSONB; should be a proper column.
+- [ ] **File watcher** — inotify/watchdog on incoming folder. Auto-import books dropped via Samba/NFS. Debounce, ignore patterns, recursive.
+- [ ] **WebSocket for library updates** — when enrichment completes or a book is uploaded, push update to all connected clients. No more manual refresh.
+- [ ] **Contributor role on authors** — author vs editor vs translator vs illustrator vs narrator. Currently just names.
+- [ ] **Open Library contribution** — push enriched metadata back (covers, descriptions, subjects). Opt-in, admin-controlled. Virtuous cycle.
+- [ ] **Publisher analytics** — aggregate reading trends across community server users. Anonymized: "85% of readers who started your book finished it." Indie publishers would value this.
