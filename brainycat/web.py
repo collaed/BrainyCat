@@ -3834,3 +3834,33 @@ async def ocr_isbn(book_id: str, _u: Any = Depends(get_current_user)) -> dict[st
     from brainycat.isbn import ocr_last_page_for_isbn
 
     return await ocr_last_page_for_isbn(book_id)
+
+
+@app.post("/api/v1/books/{book_id}/convert/epub")
+async def convert_to_epub(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Convert a non-EPUB book file to EPUB for the reader."""
+    import os
+    from uuid import UUID as _UUID
+
+    from brainycat.conversion import convert
+    from brainycat.storage import book_dir
+
+    row = await db.fetch_one(
+        "SELECT bf.file_path, bf.format FROM book_files bf "
+        "WHERE bf.book_id = $1 AND bf.format != 'epub' "
+        "ORDER BY CASE bf.format WHEN 'mobi' THEN 1 WHEN 'azw3' THEN 2 WHEN 'pdf' THEN 3 ELSE 4 END LIMIT 1",
+        _UUID(book_id),
+    )
+    if not row:
+        return {"error": "no convertible file"}
+    out_path = os.path.join(book_dir(book_id), "converted.epub")
+    result = await convert(row["file_path"], out_path, "epub")
+    if not result.get("ok"):
+        return {"error": result.get("error", "conversion failed")}
+    file_id = await db.fetch_val(
+        "INSERT INTO book_files (book_id, file_path, format, file_size) VALUES ($1, $2, 'epub', $3) RETURNING id",
+        _UUID(book_id),
+        out_path,
+        os.path.getsize(out_path),
+    )
+    return {"ok": True, "file_id": str(file_id)}

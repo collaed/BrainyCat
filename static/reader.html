@@ -8,7 +8,7 @@
 #toolbar a{color:#94a3b8;text-decoration:none}
 #toolbar .title{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.9rem}
 #toolbar button,#toolbar select{padding:.3rem .6rem;border-radius:4px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;cursor:pointer;font-size:.8rem}
-#viewer{height:calc(100vh - 45px);overflow:hidden}
+#viewer{height:calc(100vh - 45px);overflow:auto}
 #toc{position:fixed;left:0;top:45px;width:280px;height:calc(100vh - 45px);background:#16213e;overflow-y:auto;transform:translateX(-100%);transition:transform .2s;z-index:10;padding:1rem;border-right:1px solid #334155}
 #toc.open{transform:translateX(0)}
 #toc h3{margin-bottom:.8rem;font-size:.9rem;color:#94a3b8}
@@ -69,10 +69,28 @@ async function init() {
     document.getElementById('book-title').textContent = data.title || 'Unknown';
 
     const epubFile = (data.files || []).find(f => f.format === 'epub');
+    const mobiFile = !epubFile && (data.files || []).find(f => ['mobi','azw3','azw','kfx'].includes(f.format));
     // Set up genre margin strips
     const genre = detectGenre(data.title, data.description, []);
     setupMargins(genre);
     document.getElementById('book-title').title = 'Genre: ' + genre;
+
+    if (!epubFile && mobiFile) {
+        log('Converting ' + mobiFile.format.toUpperCase() + ' to EPUB...');
+        try {
+            const convResp = await fetch(API + '/books/' + bookId + '/convert/epub', {method:'POST', credentials:'same-origin'});
+            if (convResp.ok) {
+                const convData = await convResp.json();
+                if (convData.file_id) {
+                    log('Conversion done, reloading...');
+                    location.reload();
+                    return;
+                }
+            }
+        } catch(e) {}
+        log('No EPUB available and conversion failed');
+        return;
+    }
     if (!epubFile) { log('No EPUB file found'); return; }
 
     // Check for audio version
@@ -93,7 +111,7 @@ async function init() {
             width: '100%',
             height: '100%',
             spread: 'none',
-            flow: 'paginated',
+            flow: 'scrolled-doc',
         });
 
         // Apply dark theme
@@ -113,9 +131,12 @@ async function init() {
         }
         log('');
 
+        // Generate locations for accurate progress tracking
+        await book.locations.generate(1024);
+
         // Track progress on page turn
         rendition.on('relocated', loc => {
-            const pct = loc.start.percentage ? (loc.start.percentage * 100) : 0;
+            const pct = book.locations.percentageFromCfi(loc.start.cfi) * 100;
             document.getElementById('progress-bar').style.width = pct + '%';
             scrollMargins(pct);
             if (loc.start.cfi) {
