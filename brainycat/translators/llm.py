@@ -12,7 +12,7 @@ class LLMBackend:
         client = get_client()
         resp = await client.post(
             f"{settings.intello_url}/v1/chat/completions",
-            json={"model": "auto", "messages": [{"role": "user", "content": prompt}], "max_tokens": 2048},
+            json={"model": "auto", "messages": [{"role": "user", "content": prompt}], "task_hint": "translation", "max_tokens": 2048},
         )
         if resp.status_code == 200:
             data = resp.json()

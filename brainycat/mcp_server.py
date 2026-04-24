@@ -13,7 +13,7 @@ from mcp.types import TextContent, Tool
 from brainycat.http_client import get_client
 
 # BrainyCat API — configure via environment
-API_URL = os.environ.get("BRAINYCAT_URL", "http://localhost:8000") + "/api/v1"
+API_URL = os.environ.get("BRAINYCAT_URL", "http://brainycat:8000") + "/api/v1"
 API_KEY = os.environ.get("BRAINYCAT_API_KEY", "")
 HEADERS: dict[str, str] = {}
 if API_KEY:

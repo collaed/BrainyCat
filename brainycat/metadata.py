@@ -333,7 +333,7 @@ Return: {{"thema_code": "XX", "thema_label": "...", "fiction": true/false, "genr
         client = get_client()
         resp = await client.post(
             f"{settings.intello_url}/v1/chat/completions",
-            json={"model": "auto", "messages": [{"role": "user", "content": prompt}], "max_tokens": 200},
+            json={"model": "auto", "messages": [{"role": "user", "content": prompt}], "task_hint": "classification", "max_tokens": 200},
         )
         if resp.status_code == 200:
             content = resp.json()["choices"][0]["message"]["content"]

@@ -20,6 +20,7 @@ async def _llm(
             json={
                 "model": "auto",
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                "task_hint": "analysis",
                 "max_tokens": 1024,
             },
         )

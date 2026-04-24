@@ -214,7 +214,7 @@ async def _ocr_loop() -> None:
                             resp = await client.post(
                                 f"{intello_url}/api/v1/ocr/jobs",
                                 files={"file": ("book.pdf", f, "application/pdf")},
-                                data={"language": lang, "output": "searchable_pdf"},
+                                data={"language": lang, "output": "hybrid"},
                             )
                     if resp.status_code == 200:
                         remote_id = resp.json().get("job_id", "")

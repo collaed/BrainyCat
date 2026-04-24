@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, Query
 
 from brainycat import companion
 from brainycat.auth import get_current_user
+from brainycat.config import settings
+from brainycat.http_client import get_client
 
 router = APIRouter(prefix="/api/v1", tags=["ai"])
 
@@ -39,11 +41,9 @@ async def ai_explain(body: dict[str, Any], _u: Any = Depends(get_current_user)) 
     if not text:
         return {"error": "no text"}
     try:
-        from brainycat.http_client import get_client
-
         client = get_client()
         resp = await client.post(
-            "http://intello:8000/v1/chat/completions",
+            f"{settings.intello_url}/v1/chat/completions",
             json={
                 "messages": [
                     {
@@ -51,6 +51,7 @@ async def ai_explain(body: dict[str, Any], _u: Any = Depends(get_current_user)) 
                         "content": f'Explain this passage briefly (2-3 sentences). If it\'s from a book, provide context:\n\n"{text}"',
                     }
                 ],
+                "task_hint": "analysis",
                 "max_tokens": 200,
             },
             timeout=15,
@@ -69,11 +70,9 @@ async def ai_translate(body: dict[str, Any], _u: Any = Depends(get_current_user)
     if not text:
         return {"error": "no text"}
     try:
-        from brainycat.http_client import get_client
-
         client = get_client()
         resp = await client.post(
-            "http://intello:8000/v1/chat/completions",
+            f"{settings.intello_url}/v1/chat/completions",
             json={
                 "messages": [
                     {

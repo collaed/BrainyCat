@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from brainycat.config import settings
+from brainycat.http_client import get_client
+
 # BISAC top-level mapping from Google Books categories and common free-text tags
 # Format: free_text_lower → (bisac_code, bisac_name, thema_code)
 BISAC_MAP: dict[str, tuple[str, str, str]] = {
@@ -70,8 +73,6 @@ def map_tag_to_bisac(tag: str) -> tuple[str, str, str] | None:
 async def llm_classify_bisac(title: str, author: str, tags: list[str], description: str = "") -> list[dict[str, str]]:
     """Use Groq Llama 3.3 70B to classify a book into BISAC codes when exact mapping fails."""
     try:
-        from brainycat.http_client import get_client
-
         client = get_client()
         tag_str = ", ".join(tags) if tags else "none"
         prompt = (
@@ -83,10 +84,11 @@ async def llm_classify_bisac(title: str, author: str, tags: list[str], descripti
             f"No explanation, just the JSON array."
         )
         resp = await client.post(
-            "http://intello:8000/v1/chat/completions",
+            f"{settings.intello_url}/v1/chat/completions",
             json={
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
+                "task_hint": "classification",
                 "max_tokens": 200,
                 "temperature": 0,
             },

@@ -101,7 +101,7 @@ async def optimize_ocr_pdf(ocr_path: str, output_path: str | None = None) -> dic
                                 fontname="helv",
                                 color=(0, 0, 0),
                             )
-                        except Exception:  # noqa: SIM105
+                        except Exception:
                             pass
                 pages_optimized += 1
         else:
