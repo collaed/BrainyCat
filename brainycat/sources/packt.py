@@ -49,11 +49,13 @@ async def packt_list_books(token: str) -> list[dict[str, Any]]:
         if not data:
             break
         for item in data:
-            books.append({
-                "id": item.get("productId", ""),
-                "title": item.get("productName", ""),
-                "type": item.get("productType", ""),
-            })
+            books.append(
+                {
+                    "id": item.get("productId", ""),
+                    "title": item.get("productName", ""),
+                    "type": item.get("productType", ""),
+                }
+            )
         offset += 25
     return books
 
@@ -110,6 +112,7 @@ async def packt_download_book(token: str, product_id: str) -> dict[str, Any]:
 
         # Be gentle
         import asyncio
+
         await asyncio.sleep(1)
 
     if not chapter_htmls:
@@ -132,9 +135,9 @@ def _strip_packt_chrome(html: str) -> str:
     # Remove script tags
     html = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL)
     # Remove Packt navigation, headers, footers
-    html = re.sub(r'<nav[^>]*>.*?</nav>', "", html, flags=re.DOTALL)
-    html = re.sub(r'<header[^>]*>.*?</header>', "", html, flags=re.DOTALL)
-    html = re.sub(r'<footer[^>]*>.*?</footer>', "", html, flags=re.DOTALL)
+    html = re.sub(r"<nav[^>]*>.*?</nav>", "", html, flags=re.DOTALL)
+    html = re.sub(r"<header[^>]*>.*?</header>", "", html, flags=re.DOTALL)
+    html = re.sub(r"<footer[^>]*>.*?</footer>", "", html, flags=re.DOTALL)
     # Remove Packt-specific classes
     html = re.sub(r'<div[^>]*class="[^"]*(?:sidebar|toolbar|menu|packt)[^"]*"[^>]*>.*?</div>', "", html, flags=re.DOTALL)
     # Remove empty divs
@@ -170,6 +173,7 @@ async def _assemble_epub(title: str, isbn: str, chapters: list[dict[str, str]]) 
     book.add_item(epub.EpubNav())
 
     import tempfile
+
     out = tempfile.mktemp(suffix=".epub")
     epub.write_epub(out, book)
     return out
@@ -196,20 +200,24 @@ async def import_packt_book(product_id: str, email: str, password: str) -> dict[
     os.makedirs(bdir, exist_ok=True)
 
     import shutil
+
     filename = f"{result['title'][:80]}.epub"
     dst = os.path.join(bdir, filename)
     shutil.move(result["epub_path"], dst)
     size = os.path.getsize(dst)
 
     await execute(
-        "INSERT INTO books (id, title, isbn, language, created_at, updated_at) "
-        "VALUES ($1, $2, $3, 'eng', now(), now())",
-        book_id, result["title"], result.get("isbn"),
+        "INSERT INTO books (id, title, isbn, language, created_at, updated_at) VALUES ($1, $2, $3, 'eng', now(), now())",
+        book_id,
+        result["title"],
+        result.get("isbn"),
     )
     await execute(
-        "INSERT INTO book_files (book_id, file_path, format, file_size, file_name) "
-        "VALUES ($1, $2, 'epub', $3, $4)",
-        book_id, dst, size, filename,
+        "INSERT INTO book_files (book_id, file_path, format, file_size, file_name) VALUES ($1, $2, 'epub', $3, $4)",
+        book_id,
+        dst,
+        size,
+        filename,
     )
 
     return {

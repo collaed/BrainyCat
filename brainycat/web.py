@@ -55,6 +55,7 @@ class NoCacheStatic(BaseHTTPMiddleware):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
 
+
 app.add_middleware(NoCacheStatic)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

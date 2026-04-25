@@ -827,10 +827,9 @@ async def list_packt_books(user: Any = Depends(get_current_user)) -> dict[str, A
     """List books in your Packt account."""
     from brainycat.sources.packt import packt_list_books, packt_login
 
-    settings_row = await db.fetch_one("SELECT extra_metadata FROM users WHERE id = $1", user["id"])
-    meta = (settings_row or {}).get("extra_metadata") or {}
-    email = meta.get("packt_email") or ""
-    password = meta.get("packt_password") or ""
+    settings_row = await db.fetch_one("SELECT packt_email, packt_password FROM users WHERE id = $1", user["id"])
+    email = (settings_row or {}).get("packt_email") or ""
+    password = (settings_row or {}).get("packt_password") or ""
     if not email or not password:
         return {"error": "Set Packt credentials in Settings (packt_email, packt_password)"}
 
@@ -846,10 +845,9 @@ async def import_packt(product_id: str, user: Any = Depends(get_current_user)) -
     """Download a book from your Packt account into BrainyCat."""
     from brainycat.sources.packt import import_packt_book
 
-    settings_row = await db.fetch_one("SELECT extra_metadata FROM users WHERE id = $1", user["id"])
-    meta = (settings_row or {}).get("extra_metadata") or {}
-    email = meta.get("packt_email") or ""
-    password = meta.get("packt_password") or ""
+    settings_row = await db.fetch_one("SELECT packt_email, packt_password FROM users WHERE id = $1", user["id"])
+    email = (settings_row or {}).get("packt_email") or ""
+    password = (settings_row or {}).get("packt_password") or ""
     if not email or not password:
         return {"error": "Set Packt credentials in Settings"}
     return await import_packt_book(product_id, email, password)

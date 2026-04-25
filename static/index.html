@@ -108,6 +108,7 @@ async function openSettings() {
         document.getElementById('set-email').value = s.email || '';
         const g = await BC.get('/reading-goals');
         document.getElementById('set-goal').value = g.target || '';
+        document.getElementById('set-packt-email').value = s.packt_email || '';
     } catch(e) {}
 }
 async function saveSettings() {
@@ -115,7 +116,11 @@ async function saveSettings() {
     const email = document.getElementById('set-email').value.trim();
     const goal = parseInt(document.getElementById('set-goal').value) || 0;
     const updates = {};
+    const packtEmail = document.getElementById('set-packt-email').value.trim();
+    const packtPass = document.getElementById('set-packt-pass').value;
     if (kindle) updates.kindle_email = kindle;
+    if (packtEmail) updates.packt_email = packtEmail;
+    if (packtPass) updates.packt_password = packtPass;
     if (email) updates.email = email;
     if (Object.keys(updates).length) await BC.patch('/settings', updates);
     if (goal > 0) await BC.post('/reading-goals', {target: goal});
@@ -196,6 +201,7 @@ async function openSettings() {
         document.getElementById('set-email').value = s.email || '';
         const g = await BC.get('/reading-goals');
         document.getElementById('set-goal').value = g.target || '';
+        document.getElementById('set-packt-email').value = s.packt_email || '';
     } catch(e) {}
 }
 async function saveSettings() {
@@ -203,7 +209,11 @@ async function saveSettings() {
     const email = document.getElementById('set-email').value.trim();
     const goal = parseInt(document.getElementById('set-goal').value) || 0;
     const updates = {};
+    const packtEmail = document.getElementById('set-packt-email').value.trim();
+    const packtPass = document.getElementById('set-packt-pass').value;
     if (kindle) updates.kindle_email = kindle;
+    if (packtEmail) updates.packt_email = packtEmail;
+    if (packtPass) updates.packt_password = packtPass;
     if (email) updates.email = email;
     if (Object.keys(updates).length) await BC.patch('/settings', updates);
     if (goal > 0) await BC.post('/reading-goals', {target: goal});
@@ -414,6 +424,7 @@ async function openSettings() {
         document.getElementById('set-email').value = s.email || '';
         const g = await BC.get('/reading-goals');
         document.getElementById('set-goal').value = g.target || '';
+        document.getElementById('set-packt-email').value = s.packt_email || '';
     } catch(e) {}
 }
 async function saveSettings() {
@@ -421,7 +432,11 @@ async function saveSettings() {
     const email = document.getElementById('set-email').value.trim();
     const goal = parseInt(document.getElementById('set-goal').value) || 0;
     const updates = {};
+    const packtEmail = document.getElementById('set-packt-email').value.trim();
+    const packtPass = document.getElementById('set-packt-pass').value;
     if (kindle) updates.kindle_email = kindle;
+    if (packtEmail) updates.packt_email = packtEmail;
+    if (packtPass) updates.packt_password = packtPass;
     if (email) updates.email = email;
     if (Object.keys(updates).length) await BC.patch('/settings', updates);
     if (goal > 0) await BC.post('/reading-goals', {target: goal});
@@ -438,6 +453,10 @@ async function saveSettings() {
 <p style="font-size:.75rem;color:#64748b;margin-bottom:1rem">Find this in Amazon → Manage Your Content and Devices → Preferences → Personal Document Settings</p>
 <label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Email</label>
 <input id="set-email" placeholder="you@example.com" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:1rem">
+<label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Packt Email</label>
+<input id="set-packt-email" placeholder="your@email.com" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:.5rem">
+<label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Packt Password</label>
+<input id="set-packt-pass" type="password" placeholder="••••••••" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:1rem">
 <label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Reading Goal (books per year)</label>
 <input id="set-goal" type="number" placeholder="50" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:1rem">
 <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -462,6 +481,7 @@ async function openSettings() {
         document.getElementById('set-email').value = s.email || '';
         const g = await BC.get('/reading-goals');
         document.getElementById('set-goal').value = g.target || '';
+        document.getElementById('set-packt-email').value = s.packt_email || '';
     } catch(e) {}
 }
 async function saveSettings() {
@@ -469,7 +489,11 @@ async function saveSettings() {
     const email = document.getElementById('set-email').value.trim();
     const goal = parseInt(document.getElementById('set-goal').value) || 0;
     const updates = {};
+    const packtEmail = document.getElementById('set-packt-email').value.trim();
+    const packtPass = document.getElementById('set-packt-pass').value;
     if (kindle) updates.kindle_email = kindle;
+    if (packtEmail) updates.packt_email = packtEmail;
+    if (packtPass) updates.packt_password = packtPass;
     if (email) updates.email = email;
     if (Object.keys(updates).length) await BC.patch('/settings', updates);
     if (goal > 0) await BC.post('/reading-goals', {target: goal});
