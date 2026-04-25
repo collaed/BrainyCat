@@ -819,3 +819,37 @@ async def browse_opds_catalog(url: str = Query(...), q: str = Query(None), _u: A
 
     results = await browse_opds(url, q)
     return {"results": results}
+
+
+# ── Packt library import ──────────────────────────────────────────────────
+@router.get("/packt/books")
+async def list_packt_books(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """List books in your Packt account."""
+    from brainycat.sources.packt import packt_list_books, packt_login
+
+    settings_row = await db.fetch_one("SELECT extra_metadata FROM users WHERE id = $1", user["id"])
+    meta = (settings_row or {}).get("extra_metadata") or {}
+    email = meta.get("packt_email") or ""
+    password = meta.get("packt_password") or ""
+    if not email or not password:
+        return {"error": "Set Packt credentials in Settings (packt_email, packt_password)"}
+
+    token = await packt_login(email, password)
+    if not token:
+        return {"error": "Packt login failed"}
+    books = await packt_list_books(token)
+    return {"books": books, "count": len(books)}
+
+
+@router.post("/packt/import/{product_id}")
+async def import_packt(product_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Download a book from your Packt account into BrainyCat."""
+    from brainycat.sources.packt import import_packt_book
+
+    settings_row = await db.fetch_one("SELECT extra_metadata FROM users WHERE id = $1", user["id"])
+    meta = (settings_row or {}).get("extra_metadata") or {}
+    email = meta.get("packt_email") or ""
+    password = meta.get("packt_password") or ""
+    if not email or not password:
+        return {"error": "Set Packt credentials in Settings"}
+    return await import_packt_book(product_id, email, password)
