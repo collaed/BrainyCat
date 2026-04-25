@@ -111,21 +111,7 @@ async function openSettings() {
         document.getElementById('set-packt-email').value = s.packt_email || '';
     } catch(e) {}
 }
-async function saveSettings() {
-    const kindle = document.getElementById('set-kindle').value.trim();
-    const email = document.getElementById('set-email').value.trim();
-    const goal = parseInt(document.getElementById('set-goal').value) || 0;
-    const updates = {};
-    const packtEmail = document.getElementById('set-packt-email').value.trim();
-    const packtPass = document.getElementById('set-packt-pass').value;
-    if (kindle) updates.kindle_email = kindle;
-    if (packtEmail) updates.packt_email = packtEmail;
-    if (packtPass) updates.packt_password = packtPass;
-    if (email) updates.email = email;
-    if (Object.keys(updates).length) await BC.patch('/settings', updates);
-    if (goal > 0) await BC.post('/reading-goals', {target: goal});
-    document.getElementById('settings-modal').style.display = 'none';
-}
+
 </script>
 </head>
 <body>
@@ -204,21 +190,7 @@ async function openSettings() {
         document.getElementById('set-packt-email').value = s.packt_email || '';
     } catch(e) {}
 }
-async function saveSettings() {
-    const kindle = document.getElementById('set-kindle').value.trim();
-    const email = document.getElementById('set-email').value.trim();
-    const goal = parseInt(document.getElementById('set-goal').value) || 0;
-    const updates = {};
-    const packtEmail = document.getElementById('set-packt-email').value.trim();
-    const packtPass = document.getElementById('set-packt-pass').value;
-    if (kindle) updates.kindle_email = kindle;
-    if (packtEmail) updates.packt_email = packtEmail;
-    if (packtPass) updates.packt_password = packtPass;
-    if (email) updates.email = email;
-    if (Object.keys(updates).length) await BC.patch('/settings', updates);
-    if (goal > 0) await BC.post('/reading-goals', {target: goal});
-    document.getElementById('settings-modal').style.display = 'none';
-}
+
 </script>
 <script>
 let allBooks=[],view='grid',sortField='updated_at',sortOrder='desc',page=0,loading=false,hasMore=true,currentBookIdx=-1;
@@ -427,21 +399,7 @@ async function openSettings() {
         document.getElementById('set-packt-email').value = s.packt_email || '';
     } catch(e) {}
 }
-async function saveSettings() {
-    const kindle = document.getElementById('set-kindle').value.trim();
-    const email = document.getElementById('set-email').value.trim();
-    const goal = parseInt(document.getElementById('set-goal').value) || 0;
-    const updates = {};
-    const packtEmail = document.getElementById('set-packt-email').value.trim();
-    const packtPass = document.getElementById('set-packt-pass').value;
-    if (kindle) updates.kindle_email = kindle;
-    if (packtEmail) updates.packt_email = packtEmail;
-    if (packtPass) updates.packt_password = packtPass;
-    if (email) updates.email = email;
-    if (Object.keys(updates).length) await BC.patch('/settings', updates);
-    if (goal > 0) await BC.post('/reading-goals', {target: goal});
-    document.getElementById('settings-modal').style.display = 'none';
-}
+
 </script>
 
 <!-- Settings modal -->
