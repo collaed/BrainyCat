@@ -851,3 +851,23 @@ async def import_packt(product_id: str, user: Any = Depends(get_current_user)) -
     if not email or not password:
         return {"error": "Set Packt credentials in Settings"}
     return await import_packt_book(product_id, email, password)
+
+
+# ── Web search (via Intello SearXNG) ──────────────────────────────────────
+@router.get("/web-search")
+async def web_search(q: str = Query(...), limit: int = Query(10), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search the web for book sources via Intello's SearXNG."""
+    from brainycat.config import settings
+
+    client = get_client()
+    try:
+        resp = await client.post(
+            f"{settings.intello_url}/api/v1/search/web",
+            json={"query": q, "max_results": limit},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return {"results": [], "error": "Web search unavailable"}
