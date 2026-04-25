@@ -203,6 +203,15 @@ async def _ocr_loop() -> None:
     except Exception:
         return  # Intello unreachable, skip this cycle
 
+    # 0b. Cache OCR capabilities (languages supported)
+    ocr_langs = set()
+    try:
+        caps = await client.get(f"{intello_url}/api/v1/ocr/capabilities", timeout=5)
+        if caps.status_code == 200:
+            ocr_langs = set(caps.json().get("languages", []))
+    except Exception:
+        pass
+
     # 1. Poll pending OCR jobs
     pending = await fetch_all("SELECT id, book_id, remote_job_id FROM async_jobs WHERE job_type = 'ocr' AND status = 'submitted' LIMIT 5")
     for job in pending:
@@ -256,6 +265,8 @@ async def _ocr_loop() -> None:
 
             if os.path.isfile(candidate["file_path"]):
                 lang = (candidate["language"] or "eng")[:3]
+                if ocr_langs and lang not in ocr_langs:
+                    lang = "eng"  # fallback if language not supported
                 try:
                     async with asyncio.timeout(60):
                         with open(candidate["file_path"], "rb") as f:
