@@ -48,7 +48,7 @@ async def _enrichment_loop() -> None:
     # Claim books atomically — no two workers touch the same book
     async with pool.acquire() as conn, conn.transaction():
         rows = await conn.fetch(
-            "SELECT id, title FROM books WHERE quality_score < 50 ORDER BY updated_at ASC LIMIT 3 FOR UPDATE SKIP LOCKED"
+            "SELECT id, title FROM books WHERE quality_score < 85 ORDER BY quality_score ASC, updated_at ASC LIMIT 3 FOR UPDATE SKIP LOCKED"
         )
         for row in rows:
             await conn.execute("UPDATE books SET updated_at = now() WHERE id = $1", row["id"])
