@@ -72,6 +72,7 @@ async def _enrichment_loop() -> None:
         if q and q["quality_score"] < 50:
             try:
                 from brainycat.deep_enrich import deep_enrich
+
                 async with asyncio.timeout(30):
                     await deep_enrich(str(row["id"]))
             except Exception:

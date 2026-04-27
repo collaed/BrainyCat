@@ -704,4 +704,27 @@ def _enrichment_priority(region: dict | None) -> list[str]:
 async def deep_enrich_book(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Two-stage enrichment: LLM identifies → APIs verify. For hard cases."""
     from brainycat.deep_enrich import deep_enrich
+
     return await deep_enrich(book_id)
+
+
+@router.get("/enrichment/source-stats")
+async def enrichment_source_stats(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Per-source hit rates and top over-tried books."""
+    sources = await db.fetch_all("""
+        SELECT method, count(*) FILTER (WHERE success) as hits,
+               count(*) as total,
+               round(100.0 * count(*) FILTER (WHERE success) / GREATEST(count(*), 1)) as hit_pct
+        FROM enrichment_log GROUP BY method ORDER BY total DESC
+    """)
+    over_tried = await db.fetch_all("""
+        SELECT b.title, count(*) as attempts, b.quality_score
+        FROM enrichment_log el JOIN books b ON b.id = el.book_id
+        GROUP BY b.id, b.title, b.quality_score
+        HAVING count(*) > 50
+        ORDER BY count(*) DESC LIMIT 10
+    """)
+    return {
+        "sources": [dict(s) for s in sources],
+        "over_tried": [dict(o) for o in over_tried],
+    }
