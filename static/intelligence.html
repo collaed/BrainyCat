@@ -20,6 +20,7 @@ tr:hover{background:rgba(59,130,246,0.05)}
 .badge{display:inline-block;padding:.1rem .4rem;border-radius:4px;font-size:.7rem;font-weight:600}
 .badge-auth{background:#14532d;color:#86efac}.badge-comm{background:#1e3a5f;color:#93c5fd}.badge-cover{background:#4a1d6a;color:#d8b4fe}
 #loading{text-align:center;padding:3rem;color:var(--muted)}
+.wbtn{padding:.3rem .8rem;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;font-size:.8rem}.wbtn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 </style></head><body>
 <header>
 <a href="index.html">← Library</a>
@@ -40,6 +41,22 @@ tr:hover{background:rgba(59,130,246,0.05)}
 <h3>🔄 Over-Tried Books (need deep enrichment)</h3>
 <table id="overtried-table">
 <thead><tr><th>Title</th><th>Attempts</th><th>Quality</th><th>Action</th></tr></thead>
+<tbody></tbody>
+</table>
+
+<h3>⏱️ Enrichment Activity</h3>
+<div style="display:flex;gap:.5rem;margin-bottom:1rem">
+<button onclick="loadActivity('1h')" class="wbtn" id="w-1h">1h</button>
+<button onclick="loadActivity('24h')" class="wbtn active" id="w-24h">24h</button>
+<button onclick="loadActivity('7d')" class="wbtn" id="w-7d">7d</button>
+<button onclick="loadActivity('30d')" class="wbtn" id="w-30d">30d</button>
+</div>
+<div class="grid4" id="activity-cards"></div>
+<table id="activity-sources"><thead><tr><th>Source</th><th>Hits</th><th>Total</th><th>Rate</th></tr></thead><tbody></tbody></table>
+
+<h3>📋 Enrichment Log (last 200 requests)</h3>
+<table id="log-table">
+<thead><tr><th>Time</th><th>Book</th><th>Source</th><th>Result</th></tr></thead>
 <tbody></tbody>
 </table>
 
@@ -144,5 +161,43 @@ async function deepEnrich(title) {
     alert('Deep enrichment triggered for: ' + title);
 }
 
+
+async function loadActivity(w) {
+    document.querySelectorAll('.wbtn').forEach(b=>b.classList.remove('active'));
+    document.getElementById('w-'+w).classList.add('active');
+    const a = await BC.get('/enrichment/activity?window='+w).catch(()=>({}));
+    document.getElementById('activity-cards').innerHTML = `
+        <div class="stat"><div class="num">${a.total_requests||0}</div><div class="label">Requests</div></div>
+        <div class="stat"><div class="num">${a.hits||0}</div><div class="label">Hits</div></div>
+        <div class="stat"><div class="num">${a.hit_rate||0}%</div><div class="label">Hit Rate</div></div>
+        <div class="stat"><div class="num">${a.books_touched||0}</div><div class="label">Books Touched</div></div>
+    `;
+    const tbody = document.querySelector('#activity-sources tbody');
+    tbody.innerHTML = '';
+    for (const s of (a.by_source||[])) {
+        const pct = s.total ? Math.round(100*s.hits/s.total) : 0;
+        tbody.innerHTML += `<tr><td>${s.method}</td><td>${s.hits}</td><td>${s.total}</td><td>${pct}%</td></tr>`;
+    }
+}
+
+async function loadLog() {
+    const rows = await BC.get('/enrichment/log?limit=200').catch(()=>[]);
+    const tbody = document.querySelector('#log-table tbody');
+    tbody.innerHTML = '';
+    for (const r of rows) {
+        const t = new Date(r.created_at).toLocaleString();
+        const icon = r.success ? '✅' : '❌';
+        const detail = r.details ? JSON.stringify(r.details).slice(0,80) : '';
+        tbody.innerHTML += `<tr>
+            <td style="font-size:.75rem;white-space:nowrap">${t}</td>
+            <td style="font-size:.8rem">${r.book_title||''}</td>
+            <td>${r.method}</td>
+            <td>${icon} <span style="font-size:.7rem;color:var(--muted)">${detail}</span></td>
+        </tr>`;
+    }
+}
+
 load();
+loadActivity('24h');
+loadLog();
 </script></body></html>

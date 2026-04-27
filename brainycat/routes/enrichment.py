@@ -728,3 +728,51 @@ async def enrichment_source_stats(_u: Any = Depends(get_current_user)) -> dict[s
         "sources": [dict(s) for s in sources],
         "over_tried": [dict(o) for o in over_tried],
     }
+
+
+@router.get("/enrichment/activity")
+async def enrichment_activity(window: str = Query("24h"), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Enrichment activity for a time window (1h, 24h, 7d, 30d)."""
+    intervals = {"1h": "1 hour", "24h": "1 day", "7d": "7 days", "30d": "30 days"}
+    pg_interval = intervals.get(window, "1 day")
+
+    stats = await db.fetch_one(f"""
+        SELECT count(*) as total,
+               count(*) FILTER (WHERE success) as hits,
+               count(DISTINCT book_id) as books_touched,
+               count(DISTINCT method) as sources_used
+        FROM enrichment_log WHERE created_at > now() - interval '{pg_interval}'
+    """)
+
+    by_source = await db.fetch_all(f"""
+        SELECT method, count(*) FILTER (WHERE success) as hits, count(*) as total
+        FROM enrichment_log WHERE created_at > now() - interval '{pg_interval}'
+        GROUP BY method ORDER BY total DESC
+    """)
+
+    return {
+        "window": window,
+        "total_requests": stats["total"],
+        "hits": stats["hits"],
+        "hit_rate": round(100 * stats["hits"] / max(stats["total"], 1), 1),
+        "books_touched": stats["books_touched"],
+        "sources_used": stats["sources_used"],
+        "by_source": [dict(s) for s in by_source],
+    }
+
+
+@router.get("/enrichment/log")
+async def enrichment_log(limit: int = Query(200), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Recent enrichment requests with responses."""
+    rows = await db.fetch_all(
+        """
+        SELECT el.method, el.success, el.details, el.created_at,
+               left(b.title, 60) as book_title, b.isbn
+        FROM enrichment_log el
+        JOIN books b ON b.id = el.book_id
+        ORDER BY el.created_at DESC
+        LIMIT $1
+    """,
+        limit,
+    )
+    return [dict(r) for r in rows]
