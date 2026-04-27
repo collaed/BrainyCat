@@ -12,6 +12,45 @@ from brainycat.http_client import get_client
 from brainycat.sources import amazon, google_books, gutendex, loc, open_library
 
 
+def _search_variants(title: str) -> list[str]:
+    """Generate search-friendly variants from a dirty title."""
+    import re
+
+    variants = []
+    t = title
+
+    # Strip common prefixes (PP., OReilly., Apress.)
+    t = re.sub(r"^(?:PP|OReilly|Apress|Packt|Manning|Wiley)\.\s*", "", t)
+    # Dots to spaces
+    t = t.replace(".", " ").replace("_", " ")
+    # Remove year/month patterns (Jan.2014, Dec.2013, (2021), (2022))
+    t = re.sub(r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s*\d{4}", "", t)
+    t = re.sub(r"\(\d{4}\)", "", t)
+    # Remove edition markers
+    t = re.sub(r"\b\d+(?:st|nd|rd|th)\s+(?:Edition|Ed\.?)\b", "", t, flags=re.IGNORECASE)
+    # Remove publisher artifacts
+    t = re.sub(r"\b(?:libgen\.li|Anna.s Archive|z-lib)\b", "", t, flags=re.IGNORECASE)
+    # Remove [tags] and (tags)
+    t = re.sub(r"\[[^\]]*\]", "", t)
+    t = re.sub(r"\([^)]*\)", "", t)
+    # Remove author prefix pattern: "Author - Title"
+    if " - " in t:
+        parts = t.split(" - ", 1)
+        if len(parts[0].split()) <= 4:  # likely author
+            variants.append(parts[1].strip())
+    # Collapse whitespace
+    t = re.sub(r"\s+", " ", t).strip()
+
+    if t and t != title:
+        variants.insert(0, t)
+    # Also try just the first few meaningful words
+    words = [w for w in t.split() if len(w) > 2]
+    if len(words) > 3:
+        variants.append(" ".join(words[:4]))
+
+    return variants or [title]
+
+
 async def enrich_book(book_id: str) -> dict[str, Any]:
     """Fetch metadata from all sources and merge into the book record."""
     row = await fetch_one("SELECT * FROM books WHERE id = $1", UUID(book_id))
@@ -38,6 +77,11 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
         try:
             async with asyncio.timeout(15):  # 15s max per source
                 r = await with_retry(fn, title=title, isbn=isbn, retries=1, delay=2.0)
+                if not r and not isbn:
+                    for variant in _search_variants(title)[1:]:
+                        r = await with_retry(fn, title=variant, isbn=isbn, retries=0, delay=0)
+                        if r:
+                            break
             return name, r
         except TimeoutError:
             return name, None
@@ -243,6 +287,7 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     # Check if we can contribute back to open databases
     try:
         from brainycat.contribute import contribute_back
+
         await contribute_back(book_id)
     except Exception:
         pass
