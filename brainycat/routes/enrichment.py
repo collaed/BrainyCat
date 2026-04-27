@@ -698,3 +698,10 @@ def _enrichment_priority(region: dict | None) -> list[str]:
     if "google_books" not in sources:
         sources.append("google_books")
     return sources
+
+
+@router.post("/books/{book_id}/deep-enrich")
+async def deep_enrich_book(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Two-stage enrichment: LLM identifies → APIs verify. For hard cases."""
+    from brainycat.deep_enrich import deep_enrich
+    return await deep_enrich(book_id)

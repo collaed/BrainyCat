@@ -64,6 +64,19 @@ async def _enrichment_loop() -> None:
             await log.awarning("enrichment_timeout", book_id=str(row["id"]))
         except Exception:
             pass
+    # Stage 2: Deep enrich for books still below 50 after standard enrichment
+    for row in rows:
+        book = await get_pool()
+        async with book.acquire() as conn:
+            q = await conn.fetchrow("SELECT quality_score FROM books WHERE id = $1", row["id"])
+        if q and q["quality_score"] < 50:
+            try:
+                from brainycat.deep_enrich import deep_enrich
+                async with asyncio.timeout(30):
+                    await deep_enrich(str(row["id"]))
+            except Exception:
+                pass
+
     if enriched:
         await log.ainfo("auto_enriched", count=enriched, batch=len(rows))
 
