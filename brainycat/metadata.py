@@ -240,6 +240,13 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     except Exception:
         pass
 
+    # Check if we can contribute back to open databases
+    try:
+        from brainycat.contribute import contribute_back
+        await contribute_back(book_id)
+    except Exception:
+        pass
+
     return {"enriched": True, "quality_score": score, "sources": len(results)}
 
 
