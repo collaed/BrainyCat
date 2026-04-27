@@ -41,21 +41,29 @@ async def _supervised(name: str, fn: Any, interval: int) -> None:
 
 # ── Enrichment (with row locking) ────────────────────────────────────────
 async def _enrichment_loop() -> None:
+    from brainycat import db
     from brainycat.db import get_pool
     from brainycat.metadata import enrich_book
 
     pool = await get_pool()
-    # Claim books atomically — no two workers touch the same book
+    # Step 1: Find least-tried books (no lock — aggregates not allowed with FOR UPDATE)
+    candidates = await db.fetch_all(
+        "SELECT b.id, b.title FROM books b "
+        "LEFT JOIN (SELECT book_id, count(*) as cnt FROM enrichment_log GROUP BY book_id) a ON a.book_id = b.id "
+        "WHERE b.quality_score < 100 "
+        "ORDER BY COALESCE(a.cnt, 0) ASC, b.quality_score ASC, b.updated_at ASC "
+        "LIMIT 10"
+    )
+    # Step 2: Lock 3 one-by-one (FOR UPDATE SKIP LOCKED per row)
+    rows = []
     async with pool.acquire() as conn, conn.transaction():
-        rows = await conn.fetch(
-            "SELECT b.id, b.title FROM books b "
-            "LEFT JOIN LATERAL (SELECT count(*) as cnt FROM enrichment_log el WHERE el.book_id = b.id) a ON true "
-            "WHERE b.quality_score < 100 "
-            "ORDER BY COALESCE(a.cnt, 0) ASC, b.quality_score ASC, b.updated_at ASC "
-            "LIMIT 3 FOR UPDATE SKIP LOCKED"
-        )
-        for row in rows:
-            await conn.execute("UPDATE books SET updated_at = now() WHERE id = $1", row["id"])
+        for c in candidates:
+            if len(rows) >= 3:
+                break
+            locked = await conn.fetchrow("SELECT id, title FROM books WHERE id = $1 FOR UPDATE SKIP LOCKED", c["id"])
+            if locked:
+                await conn.execute("UPDATE books SET updated_at = now() WHERE id = $1", locked["id"])
+                rows.append(locked)
 
     enriched = 0
     for row in rows:
