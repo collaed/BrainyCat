@@ -69,6 +69,12 @@ async def upload_book(
     # Save original filename
     original_filename = file.filename
 
+    # Check file health
+    health = _check_file_health(file_path)
+    if not health["healthy"]:
+        os.unlink(file_path)
+        return {"error": "corrupt file", "issues": health["issues"]}
+
     # Extract metadata
     meta = extract_metadata(file_path)
     title = meta.get("title") or os.path.splitext(file.filename)[0]
@@ -391,3 +397,53 @@ def _book_dict(row: Any) -> dict[str, Any]:
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
     }
+
+
+def _check_file_health(file_path: str) -> dict[str, Any]:
+    """Check if a file is corrupt or a pamphlet (not a real book)."""
+    import fitz
+
+    result = {"healthy": True, "is_pamphlet": False, "issues": []}
+    size = os.path.getsize(file_path)
+    ext = os.path.splitext(file_path)[1].lower()
+
+    # Zero-filled check (first 1KB all zeros)
+    with open(file_path, "rb") as f:
+        head = f.read(1024)
+    if head == b"\x00" * len(head):
+        result["healthy"] = False
+        result["issues"].append("zero-filled file")
+        return result
+
+    # PDF-specific checks
+    if ext == ".pdf":
+        try:
+            doc = fitz.open(file_path)
+            pages = len(doc)
+            doc.close()
+            if pages == 0:
+                result["healthy"] = False
+                result["issues"].append("PDF has 0 pages")
+            elif pages < 10 and size < 256_000:
+                result["is_pamphlet"] = True
+                result["issues"].append(f"pamphlet: {pages} pages, {size//1024}KB")
+        except Exception:
+            result["healthy"] = False
+            result["issues"].append("corrupt PDF (cannot open)")
+            return result
+
+    # EPUB check
+    elif ext == ".epub":
+        import zipfile
+
+        if not zipfile.is_zipfile(file_path):
+            result["healthy"] = False
+            result["issues"].append("corrupt EPUB (not a valid zip)")
+            return result
+
+    # Size-based pamphlet detection (non-PDF)
+    elif size < 100_000 and ext not in (".txt", ".md", ".html"):
+        result["is_pamphlet"] = True
+        result["issues"].append(f"pamphlet: {size//1024}KB")
+
+    return result
