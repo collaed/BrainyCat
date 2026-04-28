@@ -10,6 +10,9 @@
 #toolbar .title{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.9rem}
 #toolbar button,#toolbar select{padding:.3rem .6rem;border-radius:4px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;cursor:pointer;font-size:.8rem}
 #viewer{height:calc(100vh - 45px);overflow:auto}
+#viewer.theme-dark canvas{filter:invert(0.85) hue-rotate(180deg)}
+#viewer.theme-night canvas{filter:invert(0.9) hue-rotate(180deg) sepia(0.2)}
+#viewer.theme-sepia canvas{filter:sepia(0.4) brightness(0.95)}
 #toc{position:fixed;left:0;top:45px;width:280px;height:calc(100vh - 45px);background:#16213e;overflow-y:auto;transform:translateX(-100%);transition:transform .2s;z-index:10;padding:1rem;border-right:1px solid #334155}
 #toc.open{transform:translateX(0)}
 #toc h3{margin-bottom:.8rem;font-size:.9rem;color:#94a3b8}
@@ -220,6 +223,9 @@ function setTheme(t) {
     document.body.style.background = bgs[t] || '#1a1a2e';
     // Blue light filter for night mode
     document.getElementById('night-overlay').style.display = t === 'night' ? '' : 'none';
+    const viewer = document.getElementById('viewer');
+    viewer.className = viewer.className.replace(/theme-\w+/g, '');
+    if (t !== 'light') viewer.classList.add('theme-' + t);
 }
 function switchToAudio() { location = 'player.html?id=' + bookId; }
 
