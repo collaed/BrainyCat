@@ -66,6 +66,9 @@ async def upload_book(
             ext = os.path.splitext(results[0])[1].lower()
         os.unlink(os.path.join(storage.book_dir(book_id), os.path.basename(file.filename)))
 
+    # Save original filename
+    original_filename = file.filename
+
     # Extract metadata
     meta = extract_metadata(file_path)
     title = meta.get("title") or os.path.splitext(file.filename)[0]
@@ -95,8 +98,8 @@ async def upload_book(
 
     # Insert book
     await execute(
-        """INSERT INTO books (id, title, isbn, description, cover_path, pubdate)
-           VALUES ($1, $2, $3, $4, $5, $6)""",
+        """INSERT INTO books (id, title, original_filename, isbn, description, cover_path, pubdate)
+           VALUES ($1, $2, $3, $3, $4, $5, $6)""",
         UUID(book_id),
         title,
         meta.get("isbn"),

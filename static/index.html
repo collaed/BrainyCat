@@ -271,6 +271,7 @@ async function openBook(id){
     document.getElementById('modal-content').innerHTML=`
         <h2>${b.title}</h2>
         <div class="meta">${(b.authors||[]).join(', ')} · Q:${b.quality_score}/100 · ISBN:${b.isbn||'—'} · ${(b.formats||[]).join(', ')}</div>
+            ${b.original_filename?`<div style="font-size:.7rem;color:var(--border);margin-top:.3rem" title="Original filename">📁 ${b.original_filename}</div>`:''}
         <div class="desc">${b.description||'<em>No description</em>'}</div>
         ${tags.length?'<div class="tag-cloud">'+tags.map(t=>`<span class="tag" onclick="searchTag('${t}')">${t}</span>`).join('')+'</div>':''}
         <div id="job-status"><span id="job-msg"></span><div class="bar"><div class="fill" id="job-bar"></div></div></div>
