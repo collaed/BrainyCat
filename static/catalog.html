@@ -36,7 +36,7 @@ nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(-
 <button onclick="setTab('github',this)">💻 GitHub</button>
 </div>
 <div class="search-row">
-<input type="text" id="q" placeholder="Search 120,000+ free books across all sources..." oninput="clearTimeout(window._st);window._st=setTimeout(doSearch,500)">
+<input type="text" id="q" placeholder="Search 120,000+ free books across all sources..." oninput="clearTimeout(window._st);window._st=setTimeout(doSearch,500)" onkeydown="if(event.key==='Enter')doSearch()">
 <select id="lang" onchange="doSearch()" title="Language">
 <option value="en">English</option>
 <option value="fr">Français</option>
@@ -49,9 +49,6 @@ nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(-
 <option value="zh">中文</option>
 <option value="">All languages</option>
 </select>
-</div>
-<div class="search-row">
-<input id="q" placeholder="Search 60,000+ public domain ebooks..." onkeydown="if(event.key==='Enter')doSearch()">
 <button onclick="doSearch()">Search</button>
 </div>
 <div id="status"></div>
