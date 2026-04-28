@@ -174,7 +174,7 @@ async def list_voices() -> list[dict[str, str]]:
     """List available voices from Intello or local."""
     try:
         client = get_client()
-        resp = await client.get(f"{settings.intello_url}/api/v1/tts/voices")
+        resp = await client.get(f"{settings.intello_url}/api/v1/voice/voices")
         if resp.status_code == 200:
             data = resp.json()
             voices = data.get("voices", [])
