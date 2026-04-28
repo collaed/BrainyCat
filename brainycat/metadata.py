@@ -64,11 +64,11 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     import asyncio
 
     source_fns = [
-        ("google_books", google_books.search),
-        ("open_library", open_library.search),
-        ("loc", loc.search),
-        ("amazon", amazon.search),
-        ("gutendex", gutendex.search),
+        ("open_library", open_library.search),  # 55% hit rate, lenient limits
+        ("google_books", google_books.search),  # 6% hit rate, needs API key for more
+        ("gutendex", gutendex.search),  # 16% hit rate, unlimited (public domain)
+        # ("loc", loc.search),  # 0% — never returns data, wastes requests
+        # ("amazon", amazon.search),  # 0% — blocked, risks IP ban
     ]
 
     async def _fetch(name: str, fn: Any) -> tuple[str, dict[str, Any] | None]:
