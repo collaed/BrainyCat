@@ -15,7 +15,12 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
     if not q:
         return None
     client = get_client()
-    resp = await client.get(API_URL, params={"q": q, "maxResults": 1})
+    from brainycat.config import settings
+
+    params: dict[str, Any] = {"q": q, "maxResults": 1}
+    if settings.google_books_api_key:
+        params["key"] = settings.google_books_api_key
+    resp = await client.get(API_URL, params=params)
     if resp.status_code != 200:
         return None
     data = resp.json()

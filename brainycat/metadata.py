@@ -9,7 +9,7 @@ from uuid import UUID
 
 from brainycat.db import execute, fetch_one
 from brainycat.http_client import get_client
-from brainycat.sources import amazon, google_books, gutendex, loc, open_library
+from brainycat.sources import google_books, gutendex, open_library
 
 
 def _search_variants(title: str) -> list[str]:

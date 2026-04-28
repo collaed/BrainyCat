@@ -146,7 +146,10 @@ async def _title_cleanup_loop() -> None:
             await rate_limiter.wait("google")
             c = get_client()
             async with asyncio.timeout(10):
-                resp = await c.get(f"https://www.googleapis.com/books/v1/volumes?q=isbn:{row['isbn']}&maxResults=1")
+                from brainycat.config import settings as _cfg
+
+                _gk = f"&key={_cfg.google_books_api_key}" if _cfg.google_books_api_key else ""
+                resp = await c.get(f"https://www.googleapis.com/books/v1/volumes?q=isbn:{row['isbn']}&maxResults=1{_gk}")
             if resp.status_code == 200:
                 items = resp.json().get("items", [])
                 if items:

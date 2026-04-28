@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     smtp_host: str = "mailserver"
     smtp_port: int = 587
 
+    # Google Books
+    google_books_api_key: str = ""
+
     # TTS / STT
     piper_voice: str = "en_US-lessac-medium"
     whisper_model: str = "small"
