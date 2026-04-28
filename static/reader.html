@@ -33,12 +33,17 @@
 <button onclick="prevPage()" title="Previous chapter">◀</button>
 <button onclick="nextPage()" title="Next chapter">▶</button>
 <button onclick="toggleAutoScroll()" id="auto-scroll-btn" title="Auto-scroll">⏬</button>
+<button onclick="toggleSearch()" id="search-btn" title="Search in book">🔍</button>
 <button onclick="togglePen()" id="pen-btn" title="Stylus annotations (pen/highlighter)">✏️</button>
 <select id="pen-color" onchange="penColor=this.value" title="Pen color" style="display:none;width:40px">
 <option value="#000000">⚫</option><option value="#ffeb3b">🟡</option><option value="#4caf50">🟢</option>
 <option value="#f44336">🔴</option><option value="#2196f3">🔵</option></select>
 <button id="sync-btn" style="display:none" onclick="switchToAudio()" title="Switch to audio version">🎧</button>
 <span id="reading-speed" style="font-size:.7rem;color:#94a3b8;margin-left:auto"></span>
+</div>
+<div id="book-search" style="display:none;position:fixed;top:45px;right:0;width:320px;height:calc(100vh - 45px);background:#16213e;border-left:1px solid #334155;z-index:30;padding:1rem;overflow-y:auto">
+<input id="search-input" placeholder="Search in book..." style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:.5rem" onkeydown="if(event.key==='Enter')doBookSearch()">
+<div id="search-results" style="font-size:.8rem"></div>
 </div>
 <div id="toc"><h3>Table of Contents</h3></div>
 
@@ -628,6 +633,58 @@ async function toggleCompare(pdfs) {
         cols[1].addEventListener('scroll', () => { cols[0].scrollTop = cols[1].scrollTop; });
     }
 }
+
+// ── In-book search ───────────────────────────────────────────────────────
+function toggleSearch() {
+    const panel = document.getElementById('book-search');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    if (panel.style.display !== 'none') document.getElementById('search-input').focus();
+}
+
+async function doBookSearch() {
+    const q = document.getElementById('search-input').value.trim();
+    if (!q || !book) return;
+    const el = document.getElementById('search-results');
+    el.innerHTML = '<div style="color:#94a3b8">Searching...</div>';
+
+    try {
+        const results = await Promise.all(
+            book.spine.spineItems.map(item =>
+                item.load(book.load.bind(book)).then(doc => {
+                    const text = doc.body ? doc.body.innerText || doc.body.textContent : '';
+                    const matches = [];
+                    let idx = text.toLowerCase().indexOf(q.toLowerCase());
+                    while (idx !== -1 && matches.length < 5) {
+                        const excerpt = text.slice(Math.max(0, idx - 40), idx + q.length + 40);
+                        matches.push({excerpt, cfi: item.cfiFromElement(doc.body)});
+                        idx = text.toLowerCase().indexOf(q.toLowerCase(), idx + 1);
+                    }
+                    item.unload();
+                    return matches;
+                }).catch(() => [])
+            )
+        );
+
+        const flat = results.flat();
+        if (flat.length === 0) {
+            el.innerHTML = '<div style="color:#94a3b8">No results</div>';
+            return;
+        }
+        el.innerHTML = flat.map((r, i) => {
+            const hl = r.excerpt.replace(new RegExp(q, 'gi'), m => `<mark style="background:#f59e0b;color:#000">${m}</mark>`);
+            return `<div style="padding:.4rem 0;border-bottom:1px solid #334155;cursor:pointer" onclick="goToSearchResult(${i})">${hl}</div>`;
+        }).join('');
+        window._searchResults = flat;
+    } catch(e) {
+        el.innerHTML = '<div style="color:#ef4444">Search error</div>';
+    }
+}
+
+function goToSearchResult(i) {
+    const r = window._searchResults?.[i];
+    if (r && rendition) rendition.display(r.cfi);
+}
+
 
 // Pinch-to-zoom → font size (tablet support)
 let pinchStartDist = 0;
