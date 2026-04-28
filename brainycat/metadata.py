@@ -63,13 +63,45 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     # Query ALL sources in parallel (Calibre-style)
     import asyncio
 
-    source_fns = [
-        ("open_library", open_library.search),  # 55% hit rate, lenient limits
-        ("google_books", google_books.search),  # 6% hit rate, needs API key for more
-        ("gutendex", gutendex.search),  # 16% hit rate, unlimited (public domain)
-        # ("loc", loc.search),  # 0% — never returns data, wastes requests
-        # ("amazon", amazon.search),  # 0% — blocked, risks IP ban
-    ]
+    results: list[dict[str, Any]] = []
+
+    # Primary: Intello unified lookup (queries all sources in parallel)
+    try:
+        import asyncio as _aio
+
+        from brainycat.config import settings
+
+        async with _aio.timeout(15):
+            client = get_client()
+            lookup_body: dict[str, Any] = {"query": title, "media_type": "book"}
+            if isbn:
+                lookup_body["isbn"] = isbn
+            resp = await client.post(
+                f"{settings.intello_url}/api/v1/lookup",
+                json=lookup_body,
+                timeout=15,
+            )
+        if resp.status_code == 200:
+            lookup_data = resp.json()
+            for source_name, source_data in lookup_data.get("sources", {}).items():
+                for result in source_data.get("results", [])[:1]:
+                    results.append(result)
+                    await execute(
+                        "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, $2, true, $3::jsonb)",
+                        UUID(book_id),
+                        source_name,
+                        "{}",
+                    )
+    except Exception:
+        pass
+
+    # Fallback: direct source queries (if Intello lookup returned nothing)
+    if not results:
+        source_fns = [
+            ("open_library", open_library.search),
+            ("google_books", google_books.search),
+            ("gutendex", gutendex.search),
+        ]
 
     async def _fetch(name: str, fn: Any) -> tuple[str, dict[str, Any] | None]:
         from brainycat.retry import with_retry
