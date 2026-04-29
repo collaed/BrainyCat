@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     exp_isbntools: str = "0"
     exp_file_rename: str = "0"
     exp_kindle_fix: str = "0"
+    exp_heatmap: str = "0"
+    exp_mind_map: str = "0"
+    exp_share_cards: str = "0"
+    exp_pdf_embed: str = "0"
 
 
 settings = Settings()

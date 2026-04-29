@@ -951,3 +951,49 @@ async def evaluate_experimental(feature: str, body: dict[str, Any] | None = None
         return {"proposed_filename": proposed, "dry_run": True}
 
     return {"error": f"unknown feature: {feature}"}
+
+
+# ── Experimental: Reading Heatmap ─────────────────────────────────────────
+@router.get("/experimental/heatmap")
+async def reading_heatmap(days: int = Query(365), user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Reading activity heatmap (GitHub-style contribution graph)."""
+    from brainycat.experimental.reading_heatmap import get_heatmap
+
+    data = await get_heatmap(user["id"], days)
+    return {"days": data, "total_sessions": sum(d["sessions"] for d in data)}
+
+
+# ── Experimental: AI Mind Map ─────────────────────────────────────────────
+@router.post("/experimental/mind-map/{book_id}")
+async def ai_mind_map(book_id: str) -> dict[str, Any]:
+    """Generate AI mind map from book content."""
+    from brainycat.experimental.mind_map import generate_mind_map
+
+    return await generate_mind_map(book_id)
+
+
+# ── Experimental: Share Card ──────────────────────────────────────────────
+@router.post("/experimental/share-card")
+async def share_card(body: dict[str, Any] | None = None) -> Any:
+    """Generate SVG share card from a highlight."""
+    from fastapi.responses import Response
+
+    from brainycat.experimental.share_cards import generate_card_svg
+
+    body = body or {}
+    svg = generate_card_svg(
+        text=body.get("text", ""),
+        book_title=body.get("book_title", ""),
+        author=body.get("author", ""),
+        theme=body.get("theme", "dark"),
+    )
+    return Response(content=svg, media_type="image/svg+xml")
+
+
+# ── Experimental: PDF Embed Annotations ───────────────────────────────────
+@router.post("/experimental/pdf-embed/{book_id}")
+async def pdf_embed(book_id: str) -> dict[str, Any]:
+    """Write annotations INTO the PDF file (permanent)."""
+    from brainycat.experimental.pdf_embed_annotations import embed_annotations
+
+    return await embed_annotations(book_id)

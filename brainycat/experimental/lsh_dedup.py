@@ -37,10 +37,10 @@ def insert_book(book_id: str, text: str) -> None:
     """Insert a book's MinHash into the LSH index."""
     lsh = get_lsh()
     m = text_to_minhash(text)
-    try:
+    import contextlib
+
+    with contextlib.suppress(ValueError):
         lsh.insert(book_id, m)
-    except ValueError:
-        pass  # Already exists
 
 
 def query_similar(text: str) -> list[str]:
