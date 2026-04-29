@@ -75,6 +75,15 @@ async def upload_book(
         os.unlink(file_path)
         return {"error": "corrupt file", "issues": health["issues"]}
 
+    # Quick content dedup via SimHash (first 1000 words)
+    try:
+        from brainycat.fingerprints import quick_simhash
+        sim = await quick_simhash(file_path)
+        if sim and sim.get("duplicate_of"):
+            return {"warning": "likely_duplicate", "similar_to": sim["duplicate_of"], "similarity": sim["score"]}
+    except Exception:
+        pass
+
     # Auto-fix EPUB issues
     if ext == ".epub":
         from brainycat.epub_fix import fix_epub

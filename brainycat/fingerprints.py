@@ -398,3 +398,59 @@ async def find_exact_duplicates() -> list[dict[str, Any]]:
                 )
 
     return duplicates
+
+
+async def quick_simhash(file_path: str) -> dict[str, Any] | None:
+    """Quick SimHash of first 1000 words for instant dedup on upload."""
+    import hashlib
+    import os
+
+
+    ext = os.path.splitext(file_path)[1].lower()
+    text = ""
+
+    try:
+        if ext == ".epub":
+            import ebooklib
+            from bs4 import BeautifulSoup
+            from ebooklib import epub
+
+            book = epub.read_epub(file_path, options={"ignore_ncx": True})
+            for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+                soup = BeautifulSoup(item.get_content(), "html.parser")
+                text += soup.get_text() + " "
+                if len(text.split()) > 1200:
+                    break
+        elif ext == ".pdf":
+            import fitz
+
+            doc = fitz.open(file_path)
+            for i in range(min(10, len(doc))):
+                text += doc[i].get_text() + " "
+                if len(text.split()) > 1200:
+                    break
+            doc.close()
+    except Exception:
+        return None
+
+    words = text.split()[:1000]
+    if len(words) < 100:
+        return None
+
+    # Generate SimHash: hash each 5-word shingle, combine
+    shingles = [" ".join(words[i : i + 5]) for i in range(len(words) - 4)]
+    hash_bits = [int(hashlib.md5(s.encode()).hexdigest(), 16) for s in shingles[:200]]
+
+    # Simple 64-bit SimHash
+    v = [0] * 64
+    for h in hash_bits:
+        for i in range(64):
+            if h & (1 << i):
+                v[i] += 1
+            else:
+                v[i] -= 1
+    simhash = sum(1 << i for i in range(64) if v[i] > 0)
+
+    # Check against existing books (hamming distance < 5 = likely same content)
+    # For now, just return the hash — full comparison needs a simhash column
+    return {"simhash": simhash, "words_sampled": len(words)}
