@@ -65,6 +65,11 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
 
     results: list[dict[str, Any]] = []
 
+    # Clean title for better query matching
+    from brainycat.title_confidence import build_enrichment_query, clean_title_for_query
+
+    query_title = build_enrichment_query(title)
+
     # Primary: Intello unified lookup (re-enabled after fix)
     try:
         import asyncio as _aio
@@ -73,7 +78,7 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
 
         async with _aio.timeout(15):
             client = get_client()
-            lookup_body: dict[str, Any] = {"query": title, "media_type": "book"}
+            lookup_body: dict[str, Any] = {"query": query_title, "media_type": "book"}
             if isbn:
                 lookup_body["isbn"] = isbn
             resp = await client.post(
