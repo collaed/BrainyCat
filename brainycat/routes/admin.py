@@ -1048,3 +1048,43 @@ async def reading_wrapped(year: int, user: Any = Depends(get_current_user)) -> d
     from brainycat.experimental.book_dna import generate_wrapped
 
     return await generate_wrapped(str(user["id"]), year)
+
+
+# ── Import from URL ───────────────────────────────────────────────────────
+@router.post("/import/url")
+async def import_from_url(body: dict[str, Any] | None = None, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Download a book from a direct URL and import it."""
+    body = body or {}
+    url = body.get("url", "")
+    if not url:
+        return {"error": "provide 'url'"}
+
+    import os
+
+    import httpx
+
+    # Download
+    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+        r = await client.get(url)
+        if r.status_code != 200:
+            return {"error": f"Download failed: {r.status_code}"}
+
+    # Determine filename from URL or content-disposition
+    filename = url.split("/")[-1].split("?")[0]
+    cd = r.headers.get("content-disposition", "")
+    if "filename=" in cd:
+        filename = cd.split("filename=")[-1].strip('"')
+
+    if not filename or "." not in filename:
+        ct = r.headers.get("content-type", "")
+        ext = ".pdf" if "pdf" in ct else ".epub" if "epub" in ct else ".bin"
+        filename = f"download{ext}"
+
+    # Save to incoming folder
+    incoming = "/data/incoming"
+    os.makedirs(incoming, exist_ok=True)
+    path = os.path.join(incoming, filename)
+    with open(path, "wb") as f:
+        f.write(r.content)
+
+    return {"ok": True, "filename": filename, "size_mb": round(len(r.content) / 1048576, 1), "path": path}

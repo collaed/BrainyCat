@@ -722,3 +722,54 @@ async def collection_books(collection_id: str, user: Any = Depends(get_current_u
         UUID(collection_id),
     )
     return [dict(r) for r in rows]
+
+
+# ── OPDS Page Streaming ───────────────────────────────────────────────────
+@router.get("/opds-ps/{book_id}/manifest")
+async def opds_ps_manifest(book_id: str) -> dict[str, Any]:
+    """OPDS-PS manifest — page count and streaming info."""
+    import fitz
+
+    row = await db.fetch_one(
+        "SELECT bf.file_path, b.title FROM book_files bf JOIN books b ON b.id = bf.book_id WHERE bf.book_id = $1 AND bf.format = 'pdf' LIMIT 1",
+        UUID(book_id),
+    )
+    if not row:
+        return {"error": "no pdf"}
+    doc = fitz.open(row["file_path"])
+    pages = len(doc)
+    doc.close()
+    return {
+        "title": row["title"],
+        "pages": pages,
+        "page_url": f"/api/v1/opds-ps/{book_id}/page/{{page}}",
+        "media_type": "image/png",
+    }
+
+
+@router.get("/opds-ps/{book_id}/page/{page_num}")
+async def opds_ps_page(book_id: str, page_num: int, width: int = 1200) -> Any:
+    """Serve a single page as WebP for OPDS-PS streaming."""
+    import fitz
+    from fastapi.responses import Response
+
+    row = await db.fetch_one(
+        "SELECT bf.file_path FROM book_files bf WHERE bf.book_id = $1 AND bf.format = 'pdf' LIMIT 1",
+        UUID(book_id),
+    )
+    if not row or not os.path.isfile(row["file_path"]):
+        return {"error": "not found"}
+
+    doc = fitz.open(row["file_path"])
+    if page_num < 0 or page_num >= len(doc):
+        doc.close()
+        return {"error": "page out of range"}
+
+    page = doc[page_num]
+    # Scale to requested width
+    scale = width / page.rect.width
+    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
+    img_bytes = pix.tobytes("png")
+    doc.close()
+
+    return Response(content=img_bytes, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
