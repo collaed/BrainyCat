@@ -95,6 +95,7 @@ from brainycat.routes.media import router as media_router  # noqa: E402
 from brainycat.routes.reader import router as reader_router  # noqa: E402
 from brainycat.routes.social import router as social_router  # noqa: E402
 from brainycat.routes.webdav import router as webdav_router  # noqa: E402
+from brainycat.routes.wanted import router as wanted_router  # noqa: E402
 from brainycat.routes.ws import router as ws_router  # noqa: E402
 
 app.include_router(abs_router)
@@ -113,6 +114,7 @@ app.include_router(kobo_router)
 app.include_router(oauth_router)
 app.include_router(health_router)
 app.include_router(webdav_router)
+app.include_router(wanted_router)
 
 
 @app.get("/catalog")
