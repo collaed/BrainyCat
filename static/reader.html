@@ -1,8 +1,80 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BrainyCat — Reader</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js">
+function toggleBionic() {
+  document.body.classList.toggle('bionic');
+  const frames = document.querySelectorAll('iframe');
+  frames.forEach(f => {
+    try {
+      const doc = f.contentDocument;
+      if (doc) {
+        let style = doc.getElementById('bionic-style');
+        if (style) { style.remove(); return; }
+        style = doc.createElement('style');
+        style.id = 'bionic-style';
+        style.textContent = '.bionic-word b { font-weight: 700; }';
+        doc.head.appendChild(style);
+        doc.querySelectorAll('p, li, td, span, div').forEach(el => {
+          if (el.children.length === 0 && el.textContent.trim()) {
+            el.innerHTML = el.textContent.replace(/\b(\w)(\w+)/g, '<b class="bionic-word">$1</b>$2');
+          }
+        });
+      }
+    } catch(e) {}
+  });
+}
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js">
+function toggleBionic() {
+  document.body.classList.toggle('bionic');
+  const frames = document.querySelectorAll('iframe');
+  frames.forEach(f => {
+    try {
+      const doc = f.contentDocument;
+      if (doc) {
+        let style = doc.getElementById('bionic-style');
+        if (style) { style.remove(); return; }
+        style = doc.createElement('style');
+        style.id = 'bionic-style';
+        style.textContent = '.bionic-word b { font-weight: 700; }';
+        doc.head.appendChild(style);
+        doc.querySelectorAll('p, li, td, span, div').forEach(el => {
+          if (el.children.length === 0 && el.textContent.trim()) {
+            el.innerHTML = el.textContent.replace(/\b(\w)(\w+)/g, '<b class="bionic-word">$1</b>$2');
+          }
+        });
+      }
+    } catch(e) {}
+  });
+}
+
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js">
+function toggleBionic() {
+  document.body.classList.toggle('bionic');
+  const frames = document.querySelectorAll('iframe');
+  frames.forEach(f => {
+    try {
+      const doc = f.contentDocument;
+      if (doc) {
+        let style = doc.getElementById('bionic-style');
+        if (style) { style.remove(); return; }
+        style = doc.createElement('style');
+        style.id = 'bionic-style';
+        style.textContent = '.bionic-word b { font-weight: 700; }';
+        doc.head.appendChild(style);
+        doc.querySelectorAll('p, li, td, span, div').forEach(el => {
+          if (el.children.length === 0 && el.textContent.trim()) {
+            el.innerHTML = el.textContent.replace(/\b(\w)(\w+)/g, '<b class="bionic-word">$1</b>$2');
+          }
+        });
+      }
+    } catch(e) {}
+  });
+}
+
+</script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}body{background:#1a1a2e;color:#e2e8f0;font-family:system-ui}
 #toolbar{background:#16213e;padding:.5rem 1rem;display:flex;gap:.8rem;align-items:center;border-bottom:1px solid #334155;z-index:20;position:relative}
@@ -69,7 +141,31 @@
 
 <div id="status">Loading...</div>
 
-<script src="api.js"></script>
+<script src="api.js">
+function toggleBionic() {
+  document.body.classList.toggle('bionic');
+  const frames = document.querySelectorAll('iframe');
+  frames.forEach(f => {
+    try {
+      const doc = f.contentDocument;
+      if (doc) {
+        let style = doc.getElementById('bionic-style');
+        if (style) { style.remove(); return; }
+        style = doc.createElement('style');
+        style.id = 'bionic-style';
+        style.textContent = '.bionic-word b { font-weight: 700; }';
+        doc.head.appendChild(style);
+        doc.querySelectorAll('p, li, td, span, div').forEach(el => {
+          if (el.children.length === 0 && el.textContent.trim()) {
+            el.innerHTML = el.textContent.replace(/\b(\w)(\w+)/g, '<b class="bionic-word">$1</b>$2');
+          }
+        });
+      }
+    } catch(e) {}
+  });
+}
+
+</script>
 <script>
 const params = new URLSearchParams(location.search);
 const bookId = params.get('id');
@@ -842,6 +938,30 @@ async function initPdfViewer(bookId, pdfFile) {
     });
 
     log('');
+}
+
+
+function toggleBionic() {
+  document.body.classList.toggle('bionic');
+  const frames = document.querySelectorAll('iframe');
+  frames.forEach(f => {
+    try {
+      const doc = f.contentDocument;
+      if (doc) {
+        let style = doc.getElementById('bionic-style');
+        if (style) { style.remove(); return; }
+        style = doc.createElement('style');
+        style.id = 'bionic-style';
+        style.textContent = '.bionic-word b { font-weight: 700; }';
+        doc.head.appendChild(style);
+        doc.querySelectorAll('p, li, td, span, div').forEach(el => {
+          if (el.children.length === 0 && el.textContent.trim()) {
+            el.innerHTML = el.textContent.replace(/\b(\w)(\w+)/g, '<b class="bionic-word">$1</b>$2');
+          }
+        });
+      }
+    } catch(e) {}
+  });
 }
 
 </script></body></html>

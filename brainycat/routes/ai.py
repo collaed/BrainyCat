@@ -173,3 +173,72 @@ Answer concisely based only on the book content. If the answer isn't in the text
         return {"error": str(e)}
 
     return {"error": "LLM unavailable"}
+
+
+# ── Book Recap ("Where was I?") ───────────────────────────────────────────
+@router.post("/books/{book_id}/recap")
+async def book_recap(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Generate a recap of everything read so far, based on reading progress."""
+    from uuid import UUID
+
+    import fitz
+
+    # Get progress
+    progress = await db.fetch_one(
+        "SELECT percentage FROM reading_progress WHERE user_id = $1 AND book_id = $2",
+        user["id"],
+        UUID(book_id),
+    )
+    pct = (progress["percentage"] or 0) / 100 if progress else 0.5
+
+    # Get book file
+    row = await db.fetch_one(
+        "SELECT bf.file_path, bf.format, b.title FROM book_files bf JOIN books b ON b.id = bf.book_id WHERE bf.book_id = $1 LIMIT 1",
+        UUID(book_id),
+    )
+    if not row:
+        return {"error": "no file"}
+
+    # Extract text up to current position
+    text = ""
+    if row["format"] == "pdf":
+        doc = fitz.open(row["file_path"])
+        pages_to_read = max(1, int(len(doc) * pct))
+        for i in range(min(pages_to_read, 50)):  # Cap at 50 pages for context
+            text += doc[i].get_text() + "\n"
+        doc.close()
+
+    if not text:
+        return {"error": "could not extract text"}
+
+    # Summarize with LLM
+    import httpx
+
+    from brainycat.config import settings
+
+    words = text.split()[:3000]
+    context = " ".join(words)
+
+    prompt = f"""You are helping a reader get back into a book they paused reading.
+Book: "{row["title"]}"
+They've read approximately {int(pct * 100)}% of the book.
+
+Here is the text they've read so far (truncated):
+{context[:6000]}
+
+Give a concise recap (3-5 paragraphs) of what has happened so far, focusing on:
+- Key events and plot points (fiction) or main arguments (non-fiction)
+- Important characters or concepts introduced
+- Where the narrative/argument was heading when they stopped"""
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                f"{settings.intello_url}/v1/chat/completions",
+                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.3},
+            )
+            if r.status_code == 200:
+                return {"recap": r.json()["choices"][0]["message"]["content"], "percentage": int(pct * 100)}
+    except Exception as e:
+        return {"error": str(e)}
+    return {"error": "LLM unavailable"}

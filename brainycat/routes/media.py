@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from brainycat import db, translation, tts
 from brainycat.auth import get_current_user, require_admin
@@ -111,3 +111,43 @@ async def list_epub_styles() -> list[dict[str, str]]:
 
 
 # ── Ambient quotes ────────────────────────────────────────────────────────
+
+
+# ── TTS Podcast Feed ──────────────────────────────────────────────────────
+@router.get("/podcast/{book_id}/feed.xml")
+async def podcast_feed(book_id: str, request: Request) -> Any:
+    """Serve TTS-generated audiobook chapters as a podcast RSS feed."""
+    from uuid import UUID
+
+    from fastapi.responses import Response
+
+    book = await db.fetch_one("SELECT title, description FROM books WHERE id = $1", UUID(book_id))
+    if not book:
+        return Response(content="<error>not found</error>", media_type="application/xml")
+
+    # Find audio files for this book
+    audio_files = await db.fetch_all(
+        "SELECT file_path, file_name, format FROM book_files WHERE book_id = $1 AND format IN ('mp3', 'm4b', 'm4a', 'ogg') ORDER BY file_name",
+        UUID(book_id),
+    )
+
+    base_url = str(request.base_url).rstrip("/")
+    items = ""
+    for i, af in enumerate(audio_files):
+        items += f"""<item>
+  <title>Chapter {i + 1} - {af["file_name"]}</title>
+  <enclosure url="{base_url}/api/v1/books/{book_id}/file/{af["file_name"]}" type="audio/mpeg"/>
+  <guid>{book_id}-ch{i}</guid>
+</item>\n"""
+
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>{book["title"]}</title>
+  <description>{(book["description"] or "")[:200]}</description>
+  <link>{base_url}</link>
+  {items}
+</channel>
+</rss>"""
+
+    return Response(content=xml, media_type="application/rss+xml")

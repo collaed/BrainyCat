@@ -142,6 +142,42 @@ async function setStatus(id, status) {
     await BC.put("/books/" + id + "/status", {status});
     alert("Status: " + status.replace("_"," "));
 }
+
+async function scanISBN() {
+  if (!navigator.mediaDevices) { alert("Camera not available"); return; }
+  const div = document.createElement("div");
+  div.id = "scanner-modal";
+  div.style.cssText = "position:fixed;inset:0;z-index:9999;background:#000d;display:flex;flex-direction:column;align-items:center;justify-content:center";
+  div.innerHTML = '<video id="scan-video" style="max-width:90%;max-height:70%" autoplay></video><p style="color:#fff;margin-top:1rem">Point camera at ISBN barcode</p><button onclick="this.parentElement.remove();window._scanStream?.getTracks().forEach(t=>t.stop())" style="margin-top:.5rem;padding:.5rem 1rem">Close</button>';
+  document.body.appendChild(div);
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+    window._scanStream = stream;
+    const video = document.getElementById("scan-video");
+    video.srcObject = stream;
+    // Use BarcodeDetector API if available
+    if ("BarcodeDetector" in window) {
+      const detector = new BarcodeDetector({formats:["ean_13","ean_8"]});
+      const interval = setInterval(async () => {
+        try {
+          const barcodes = await detector.detect(video);
+          if (barcodes.length > 0) {
+            clearInterval(interval);
+            stream.getTracks().forEach(t => t.stop());
+            div.remove();
+            const isbn = barcodes[0].rawValue;
+            alert("Found ISBN: " + isbn);
+            // Search library
+            window.location.hash = "#search=" + isbn;
+          }
+        } catch(e) {}
+      }, 500);
+    } else {
+      div.querySelector("p").textContent = "BarcodeDetector not supported in this browser. Try Chrome.";
+    }
+  } catch(e) { alert("Camera error: " + e.message); div.remove(); }
+}
+
 </script>
 </head>
 <body>
@@ -153,6 +189,7 @@ async function setStatus(id, status) {
 <a href="catalog.html">🔍 Discover</a>
 <a href="intelligence.html">🧠 Intel</a>
 <a onclick="toggleShelves()" style="cursor:pointer">📚 Shelves</a>
+<a onclick="scanISBN()" style="cursor:pointer" title="Scan ISBN">📷</a>
 <a onclick="openSettings()" style="cursor:pointer">⚙️</a>
 </nav>
 </div>
@@ -267,6 +304,42 @@ async function setStatus(id, status) {
     await BC.put("/books/" + id + "/status", {status});
     alert("Status: " + status.replace("_"," "));
 }
+
+async function scanISBN() {
+  if (!navigator.mediaDevices) { alert("Camera not available"); return; }
+  const div = document.createElement("div");
+  div.id = "scanner-modal";
+  div.style.cssText = "position:fixed;inset:0;z-index:9999;background:#000d;display:flex;flex-direction:column;align-items:center;justify-content:center";
+  div.innerHTML = '<video id="scan-video" style="max-width:90%;max-height:70%" autoplay></video><p style="color:#fff;margin-top:1rem">Point camera at ISBN barcode</p><button onclick="this.parentElement.remove();window._scanStream?.getTracks().forEach(t=>t.stop())" style="margin-top:.5rem;padding:.5rem 1rem">Close</button>';
+  document.body.appendChild(div);
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+    window._scanStream = stream;
+    const video = document.getElementById("scan-video");
+    video.srcObject = stream;
+    // Use BarcodeDetector API if available
+    if ("BarcodeDetector" in window) {
+      const detector = new BarcodeDetector({formats:["ean_13","ean_8"]});
+      const interval = setInterval(async () => {
+        try {
+          const barcodes = await detector.detect(video);
+          if (barcodes.length > 0) {
+            clearInterval(interval);
+            stream.getTracks().forEach(t => t.stop());
+            div.remove();
+            const isbn = barcodes[0].rawValue;
+            alert("Found ISBN: " + isbn);
+            // Search library
+            window.location.hash = "#search=" + isbn;
+          }
+        } catch(e) {}
+      }, 500);
+    } else {
+      div.querySelector("p").textContent = "BarcodeDetector not supported in this browser. Try Chrome.";
+    }
+  } catch(e) { alert("Camera error: " + e.message); div.remove(); }
+}
+
 </script>
 <script>
 let allBooks=[],view='grid',sortField='updated_at',sortOrder='desc',page=0,loading=false,hasMore=true,currentBookIdx=-1;
@@ -512,6 +585,42 @@ async function setStatus(id, status) {
     await BC.put("/books/" + id + "/status", {status});
     alert("Status: " + status.replace("_"," "));
 }
+
+async function scanISBN() {
+  if (!navigator.mediaDevices) { alert("Camera not available"); return; }
+  const div = document.createElement("div");
+  div.id = "scanner-modal";
+  div.style.cssText = "position:fixed;inset:0;z-index:9999;background:#000d;display:flex;flex-direction:column;align-items:center;justify-content:center";
+  div.innerHTML = '<video id="scan-video" style="max-width:90%;max-height:70%" autoplay></video><p style="color:#fff;margin-top:1rem">Point camera at ISBN barcode</p><button onclick="this.parentElement.remove();window._scanStream?.getTracks().forEach(t=>t.stop())" style="margin-top:.5rem;padding:.5rem 1rem">Close</button>';
+  document.body.appendChild(div);
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+    window._scanStream = stream;
+    const video = document.getElementById("scan-video");
+    video.srcObject = stream;
+    // Use BarcodeDetector API if available
+    if ("BarcodeDetector" in window) {
+      const detector = new BarcodeDetector({formats:["ean_13","ean_8"]});
+      const interval = setInterval(async () => {
+        try {
+          const barcodes = await detector.detect(video);
+          if (barcodes.length > 0) {
+            clearInterval(interval);
+            stream.getTracks().forEach(t => t.stop());
+            div.remove();
+            const isbn = barcodes[0].rawValue;
+            alert("Found ISBN: " + isbn);
+            // Search library
+            window.location.hash = "#search=" + isbn;
+          }
+        } catch(e) {}
+      }, 500);
+    } else {
+      div.querySelector("p").textContent = "BarcodeDetector not supported in this browser. Try Chrome.";
+    }
+  } catch(e) { alert("Camera error: " + e.message); div.remove(); }
+}
+
 </script>
 
 <!-- Settings modal -->
@@ -601,4 +710,40 @@ async function setStatus(id, status) {
     await BC.put("/books/" + id + "/status", {status});
     alert("Status: " + status.replace("_"," "));
 }
+
+async function scanISBN() {
+  if (!navigator.mediaDevices) { alert("Camera not available"); return; }
+  const div = document.createElement("div");
+  div.id = "scanner-modal";
+  div.style.cssText = "position:fixed;inset:0;z-index:9999;background:#000d;display:flex;flex-direction:column;align-items:center;justify-content:center";
+  div.innerHTML = '<video id="scan-video" style="max-width:90%;max-height:70%" autoplay></video><p style="color:#fff;margin-top:1rem">Point camera at ISBN barcode</p><button onclick="this.parentElement.remove();window._scanStream?.getTracks().forEach(t=>t.stop())" style="margin-top:.5rem;padding:.5rem 1rem">Close</button>';
+  document.body.appendChild(div);
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+    window._scanStream = stream;
+    const video = document.getElementById("scan-video");
+    video.srcObject = stream;
+    // Use BarcodeDetector API if available
+    if ("BarcodeDetector" in window) {
+      const detector = new BarcodeDetector({formats:["ean_13","ean_8"]});
+      const interval = setInterval(async () => {
+        try {
+          const barcodes = await detector.detect(video);
+          if (barcodes.length > 0) {
+            clearInterval(interval);
+            stream.getTracks().forEach(t => t.stop());
+            div.remove();
+            const isbn = barcodes[0].rawValue;
+            alert("Found ISBN: " + isbn);
+            // Search library
+            window.location.hash = "#search=" + isbn;
+          }
+        } catch(e) {}
+      }, 500);
+    } else {
+      div.querySelector("p").textContent = "BarcodeDetector not supported in this browser. Try Chrome.";
+    }
+  } catch(e) { alert("Camera error: " + e.message); div.remove(); }
+}
+
 </script>

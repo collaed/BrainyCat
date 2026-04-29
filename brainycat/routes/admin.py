@@ -1156,3 +1156,16 @@ async def merge_books_endpoint(body: dict[str, Any] | None = None) -> dict[str, 
     from brainycat.smart_merge import merge_books
 
     return await merge_books(body.get("keep_id", ""), body.get("merge_ids", []))
+
+
+# ── Goodreads/StoryGraph Import ───────────────────────────────────────────
+@router.post("/import/goodreads")
+async def import_goodreads(body: dict[str, Any] | None = None, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Import from Goodreads/StoryGraph CSV export. Body: {csv: '...'}."""
+    body = body or {}
+    csv_text = body.get("csv", "")
+    if not csv_text:
+        return {"error": "provide 'csv' field with Goodreads export content"}
+    from brainycat.goodreads_import import import_goodreads_csv
+
+    return await import_goodreads_csv(csv_text, str(user["id"]))
