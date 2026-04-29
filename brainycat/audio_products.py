@@ -23,6 +23,16 @@ from brainycat.config import settings
 
 async def generate_summary_script(book_id: str) -> dict[str, Any]:
     """Generate a Blinkist-style summary script (10-15 min read-aloud)."""
+    # Cost guard: max 20 audio product generations per day
+    from datetime import date
+
+    today_count = await db.fetch_one(
+        "SELECT count(*) as n FROM audio_products WHERE created_at::date = $1",
+        date.today(),
+    )
+    if today_count and today_count["n"] >= 20:
+        return {"error": "daily limit reached (20 audio products/day)"}
+
     row = await db.fetch_one(
         "SELECT b.title, b.description, bf.file_path, bf.format FROM books b JOIN book_files bf ON bf.book_id = b.id WHERE b.id = $1 LIMIT 1",
         UUID(book_id),
@@ -81,6 +91,16 @@ Return the full script text (no JSON, no formatting instructions)."""
 
 async def generate_reinforcement_cards(book_id: str) -> dict[str, Any]:
     """Generate spaced repetition audio cards (key takeaways as short sentences)."""
+    # Cost guard: max 20 audio product generations per day
+    from datetime import date
+
+    today_count = await db.fetch_one(
+        "SELECT count(*) as n FROM audio_products WHERE created_at::date = $1",
+        date.today(),
+    )
+    if today_count and today_count["n"] >= 20:
+        return {"error": "daily limit reached (20 audio products/day)"}
+
     row = await db.fetch_one(
         "SELECT b.title, b.description, bf.file_path, bf.format FROM books b JOIN book_files bf ON bf.book_id = b.id WHERE b.id = $1 LIMIT 1",
         UUID(book_id),

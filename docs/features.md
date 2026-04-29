@@ -600,3 +600,20 @@ AGPL-3.0
 ### Similar Passages Finder
 - `POST /api/v1/search/similar-passages {text}`
 - Full-text search across all annotations and clippings
+
+
+---
+
+## 17. Protocol Maturity
+
+| Protocol | Depth | What works | Known limitations |
+|---|---|---|---|
+| **OPDS** | 90% | Full catalog, search, pagination, covers, download | No OPDS-PS authentication |
+| **KOReader Sync** | 80% | Position sync, bookmark sync, auth | No conflict resolution (last-write-wins), no offline queue |
+| **ABS Compat** | 70% | Login, browse, play, progress, sleep timer | No offline download, no chapter images |
+| **WebDAV** | 30% | PROPFIND (list), GET (download) | Read-only — no PUT/LOCK/MKCOL/DELETE |
+| **Kobo Sync** | 20% | Init, library list, state update | Stub — no kepub conversion, no bookmark sync |
+| **WebSocket** | 80% | Auth (token), broadcast, auto-cleanup | No missed-event replay, no reconnection protocol |
+| **OPDS-PS** | 70% | Manifest, page serving, width control | No authentication on page endpoints |
+| **MCP** | 95% | 28 tools, full CRUD, AI features | — |
+| **Podcast RSS** | 90% | Per-book, summaries, reinforcement feeds | No audio file generation yet (scripts only) |
