@@ -79,7 +79,7 @@ async def get_settings(user: Any = Depends(get_current_user)) -> dict[str, Any]:
 
 @router.patch("/settings")
 async def update_settings(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    allowed = {"kindle_email", "email", "packt_email", "packt_password"}
+    allowed = {"kindle_email", "email", "packt_email", "packt_password", "auto_send_kindle"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         return {"error": "no valid fields"}
@@ -89,3 +89,6 @@ async def update_settings(body: dict[str, Any], user: Any = Depends(get_current_
 
 
 # ── Clippings ─────────────────────────────────────────────────────────────
+
+
+# Add auto_send_kindle to allowed settings

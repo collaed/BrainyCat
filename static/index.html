@@ -108,10 +108,36 @@ async function openSettings() {
         document.getElementById('set-email').value = s.email || '';
         const g = await BC.get('/reading-goals');
         document.getElementById('set-goal').value = g.target || '';
+        document.getElementById('set-autosend').checked = s.auto_send_kindle || false;
         document.getElementById('set-packt-email').value = s.packt_email || '';
     } catch(e) {}
 }
 
+
+async function toggleShelves() {
+    const panel = document.getElementById('shelves-panel');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    if (panel.style.display !== 'none') await loadShelves();
+}
+async function loadShelves() {
+    const shelves = await BC.get('/shelves');
+    document.getElementById('shelves-list').innerHTML = shelves.map(s =>
+        `<div onclick="filterShelf('${s.id}')" style="padding:.4rem .6rem;cursor:pointer;border-radius:6px;font-size:.82rem;display:flex;justify-content:space-between;align-items:center" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
+            <span>${s.icon} ${s.name.replace(s.icon+' ','')}</span>
+            <span style="color:var(--muted);font-size:.7rem">${s.count}</span>
+        </div>`
+    ).join('');
+}
+async function filterShelf(id) {
+    const data = await BC.get('/shelves/' + id + '?limit=200');
+    if (data.books) {
+        allBooks = data.books;
+        hasMore = false;
+        document.getElementById('book-count').textContent = data.books.length + ' books';
+        render();
+        document.getElementById('shelves-panel').style.display = 'none';
+    }
+}
 </script>
 </head>
 <body>
@@ -139,6 +165,7 @@ async function openSettings() {
 </div>
 <button class="btn primary" onclick="document.getElementById('file-input').click()" title="Upload ebook files">⬆ Upload</button>
 <button class="btn primary" onclick="uploadDirectory()" title="Upload entire folder">📁 Folder</button>
+<button class="btn" onclick="toggleShelves()" title="Magic Shelves">📚</button>
 <button class="btn" onclick="openSettings()" title="Settings">⚙️</button>
 <button id="batch-del-btn" class="btn danger" style="display:none" onclick="batchDelete()">🗑️ <span id="sel-count">0</span></button>
 <select id="skin-select" onchange="switchSkin(this.value)" title="UI Skin">
@@ -152,6 +179,11 @@ async function openSettings() {
 <a href="api/v1/opds/catalog.xml" title="OPDS Feed — use with Moon+ Reader, KOReader, Calibre" style="text-decoration:none;font-size:.8rem;padding:.3rem .5rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">📡 OPDS</a>
 <span id="book-count"></span>
 <input type="file" id="file-input" hidden accept=".epub,.pdf,.mobi,.azw3,.kfx,.fb2,.docx,.odt,.txt,.rtf,.html,.htm,.md,.cbz,.cbr,.djvu,.mp3,.m4b,.m4a,.flac,.opus,.ogg,.acsm,.zip" multiple>
+</div>
+
+<div id="shelves-panel" style="display:none;position:fixed;left:0;top:45px;width:260px;height:calc(100vh - 45px);background:var(--surface);border-right:1px solid var(--border);z-index:25;overflow-y:auto;padding:.8rem">
+<h3 style="font-size:.85rem;color:var(--muted);margin-bottom:.8rem">📚 Magic Shelves</h3>
+<div id="shelves-list"></div>
 </div>
 <div id="drop-zone">Drop files here to upload</div>
 <div id="content"></div>
@@ -187,10 +219,36 @@ async function openSettings() {
         document.getElementById('set-email').value = s.email || '';
         const g = await BC.get('/reading-goals');
         document.getElementById('set-goal').value = g.target || '';
+        document.getElementById('set-autosend').checked = s.auto_send_kindle || false;
         document.getElementById('set-packt-email').value = s.packt_email || '';
     } catch(e) {}
 }
 
+
+async function toggleShelves() {
+    const panel = document.getElementById('shelves-panel');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    if (panel.style.display !== 'none') await loadShelves();
+}
+async function loadShelves() {
+    const shelves = await BC.get('/shelves');
+    document.getElementById('shelves-list').innerHTML = shelves.map(s =>
+        `<div onclick="filterShelf('${s.id}')" style="padding:.4rem .6rem;cursor:pointer;border-radius:6px;font-size:.82rem;display:flex;justify-content:space-between;align-items:center" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
+            <span>${s.icon} ${s.name.replace(s.icon+' ','')}</span>
+            <span style="color:var(--muted);font-size:.7rem">${s.count}</span>
+        </div>`
+    ).join('');
+}
+async function filterShelf(id) {
+    const data = await BC.get('/shelves/' + id + '?limit=200');
+    if (data.books) {
+        allBooks = data.books;
+        hasMore = false;
+        document.getElementById('book-count').textContent = data.books.length + ' books';
+        render();
+        document.getElementById('shelves-panel').style.display = 'none';
+    }
+}
 </script>
 <script>
 let allBooks=[],view='grid',sortField='updated_at',sortOrder='desc',page=0,loading=false,hasMore=true,currentBookIdx=-1;
@@ -397,10 +455,36 @@ async function openSettings() {
         document.getElementById('set-email').value = s.email || '';
         const g = await BC.get('/reading-goals');
         document.getElementById('set-goal').value = g.target || '';
+        document.getElementById('set-autosend').checked = s.auto_send_kindle || false;
         document.getElementById('set-packt-email').value = s.packt_email || '';
     } catch(e) {}
 }
 
+
+async function toggleShelves() {
+    const panel = document.getElementById('shelves-panel');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    if (panel.style.display !== 'none') await loadShelves();
+}
+async function loadShelves() {
+    const shelves = await BC.get('/shelves');
+    document.getElementById('shelves-list').innerHTML = shelves.map(s =>
+        `<div onclick="filterShelf('${s.id}')" style="padding:.4rem .6rem;cursor:pointer;border-radius:6px;font-size:.82rem;display:flex;justify-content:space-between;align-items:center" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
+            <span>${s.icon} ${s.name.replace(s.icon+' ','')}</span>
+            <span style="color:var(--muted);font-size:.7rem">${s.count}</span>
+        </div>`
+    ).join('');
+}
+async function filterShelf(id) {
+    const data = await BC.get('/shelves/' + id + '?limit=200');
+    if (data.books) {
+        allBooks = data.books;
+        hasMore = false;
+        document.getElementById('book-count').textContent = data.books.length + ' books';
+        render();
+        document.getElementById('shelves-panel').style.display = 'none';
+    }
+}
 </script>
 
 <!-- Settings modal -->
@@ -416,6 +500,7 @@ async function openSettings() {
 <input id="set-packt-email" placeholder="your@email.com" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:.5rem">
 <label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Packt Password</label>
 <input id="set-packt-pass" type="password" placeholder="••••••••" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:1rem">
+<label style="display:flex;align-items:center;gap:.5rem;font-size:.85rem;color:#94a3b8;margin-bottom:1rem"><input type="checkbox" id="set-autosend"> Auto-send new books to Kindle after enrichment</label>
 <label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Reading Goal (books per year)</label>
 <input id="set-goal" type="number" placeholder="50" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:1rem">
 <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -440,6 +525,7 @@ async function openSettings() {
         document.getElementById('set-email').value = s.email || '';
         const g = await BC.get('/reading-goals');
         document.getElementById('set-goal').value = g.target || '';
+        document.getElementById('set-autosend').checked = s.auto_send_kindle || false;
         document.getElementById('set-packt-email').value = s.packt_email || '';
     } catch(e) {}
 }
@@ -454,8 +540,34 @@ async function saveSettings() {
     if (packtEmail) updates.packt_email = packtEmail;
     if (packtPass) updates.packt_password = packtPass;
     if (email) updates.email = email;
+    updates.auto_send_kindle = document.getElementById('set-autosend').checked;
     if (Object.keys(updates).length) await BC.patch('/settings', updates);
     if (goal > 0) await BC.post('/reading-goals', {target: goal});
     document.getElementById('settings-modal').style.display = 'none';
+}
+
+async function toggleShelves() {
+    const panel = document.getElementById('shelves-panel');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    if (panel.style.display !== 'none') await loadShelves();
+}
+async function loadShelves() {
+    const shelves = await BC.get('/shelves');
+    document.getElementById('shelves-list').innerHTML = shelves.map(s =>
+        `<div onclick="filterShelf('${s.id}')" style="padding:.4rem .6rem;cursor:pointer;border-radius:6px;font-size:.82rem;display:flex;justify-content:space-between;align-items:center" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
+            <span>${s.icon} ${s.name.replace(s.icon+' ','')}</span>
+            <span style="color:var(--muted);font-size:.7rem">${s.count}</span>
+        </div>`
+    ).join('');
+}
+async function filterShelf(id) {
+    const data = await BC.get('/shelves/' + id + '?limit=200');
+    if (data.books) {
+        allBooks = data.books;
+        hasMore = false;
+        document.getElementById('book-count').textContent = data.books.length + ' books';
+        render();
+        document.getElementById('shelves-panel').style.display = 'none';
+    }
 }
 </script>

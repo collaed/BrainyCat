@@ -316,6 +316,13 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     except Exception:
         pass
 
+    # Auto-writeback metadata to EPUB file
+    try:
+        from brainycat.writeback import writeback_metadata
+        await writeback_metadata(book_id)
+    except Exception:
+        pass
+
     # Check if we can contribute back to open databases
     try:
         from brainycat.contribute import contribute_back
