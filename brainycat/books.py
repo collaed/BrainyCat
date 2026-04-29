@@ -78,6 +78,7 @@ async def upload_book(
     # Auto-fix EPUB issues
     if ext == ".epub":
         from brainycat.epub_fix import fix_epub
+
         fix_epub(file_path)
 
     # Extract metadata
@@ -431,7 +432,7 @@ def _check_file_health(file_path: str) -> dict[str, Any]:
                 result["issues"].append("PDF has 0 pages")
             elif pages < 10 and size < 256_000:
                 result["is_pamphlet"] = True
-                result["issues"].append(f"pamphlet: {pages} pages, {size//1024}KB")
+                result["issues"].append(f"pamphlet: {pages} pages, {size // 1024}KB")
         except Exception:
             result["healthy"] = False
             result["issues"].append("corrupt PDF (cannot open)")
@@ -449,6 +450,6 @@ def _check_file_health(file_path: str) -> dict[str, Any]:
     # Size-based pamphlet detection (non-PDF)
     elif size < 100_000 and ext not in (".txt", ".md", ".html"):
         result["is_pamphlet"] = True
-        result["issues"].append(f"pamphlet: {size//1024}KB")
+        result["issues"].append(f"pamphlet: {size // 1024}KB")
 
     return result

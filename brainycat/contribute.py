@@ -59,8 +59,7 @@ async def contribute_back(book_id: str) -> dict[str, Any]:
         ol_subjects = ol.get("subjects", [])
         if not ol_subjects:
             tags = await fetch_one(
-                "SELECT array_agg(t.name) as tags FROM books_tags bt "
-                "JOIN tags t ON t.id = bt.tag_id WHERE bt.book_id = $1",
+                "SELECT array_agg(t.name) as tags FROM books_tags bt JOIN tags t ON t.id = bt.tag_id WHERE bt.book_id = $1",
                 UUID(book_id),
             )
             if tags and tags["tags"]:

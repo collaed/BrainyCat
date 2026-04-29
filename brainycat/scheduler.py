@@ -315,3 +315,27 @@ async def _ocr_loop() -> None:
                         await log.ainfo("ocr_submitted", book_id=str(candidate["id"]))
                 except TimeoutError:
                     await log.awarning("ocr_submit_timeout")
+
+
+async def _watcher_loop() -> None:
+    """Check incoming folder for new files."""
+    import os
+
+    from brainycat.config import settings
+    from brainycat.watcher import ALLOWED_EXT, IGNORE_EXT, _import_file
+
+    incoming = settings.incoming_dir
+    if not os.path.isdir(incoming):
+        return
+
+    for entry in os.scandir(incoming):
+        if entry.is_file():
+            ext = os.path.splitext(entry.name)[1].lower()
+            if ext in IGNORE_EXT or entry.name.startswith(".") or ext not in ALLOWED_EXT:
+                continue
+            # Check file is stable (not still being written)
+            size1 = entry.stat().st_size
+            await asyncio.sleep(2)
+            size2 = os.path.getsize(entry.path) if os.path.exists(entry.path) else 0
+            if size1 == size2 and size1 > 0:
+                await _import_file(entry.path)

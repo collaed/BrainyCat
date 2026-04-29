@@ -1506,3 +1506,31 @@ async def delete_book_file(book_id: str, file_id: str, _u: Any = Depends(get_cur
         os.unlink(row["file_path"])
     await db.execute("DELETE FROM book_files WHERE id = $1", UUID(file_id))
     return {"ok": True}
+
+
+@router.get("/search/fulltext")
+async def fulltext_search(q: str = Query(...), limit: int = Query(20), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Full-text search across all books — titles, authors, descriptions, ISBN."""
+    from brainycat.db import fetch_all as _fa
+
+    rows = await _fa(
+        """
+        SELECT b.id, b.title, b.isbn, b.quality_score, b.cover_path,
+               array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors,
+               ts_rank(b.search_vector, websearch_to_tsquery('simple', $1)) as rank
+        FROM books b
+        LEFT JOIN books_authors ba ON ba.book_id = b.id
+        LEFT JOIN authors a ON a.id = ba.author_id
+        WHERE b.search_vector @@ websearch_to_tsquery('simple', $1)
+           OR b.title ILIKE '%' || $1 || '%'
+           OR b.isbn = $1
+           OR EXISTS (SELECT 1 FROM authors a2 JOIN books_authors ba2 ON ba2.author_id = a2.id WHERE ba2.book_id = b.id AND a2.name ILIKE '%' || $1 || '%')
+        GROUP BY b.id
+        ORDER BY rank DESC NULLS LAST, b.quality_score DESC
+        LIMIT $2
+    """,
+        q,
+        limit,
+    )
+
+    return {"query": q, "results": [dict(r) for r in rows], "count": len(rows)}
