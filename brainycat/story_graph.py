@@ -106,7 +106,11 @@ async def generate_story_arc(premise: str, genre: str, length: str, inspiration_
             UUID(bid),
         )
         if row:
-            inspirations.append({"title": (row["metadata"] or {}).get("title", "Unknown"), "points": row["points"]})
+            import json as _json
+
+            meta = row["metadata"] if isinstance(row["metadata"], dict) else _json.loads(row["metadata"]) if row["metadata"] else {}
+            pts = row["points"] if isinstance(row["points"], list) else _json.loads(row["points"])
+            inspirations.append({"title": meta.get("title", "Unknown"), "points": pts})
 
     inspiration_text = ""
     for insp in inspirations:
