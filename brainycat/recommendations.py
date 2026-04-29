@@ -55,3 +55,33 @@ async def recommend_for_user(user_id: str, limit: int = 20) -> list[dict[str, An
         limit,
     )
     return [dict(r) for r in rows]
+
+
+async def recommend_external(title: str, author: str = "") -> dict[str, Any]:
+    """Get recommendations from TasteDive (external collaborative filtering)."""
+    import httpx
+
+    query = f"book:{title}"
+    if author:
+        query = f"book:{title} {author}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                "https://tastedive.com/api/similar",
+                params={"q": query, "type": "books", "info": 1, "limit": 10},
+            )
+            if r.status_code == 200:
+                data = r.json().get("similar", {}).get("results", [])
+                return {
+                    "source": "tastedive",
+                    "query": title,
+                    "results": [
+                        {"title": item.get("name", ""), "description": item.get("wTeaser", "")[:200], "type": item.get("type", "")}
+                        for item in data
+                    ],
+                }
+    except Exception as e:
+        return {"source": "tastedive", "error": str(e)}
+
+    return {"source": "tastedive", "results": []}

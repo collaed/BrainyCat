@@ -1242,3 +1242,20 @@ async def import_marc_records(body: dict[str, Any] | None = None) -> dict[str, A
                 )
                 imported += 1
     return {"imported": imported, "total_records": len(records)}
+
+
+# ── External Recommendations (TasteDive) ──────────────────────────────────
+@router.get("/recommendations/external/{book_id}")
+async def external_recommendations(book_id: str) -> dict[str, Any]:
+    """Get recommendations from TasteDive based on a book."""
+    from uuid import UUID
+
+    book = await db.fetch_one(
+        "SELECT b.title, a.name as author FROM books b LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id WHERE b.id = $1",
+        UUID(book_id),
+    )
+    if not book:
+        return {"error": "not found"}
+    from brainycat.recommendations import recommend_external
+
+    return await recommend_external(book["title"], book.get("author") or "")
