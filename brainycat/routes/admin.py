@@ -950,6 +950,13 @@ async def evaluate_experimental(feature: str, body: dict[str, Any] | None = None
         proposed = f"{author} - {title}" + (f" [{isbn}]" if isbn else "") + ".epub"
         return {"proposed_filename": proposed, "dry_run": True}
 
+    if feature == "dupe_pages":
+        from brainycat.experimental.dupe_pages import detect_duplicate_pages
+
+        if not book_id:
+            return {"error": "provide book_id"}
+        return await detect_duplicate_pages(book_id)
+
     return {"error": f"unknown feature: {feature}"}
 
 

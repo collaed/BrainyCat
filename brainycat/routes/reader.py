@@ -489,3 +489,85 @@ async def global_notebook(limit: int = Query(100), q: str = Query(None), user: A
     all_items.sort(key=lambda x: x.get("created_at") or "", reverse=True)
 
     return {"items": all_items[:limit], "total": len(all_items)}
+
+
+# ── Reading Streaks & Daily Log ───────────────────────────────────────────
+@router.get("/reading/streak")
+async def reading_streak(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get current reading streak and stats."""
+    # Days with reading activity (based on progress updates)
+    rows = await db.fetch_all(
+        """SELECT DISTINCT date_trunc('day', updated_at)::date as day
+           FROM reading_progress WHERE user_id = $1
+           ORDER BY day DESC LIMIT 365""",
+        user["id"],
+    )
+    if not rows:
+        return {"current_streak": 0, "longest_streak": 0, "total_days": 0}
+
+    from datetime import date, timedelta
+
+    days = [r["day"] for r in rows]
+    today = date.today()
+
+    # Current streak
+    current = 0
+    check = today
+    for d in days:
+        if d == check or d == check - timedelta(days=1):
+            current += 1
+            check = d - timedelta(days=1)
+        else:
+            break
+
+    # Longest streak
+    longest = 1
+    streak = 1
+    for i in range(1, len(days)):
+        if days[i - 1] - days[i] == timedelta(days=1):
+            streak += 1
+            longest = max(longest, streak)
+        else:
+            streak = 1
+
+    return {
+        "current_streak": current,
+        "longest_streak": longest,
+        "total_days": len(days),
+        "last_read": str(days[0]) if days else None,
+    }
+
+
+@router.post("/reading/log")
+async def log_reading(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Log a reading session (minutes, pages, book)."""
+    book_id = body.get("book_id")
+    minutes = body.get("minutes", 0)
+    pages = body.get("pages", 0)
+
+    await db.execute(
+        """INSERT INTO reading_log (user_id, book_id, minutes, pages_read, logged_at)
+           VALUES ($1, $2, $3, $4, now())""",
+        user["id"],
+        UUID(book_id) if book_id else None,
+        minutes,
+        pages,
+    )
+    return {"ok": True}
+
+
+@router.get("/reading/stats")
+async def reading_stats(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Reading stats: this week, this month, this year."""
+    row = await db.fetch_one(
+        """SELECT
+            count(*) FILTER (WHERE logged_at > now() - interval '7 days') as week_sessions,
+            COALESCE(sum(minutes) FILTER (WHERE logged_at > now() - interval '7 days'), 0) as week_minutes,
+            count(*) FILTER (WHERE logged_at > now() - interval '30 days') as month_sessions,
+            COALESCE(sum(minutes) FILTER (WHERE logged_at > now() - interval '30 days'), 0) as month_minutes,
+            count(*) as total_sessions,
+            COALESCE(sum(minutes), 0) as total_minutes
+           FROM reading_log WHERE user_id = $1""",
+        user["id"],
+    )
+    return dict(row) if row else {}

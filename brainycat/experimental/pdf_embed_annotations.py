@@ -13,9 +13,10 @@ from typing import Any
 
 async def embed_annotations(book_id: str) -> dict[str, Any]:
     """Write stored annotations into the actual PDF file."""
+    from uuid import UUID
+
     import fitz
 
-    from uuid import UUID
     from brainycat.db import fetch_all, fetch_one
 
     row = await fetch_one(
