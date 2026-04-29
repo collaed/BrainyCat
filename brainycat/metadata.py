@@ -68,6 +68,7 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     # Primary: Intello unified lookup (re-enabled after fix)
     try:
         import asyncio as _aio
+
         from brainycat.config import settings
 
         async with _aio.timeout(15):

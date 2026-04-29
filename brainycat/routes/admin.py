@@ -851,3 +851,103 @@ async def disk_usage(_a: Any = Depends(require_admin)) -> dict[str, Any]:
         "ocr_results": {"count": ocr_size["cnt"], "size_mb": round(float(ocr_size["mb"]))},
         "disk": df.stdout.strip().split("\n")[-1] if df.stdout else "unknown",
     }
+
+
+# ── Experimental feature evaluation ──────────────────────────────────────
+@router.get("/experimental/status")
+async def experimental_status() -> dict[str, Any]:
+    """Show which experimental features are enabled."""
+    from brainycat.config import settings
+
+    return {
+        "text_profile": settings.exp_text_profile == "1",
+        "lsh_dedup": settings.exp_lsh_dedup == "1",
+        "isbntools": settings.exp_isbntools == "1",
+        "file_rename": settings.exp_file_rename == "1",
+        "kindle_fix": settings.exp_kindle_fix == "1",
+    }
+
+
+@router.post("/experimental/evaluate/{feature}")
+async def evaluate_experimental(feature: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    body = body or {}
+    """Run an experimental feature on a sample and compare with existing."""
+    book_id = body.get("book_id")
+
+    if feature == "text_profile":
+        from brainycat.experimental.text_profile_sig import text_profile_signature
+
+        text = body.get("text", "")
+        if not text and book_id:
+            # Extract text from book
+            from brainycat.db import fetch_one
+
+            row = await fetch_one("SELECT bf.file_path FROM book_files bf WHERE bf.book_id = $1 LIMIT 1", UUID(book_id))
+            if row and row["file_path"]:
+                import fitz
+
+                try:
+                    doc = fitz.open(row["file_path"])
+                    text = " ".join(doc[i].get_text() for i in range(min(10, len(doc))))
+                    doc.close()
+                except Exception:
+                    pass
+        sig = text_profile_signature(text)
+        return {"signature": sig, "text_length": len(text)}
+
+    if feature == "lsh_dedup":
+        from brainycat.experimental.lsh_dedup import query_similar, text_to_minhash
+
+        text = body.get("text", "")
+        m = text_to_minhash(text)
+        return {"num_values": m.count(), "similar": query_similar(text)}
+
+    if feature == "isbntools":
+        from brainycat.experimental.isbntools_eval import compare_with_existing, lookup_isbn
+
+        isbn = body.get("isbn", "")
+        if book_id and isbn:
+            return await compare_with_existing(book_id, isbn)
+        if isbn:
+            return await lookup_isbn(isbn)
+        return {"error": "provide isbn"}
+
+    if feature == "kindle_fix":
+        from brainycat.experimental.kindle_epub_fix import fix_epub_for_kindle
+
+        if not book_id:
+            return {"error": "provide book_id"}
+        from brainycat.db import fetch_one
+
+        row = await fetch_one(
+            "SELECT bf.file_path FROM book_files bf WHERE bf.book_id = $1 AND bf.format = 'epub' LIMIT 1",
+            UUID(book_id),
+        )
+        if not row:
+            return {"error": "no epub found"}
+        # Dry run: copy file, fix, report
+        import shutil
+        import tempfile
+
+        tmp = tempfile.mktemp(suffix=".epub")
+        shutil.copy2(row["file_path"], tmp)
+        result = fix_epub_for_kindle(tmp)
+        os.unlink(tmp)
+        return result
+
+    if feature == "file_rename":
+        from brainycat.db import fetch_one
+        from brainycat.experimental.file_rename import safe_filename
+
+        if not book_id:
+            return {"error": "provide book_id"}
+        book = await fetch_one("SELECT b.title, b.author, b.isbn FROM books b WHERE b.id = $1", UUID(book_id))
+        if not book:
+            return {"error": "not found"}
+        title = safe_filename(book["title"] or "Unknown")
+        author = safe_filename(book["author"] or "Unknown")
+        isbn = book["isbn"] or ""
+        proposed = f"{author} - {title}" + (f" [{isbn}]" if isbn else "") + ".epub"
+        return {"proposed_filename": proposed, "dry_run": True}
+
+    return {"error": f"unknown feature: {feature}"}

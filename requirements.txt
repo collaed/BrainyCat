@@ -34,3 +34,5 @@ weasyprint==68.1
 mcp==1.27.0
 isbnlib>=3.10
 pyzbar>=0.1.9
+datasketch==1.10.0
+isbntools==4.3.29

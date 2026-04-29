@@ -53,5 +53,12 @@ class Settings(BaseSettings):
 
     model_config = {"env_prefix": "BRAINYCAT_"}
 
+    # Experimental features (set to "1" to enable)
+    exp_text_profile: str = "0"
+    exp_lsh_dedup: str = "0"
+    exp_isbntools: str = "0"
+    exp_file_rename: str = "0"
+    exp_kindle_fix: str = "0"
+
 
 settings = Settings()
