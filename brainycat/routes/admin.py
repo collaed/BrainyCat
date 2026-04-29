@@ -1169,3 +1169,31 @@ async def import_goodreads(body: dict[str, Any] | None = None, user: Any = Depen
     from brainycat.goodreads_import import import_goodreads_csv
 
     return await import_goodreads_csv(csv_text, str(user["id"]))
+
+
+# ── Vocabulary Analysis ───────────────────────────────────────────────────
+@router.get("/books/{book_id}/vocabulary")
+async def vocabulary_analysis(book_id: str) -> dict[str, Any]:
+    """Analyze vocabulary difficulty of a book."""
+    from brainycat.vocab_score import analyze_vocabulary
+
+    return await analyze_vocabulary(book_id)
+
+
+# ── OCR Correction ────────────────────────────────────────────────────────
+@router.post("/ocr/correct")
+async def ocr_correct(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Run text through LLM for OCR error correction."""
+    body = body or {}
+    from brainycat.ocr_correct import correct_ocr_text
+
+    return await correct_ocr_text(body.get("text", ""), body.get("language", "en"))
+
+
+# ── Book NLP ──────────────────────────────────────────────────────────────
+@router.post("/books/{book_id}/characters")
+async def book_characters(book_id: str) -> dict[str, Any]:
+    """Extract characters, themes, and quotes from a book."""
+    from brainycat.experimental.book_nlp import extract_characters
+
+    return await extract_characters(book_id)

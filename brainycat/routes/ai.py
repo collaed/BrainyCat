@@ -242,3 +242,56 @@ Give a concise recap (3-5 paragraphs) of what has happened so far, focusing on:
     except Exception as e:
         return {"error": str(e)}
     return {"error": "LLM unavailable"}
+
+
+# ── Chapter Summaries ─────────────────────────────────────────────────────
+@router.post("/books/{book_id}/summarize-chapters")
+async def summarize_chapters(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Generate bulleted summaries for each chapter."""
+    from uuid import UUID
+
+    import httpx
+
+    from brainycat.config import settings
+
+    row = await db.fetch_one(
+        "SELECT bf.file_path, bf.format, b.title FROM book_files bf JOIN books b ON b.id = bf.book_id WHERE bf.book_id = $1 AND bf.format = 'epub' LIMIT 1",
+        UUID(book_id),
+    )
+    if not row:
+        return {"error": "epub not found"}
+
+    # Extract chapters from EPUB
+    import ebooklib
+    from bs4 import BeautifulSoup
+    from ebooklib import epub
+
+    book = epub.read_epub(row["file_path"], options={"ignore_ncx": True})
+    chapters = []
+    for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+        soup = BeautifulSoup(item.get_content(), "html.parser")
+        text = soup.get_text()
+        if len(text.split()) > 100:  # Skip short items (TOC, copyright)
+            title = soup.find(["h1", "h2", "h3"])
+            chapters.append({"title": title.get_text() if title else f"Section {len(chapters) + 1}", "text": text})
+
+    if not chapters:
+        return {"error": "no chapters found"}
+
+    # Summarize first 10 chapters
+    summaries = []
+    async with httpx.AsyncClient(timeout=30) as client:
+        for ch in chapters[:10]:
+            words = ch["text"].split()[:1500]
+            prompt = f'Summarize this chapter in 3-5 bullet points. Chapter: "{ch["title"]}"\n\n{" ".join(words)}'
+            try:
+                r = await client.post(
+                    f"{settings.intello_url}/v1/chat/completions",
+                    json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.2},
+                )
+                if r.status_code == 200:
+                    summaries.append({"chapter": ch["title"], "summary": r.json()["choices"][0]["message"]["content"]})
+            except Exception:
+                pass
+
+    return {"book": row["title"], "chapters": len(chapters), "summaries": summaries}
