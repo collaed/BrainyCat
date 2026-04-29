@@ -103,6 +103,20 @@ async def upload_book(
         cover_path = os.path.join(storage.book_dir(book_id), "cover.jpg")
         with open(cover_path, "wb") as f:
             f.write(cover_data)
+    elif file_path.endswith(".pdf"):
+        # Generate cover from first PDF page
+        try:
+            import fitz
+
+            doc = fitz.open(file_path)
+            page = doc[0]
+            scale = 300 / page.rect.width
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
+            cover_path = os.path.join(storage.book_dir(book_id), "cover.jpg")
+            pix.save(cover_path, "jpeg")
+            doc.close()
+        except Exception:
+            pass
 
     # Duplicate check
     dup = await fetch_one(
