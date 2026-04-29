@@ -125,7 +125,21 @@ async def extract_title_from_content(file_path: str, format: str = "pdf") -> str
                         # Score: bigger font + earlier page = higher confidence
                         score = font_size * (1 / (page_num + 1))
                         # Penalize if looks like header/footer
-                        if any(x in text.lower() for x in ["page", "chapter", "table of", "copyright", "isbn", "by ", "edition", "published", "press", "all rights"]):
+                        if any(
+                            x in text.lower()
+                            for x in [
+                                "page",
+                                "chapter",
+                                "table of",
+                                "copyright",
+                                "isbn",
+                                "by ",
+                                "edition",
+                                "published",
+                                "press",
+                                "all rights",
+                            ]
+                        ):
                             continue
                         candidates.append((text, score))
 

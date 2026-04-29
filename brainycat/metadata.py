@@ -67,6 +67,7 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
 
     # Clean title for better query matching
     from brainycat.title_confidence import build_enrichment_query, clean_title_for_query
+    from brainycat.relevance_guard import is_relevant
 
     query_title = build_enrichment_query(title)
 
@@ -90,7 +91,13 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
             lookup_data = resp.json()
             for source_name, source_data in lookup_data.get("sources", {}).items():
                 for result in source_data.get("results", [])[:1]:
-                    results.append(result)
+                    # Relevance guard: reject results that don't match our book
+                    result_title = result.get("title", "")
+                    result_isbn = result.get("isbn", "")
+                    if is_relevant(title, result_title, result_isbn, isbn):
+                        results.append(result)
+                    else:
+                        await log.ainfo("relevance_rejected", book_title=title, result_title=result_title)
                     await execute(
                         "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, $2, true, $3::jsonb)",
                         UUID(book_id),
