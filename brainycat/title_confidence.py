@@ -89,7 +89,7 @@ def clean_title_for_query(title: str) -> str:
     # Strip download site watermarks
     for suffix in [" - PDF Room", " - PDF Drive", " - Z-Library", " (z-lib.org)", "_compress"]:
         if t.endswith(suffix):
-            t = t[:-len(suffix)]
+            t = t[: -len(suffix)]
 
     # Hyphens as word separators (if no spaces and many hyphens)
     if " " not in t and t.count("-") >= 3:

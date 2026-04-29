@@ -114,7 +114,7 @@ async def list_epub_styles() -> list[dict[str, str]]:
 
 
 # ── TTS Podcast Feed ──────────────────────────────────────────────────────
-@router.get("/podcast/{book_id}/feed.xml")
+@router.get("/podcast/book/{book_id}/feed.xml")
 async def podcast_feed(book_id: str, request: Request) -> Any:
     """Serve TTS-generated audiobook chapters as a podcast RSS feed."""
     from uuid import UUID
@@ -151,3 +151,118 @@ async def podcast_feed(book_id: str, request: Request) -> Any:
 </rss>"""
 
     return Response(content=xml, media_type="application/rss+xml")
+
+
+# ── Audio Products Podcast Feed ───────────────────────────────────────────
+@router.get("/podcast/learning/feed.xml")
+async def learning_podcast_feed(request: Request) -> Any:
+    """Podcast feed mixing reinforcement cards across all books — spaced repetition."""
+    import json
+    from datetime import date, timedelta
+
+    from fastapi.responses import Response
+
+    # Get all reinforcement cards for this user's books
+    products = await db.fetch_all(
+        """SELECT ap.script, ap.book_id, b.title FROM audio_products ap
+           JOIN books b ON b.id = ap.book_id
+           WHERE ap.product_type = 'reinforcement' AND ap.status = 'ready'
+           ORDER BY ap.created_at DESC LIMIT 20"""
+    )
+
+    base_url = str(request.base_url).rstrip("/")
+    items = ""
+    episode = 0
+    today = date.today()
+
+    for prod in products:
+        cards = json.loads(prod["script"]) if isinstance(prod["script"], str) else prod["script"]
+        for i, card in enumerate(cards[:5]):  # First 5 cards per book
+            episode += 1
+            # Schedule: spread across days
+            pub_date = today - timedelta(days=episode % 7)
+            items += f"""<item>
+  <title>{prod["title"][:40]} — Takeaway {i + 1}</title>
+  <description>{card[:200]}</description>
+  <pubDate>{pub_date.strftime("%a, %d %b %Y")} 08:00:00 GMT</pubDate>
+  <guid>reinforce-{prod["book_id"]}-{i}</guid>
+  <itunes:duration>00:00:15</itunes:duration>
+</item>\n"""
+
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>🐱 BrainyCat — Learning Reinforcement</title>
+  <description>Spaced repetition audio cards from your library</description>
+  <link>{base_url}</link>
+  <itunes:category text="Education"/>
+  {items}
+</channel>
+</rss>"""
+    return Response(content=xml, media_type="application/rss+xml")
+
+
+@router.get("/podcast/summaries/feed.xml")
+async def summaries_podcast_feed(request: Request) -> Any:
+    """Podcast feed of Blinkist-style book summaries."""
+    from fastapi.responses import Response
+
+    products = await db.fetch_all(
+        """SELECT ap.book_id, b.title, ap.created_at FROM audio_products ap
+           JOIN books b ON b.id = ap.book_id
+           WHERE ap.product_type = 'summary' AND ap.status = 'ready'
+           ORDER BY ap.created_at DESC LIMIT 50"""
+    )
+
+    base_url = str(request.base_url).rstrip("/")
+    items = "\n".join(
+        f"""<item>
+  <title>{p["title"][:60]} — Summary</title>
+  <enclosure url="{base_url}/api/v1/audio-products/{p["book_id"]}/summary.mp3" type="audio/mpeg"/>
+  <pubDate>{p["created_at"].strftime("%a, %d %b %Y %H:%M:%S GMT") if p["created_at"] else ""}</pubDate>
+  <guid>summary-{p["book_id"]}</guid>
+  <itunes:duration>00:15:00</itunes:duration>
+</item>"""
+        for p in products
+    )
+
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>🐱 BrainyCat — Book Summaries</title>
+  <description>15-minute summaries of books in your library</description>
+  <link>{base_url}</link>
+  <itunes:category text="Education"/>
+  {items}
+</channel>
+</rss>"""
+    return Response(content=xml, media_type="application/rss+xml")
+
+
+# ── Audio Product Generation ──────────────────────────────────────────────
+@router.post("/books/{book_id}/audio-products/summary")
+async def generate_summary(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Generate a Blinkist-style summary script for TTS."""
+    from brainycat.audio_products import generate_summary_script
+
+    return await generate_summary_script(book_id)
+
+
+@router.post("/books/{book_id}/audio-products/reinforcement")
+async def generate_reinforcement(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Generate spaced repetition audio cards (key takeaways)."""
+    from brainycat.audio_products import generate_reinforcement_cards
+
+    return await generate_reinforcement_cards(book_id)
+
+
+@router.get("/books/{book_id}/audio-products")
+async def list_audio_products(book_id: str) -> list[dict[str, Any]]:
+    """List available audio products for a book."""
+    from uuid import UUID
+
+    rows = await db.fetch_all(
+        "SELECT product_type, status, created_at FROM audio_products WHERE book_id = $1",
+        UUID(book_id),
+    )
+    return [dict(r) for r in rows]
