@@ -841,3 +841,43 @@ async def get_reading_speed(user: Any = Depends(get_current_user)) -> dict[str, 
     row = await db.fetch_one("SELECT preferences->'reading_wpm' as wpm FROM users WHERE id = $1", user["id"])
     wpm = int(row["wpm"]) if row and row["wpm"] else 250
     return {"wpm": wpm, "pages_per_hour": round(wpm / 250 * 60 / 1.5, 1)}
+
+
+# ── Book Lending Tracker ──────────────────────────────────────────────────
+@router.post("/books/{book_id}/lend")
+async def lend_book(book_id: str, body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Record lending a book to someone."""
+    borrower = body.get("borrower", "")
+    notes = body.get("notes", "")
+    await db.execute(
+        "INSERT INTO book_loans (user_id, book_id, borrower, notes) VALUES ($1, $2, $3, $4)",
+        user["id"],
+        UUID(book_id),
+        borrower,
+        notes,
+    )
+    return {"ok": True, "borrower": borrower}
+
+
+@router.post("/books/{book_id}/return")
+async def return_book(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Mark a lent book as returned."""
+    await db.execute(
+        "UPDATE book_loans SET returned_at = now() WHERE user_id = $1 AND book_id = $2 AND returned_at IS NULL",
+        user["id"],
+        UUID(book_id),
+    )
+    return {"ok": True}
+
+
+@router.get("/loans")
+async def list_loans(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List all active loans."""
+    rows = await db.fetch_all(
+        """SELECT bl.borrower, bl.notes, bl.lent_at, b.title, b.id as book_id
+           FROM book_loans bl JOIN books b ON b.id = bl.book_id
+           WHERE bl.user_id = $1 AND bl.returned_at IS NULL
+           ORDER BY bl.lent_at DESC""",
+        user["id"],
+    )
+    return [dict(r) for r in rows]

@@ -110,3 +110,23 @@ async def regenerate_api_key(user: Any = Depends(get_current_user)) -> dict[str,
     new_key = secrets.token_hex(16)
     await db.execute("UPDATE users SET api_key = $1 WHERE id = $2", new_key, user["id"])
     return {"api_key": new_key}
+
+
+# ── Theme Preference ──────────────────────────────────────────────────────
+@router.put("/user/theme")
+async def set_theme(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Set UI theme preference (dark/light/auto)."""
+    theme = body.get("theme", "dark")
+    await db.execute(
+        "UPDATE users SET preferences = jsonb_set(COALESCE(preferences, '{}'), '{theme}', $1::jsonb) WHERE id = $2",
+        f'"{theme}"',
+        user["id"],
+    )
+    return {"theme": theme}
+
+
+@router.get("/user/theme")
+async def get_theme(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get UI theme preference."""
+    row = await db.fetch_one("SELECT preferences->>'theme' as theme FROM users WHERE id = $1", user["id"])
+    return {"theme": row["theme"] if row and row["theme"] else "dark"}

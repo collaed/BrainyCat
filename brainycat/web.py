@@ -88,6 +88,7 @@ from brainycat.routes.auth import router as auth_router  # noqa: E402
 from brainycat.routes.books import router as books_router  # noqa: E402
 from brainycat.routes.catalog import router as catalog_router  # noqa: E402
 from brainycat.routes.enrichment import router as enrichment_router  # noqa: E402
+from brainycat.routes.health import router as health_router  # noqa: E402
 from brainycat.routes.kobo import router as kobo_router  # noqa: E402
 from brainycat.routes.kosync import router as kosync_router  # noqa: E402
 from brainycat.routes.media import router as media_router  # noqa: E402
@@ -109,6 +110,7 @@ app.include_router(kosync_router)
 app.include_router(ws_router)
 app.include_router(kobo_router)
 app.include_router(oauth_router)
+app.include_router(health_router)
 
 
 # ── Health ────────────────────────────────────────────────────────────────
