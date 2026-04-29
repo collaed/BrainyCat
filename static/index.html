@@ -138,6 +138,10 @@ async function filterShelf(id) {
         document.getElementById('shelves-panel').style.display = 'none';
     }
 }
+async function setStatus(id, status) {
+    await BC.put("/books/" + id + "/status", {status});
+    alert("Status: " + status.replace("_"," "));
+}
 </script>
 </head>
 <body>
@@ -249,6 +253,10 @@ async function filterShelf(id) {
         document.getElementById('shelves-panel').style.display = 'none';
     }
 }
+async function setStatus(id, status) {
+    await BC.put("/books/" + id + "/status", {status});
+    alert("Status: " + status.replace("_"," "));
+}
 </script>
 <script>
 let allBooks=[],view='grid',sortField='updated_at',sortOrder='desc',page=0,loading=false,hasMore=true,currentBookIdx=-1;
@@ -336,6 +344,11 @@ async function openBook(id){
         <div id="similar" style="margin-top:.5rem"></div>
         <div class="actions">
             ${canRead?`<button class="btn primary" onclick="openReader('${id}',${hasEpub})" style="font-size:1.1em;padding:.5em 1.2em" title="Open in reader">📖 Read</button>`:''}
+                        <div style="display:flex;gap:.3rem;margin-bottom:.5rem">
+                <button class="btn sm" onclick="setStatus('${id}','want_to_read')" title="Want to Read">📋</button>
+                <button class="btn sm" onclick="setStatus('${id}','reading')" title="Currently Reading">📖</button>
+                <button class="btn sm" onclick="setStatus('${id}','finished')" title="Finished">✅</button>
+            </div>
             ${hasAudio?`<button class="btn primary" onclick="location='player.html?id=${id}'" style="font-size:1.1em;padding:.5em 1.2em" title="Open audio player">🎧 Listen</button>`:''}
             ${hasEpub?`<button class="btn" onclick="location='bilingual.html?id=${id}'" title="Side-by-side bilingual reader">🌐 Bilingual</button>`:''}
             <button class="btn success" id="btn-enrich" onclick="enrich('${id}')" title="Fetch metadata from 32 sources">✨ Enrich</button>
@@ -485,6 +498,10 @@ async function filterShelf(id) {
         document.getElementById('shelves-panel').style.display = 'none';
     }
 }
+async function setStatus(id, status) {
+    await BC.put("/books/" + id + "/status", {status});
+    alert("Status: " + status.replace("_"," "));
+}
 </script>
 
 <!-- Settings modal -->
@@ -569,5 +586,9 @@ async function filterShelf(id) {
         render();
         document.getElementById('shelves-panel').style.display = 'none';
     }
+}
+async function setStatus(id, status) {
+    await BC.put("/books/" + id + "/status", {status});
+    alert("Status: " + status.replace("_"," "));
 }
 </script>

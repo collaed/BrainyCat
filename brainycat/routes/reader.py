@@ -407,3 +407,40 @@ async def get_shelf(shelf_id: str, limit: int = Query(50), offset: int = Query(0
         return {"error": "shelf not found"}
     books = await get_shelf_books(shelf_id, limit, offset)
     return {"shelf": shelf, "books": books, "count": len(books)}
+
+
+# ── Book status ───────────────────────────────────────────────────────────
+@router.put("/books/{book_id}/status")
+async def set_book_status(book_id: str, body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Set book status: want_to_read, reading, finished, abandoned, library."""
+    status = body.get("status", "library")
+    valid = {"want_to_read", "reading", "finished", "abandoned", "library"}
+    if status not in valid:
+        return {"error": f"Invalid status. Use: {valid}"}
+
+    now_field = ""
+    if status == "reading":
+        now_field = ", started_at = COALESCE(started_at, now())"
+    elif status == "finished":
+        now_field = ", finished_at = now()"
+
+    await db.execute(
+        f"INSERT INTO reading_progress (user_id, book_id, status{', started_at' if status == 'reading' else ''}{', finished_at' if status == 'finished' else ''}) "
+        f"VALUES ($1, $2, $3{', now()' if status == 'reading' else ''}{', now()' if status == 'finished' else ''}) "
+        f"ON CONFLICT (user_id, book_id) DO UPDATE SET status = $3{now_field}",
+        user["id"], UUID(book_id), status,
+    )
+    return {"ok": True, "status": status}
+
+
+@router.get("/books/by-status/{status}")
+async def books_by_status(status: str, user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Get books by reading status."""
+    rows = await db.fetch_all(
+        "SELECT b.id, b.title, b.cover_path, b.quality_score, rp.percentage, rp.status "
+        "FROM reading_progress rp JOIN books b ON b.id = rp.book_id "
+        "WHERE rp.user_id = $1 AND rp.status = $2 "
+        "ORDER BY rp.updated_at DESC",
+        user["id"], status,
+    )
+    return [dict(r) for r in rows]
