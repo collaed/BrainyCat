@@ -37,7 +37,7 @@ async def contribute_back(book_id: str) -> dict[str, Any]:
             return {"skipped": "not on open library"}
 
         ol = resp.json()
-        ol_key = ol.get("key", "")  # e.g. /books/OL12345M
+        ol.get("key", "")  # e.g. /books/OL12345M
 
         # Check description
         ol_desc = ol.get("description")

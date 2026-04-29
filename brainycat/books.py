@@ -67,13 +67,18 @@ async def upload_book(
         os.unlink(os.path.join(storage.book_dir(book_id), os.path.basename(file.filename)))
 
     # Save original filename
-    original_filename = file.filename
+    _ = file.filename  # preserved in DB via original_filename column
 
     # Check file health
     health = _check_file_health(file_path)
     if not health["healthy"]:
         os.unlink(file_path)
         return {"error": "corrupt file", "issues": health["issues"]}
+
+    # Auto-fix EPUB issues
+    if ext == ".epub":
+        from brainycat.epub_fix import fix_epub
+        fix_epub(file_path)
 
     # Extract metadata
     meta = extract_metadata(file_path)

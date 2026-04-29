@@ -386,3 +386,22 @@ async def get_pen_annotations(book_id: str, cfi: str = "", user: Any = Depends(g
     if row and row["strokes"]:
         return {"strokes": json.loads(row["strokes"]) if isinstance(row["strokes"], str) else row["strokes"]}
     return {"strokes": []}
+
+
+# ── Magic Shelves ─────────────────────────────────────────────────────────
+@router.get("/shelves")
+async def list_shelves(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List all magic shelves with book counts."""
+    from brainycat.magic_shelves import get_shelves
+    return await get_shelves()
+
+
+@router.get("/shelves/{shelf_id}")
+async def get_shelf(shelf_id: str, limit: int = Query(50), offset: int = Query(0), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get books for a magic shelf."""
+    from brainycat.magic_shelves import BUILTIN_SHELVES, get_shelf_books
+    shelf = next((s for s in BUILTIN_SHELVES if s["id"] == shelf_id), None)
+    if not shelf:
+        return {"error": "shelf not found"}
+    books = await get_shelf_books(shelf_id, limit, offset)
+    return {"shelf": shelf, "books": books, "count": len(books)}
