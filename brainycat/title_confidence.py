@@ -206,3 +206,48 @@ async def extract_title_from_content(file_path: str, format: str = "pdf") -> str
                     return text
 
     return None
+
+
+def parse_annas_archive_filename(filename: str) -> dict[str, str]:
+    """Parse Anna's Archive filename pattern:
+    'Title -- Author [Author, Last] -- Year -- Publisher -- ISBN -- hash -- Anna's Archive.ext'
+    """
+    import re
+
+    # Strip path prefix and extension
+    name = filename
+    if "/" in name:
+        name = name.rsplit("/", 1)[-1]
+    name = re.sub(r"\.\w{2,5}$", "", name)
+
+    # Split by " -- "
+    parts = [p.strip() for p in name.split(" -- ")]
+    if len(parts) < 3:
+        return {}
+
+    result: dict[str, str] = {}
+    result["title"] = parts[0].split("_ ")[0].strip() if "_ " in parts[0] else parts[0]
+
+    for part in parts[1:]:
+        # Author: contains brackets [Last, First]
+        if "[" in part and "]" in part:
+            result["author"] = part.split("[")[0].strip().rstrip(",")
+        # Year: 4 digits alone
+        elif re.match(r"^\d{4}$", part):
+            result["year"] = part
+        # ISBN: 13 or 10 digits
+        elif re.match(r"^97[89]\d{10}$", part):
+            result["isbn"] = part
+        # Hash: 32 hex chars (MD5)
+        elif re.match(r"^[0-9a-f]{32}$", part):
+            continue
+        # Anna's Archive marker
+        elif "Anna" in part:
+            continue
+        # Publisher: everything else that's not author/year/isbn
+        elif not result.get("publisher") and len(part) > 3:
+            # Check if it looks like a publisher (not an author)
+            if "[" not in part and not re.match(r"^\d{4}$", part):
+                result["publisher"] = part.replace("Éd_ ", "").replace("Ed_ ", "")
+
+    return result
