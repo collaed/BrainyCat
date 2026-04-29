@@ -75,6 +75,26 @@ def clean_title_for_query(title: str) -> str:
     if t.count(".") >= 2 and not t.endswith((".pdf", ".epub", ".mobi")):
         t = t.replace(".", " ")
 
+    # Underscore as subtitle separator: "Title_ Subtitle" → keep "Title"
+    # Only split if what's before the underscore is substantial (>3 words)
+    if "_ " in t:
+        parts = t.split("_ ", 1)
+        if len(parts[0].split()) >= 3:
+            t = parts[0].strip()
+
+    # Underscores between words → spaces
+    if "_" in t and " " not in t:
+        t = t.replace("_", " ")
+
+    # Strip download site watermarks
+    for suffix in [" - PDF Room", " - PDF Drive", " - Z-Library", " (z-lib.org)", "_compress"]:
+        if t.endswith(suffix):
+            t = t[:-len(suffix)]
+
+    # Hyphens as word separators (if no spaces and many hyphens)
+    if " " not in t and t.count("-") >= 3:
+        t = t.replace("-", " ")
+
     # Strip trailing " u" (unprotected marker)
     if t.endswith(" u"):
         t = t[:-2]
@@ -89,7 +109,7 @@ def clean_title_for_query(title: str) -> str:
     t = re.sub(r"^\[[^\]]+\]\s*", "", t)
 
     # Strip "Author - " prefix pattern
-    t = re.sub(r"^[A-Z][a-z]+,?\s+[A-Z][a-z]+\s*[-–]\s*", "", t)
+    t = re.sub(r"^[A-Z][a-z]+,\s+[A-Z][a-z]+\s*[-–]\s*", "", t)
 
     # Normalize case: if ALL CAPS or all lower, convert to title case
     if t.isupper() or t.islower():
