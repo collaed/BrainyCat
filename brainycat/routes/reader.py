@@ -881,3 +881,40 @@ async def list_loans(user: Any = Depends(get_current_user)) -> list[dict[str, An
         user["id"],
     )
     return [dict(r) for r in rows]
+
+
+# ── Reading Challenges ────────────────────────────────────────────────────
+@router.post("/challenges")
+async def create_challenge(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Create a reading challenge. Body: {name, target, criteria, deadline}."""
+    name = body.get("name", "")
+    target = body.get("target", 5)
+    criteria = body.get("criteria", "{}")  # JSON: {"language": "fr"} or {"tag": "science"}
+    deadline = body.get("deadline")  # ISO date
+
+    import json
+
+    row = await db.fetch_one(
+        "INSERT INTO reading_challenges (user_id, name, target, criteria, deadline) VALUES ($1, $2, $3, $4::jsonb, $5) RETURNING id",
+        user["id"],
+        name,
+        target,
+        json.dumps(criteria) if isinstance(criteria, dict) else criteria,
+        deadline,
+    )
+    return {"id": str(row["id"]), "name": name, "target": target}
+
+
+@router.get("/challenges")
+async def list_challenges(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List active challenges with progress."""
+    rows = await db.fetch_all(
+        """SELECT c.id, c.name, c.target, c.criteria, c.deadline, c.created_at,
+                  (SELECT count(*) FROM reading_progress rp
+                   JOIN books b ON b.id = rp.book_id
+                   WHERE rp.user_id = $1 AND rp.status = 'finished'
+                   AND rp.finished_at >= c.created_at) as progress
+           FROM reading_challenges c WHERE c.user_id = $1 ORDER BY c.created_at DESC""",
+        user["id"],
+    )
+    return [dict(r) for r in rows]

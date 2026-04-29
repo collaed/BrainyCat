@@ -295,3 +295,110 @@ async def summarize_chapters(book_id: str, user: Any = Depends(get_current_user)
                 pass
 
     return {"book": row["title"], "chapters": len(chapters), "summaries": summaries}
+
+
+# ── Similar Passages Finder ───────────────────────────────────────────────
+@router.post("/search/similar-passages")
+async def similar_passages(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Find similar passages across your library using full-text search."""
+    query = body.get("text", "")
+    if not query or len(query) < 10:
+        return {"error": "provide at least 10 characters of text"}
+
+    # Use PostgreSQL full-text search across annotations and clippings
+    results = await db.fetch_all(
+        """(SELECT 'annotation' as source, a.text, b.title, b.id as book_id,
+                   ts_rank(to_tsvector('english', a.text), websearch_to_tsquery('english', $1)) as rank
+            FROM annotations a JOIN books b ON b.id = a.book_id
+            WHERE to_tsvector('english', a.text) @@ websearch_to_tsquery('english', $1)
+            ORDER BY rank DESC LIMIT 5)
+           UNION ALL
+           (SELECT 'clipping' as source, c.text, b.title, b.id as book_id,
+                   ts_rank(to_tsvector('english', c.text), websearch_to_tsquery('english', $1)) as rank
+            FROM clippings c JOIN books b ON b.id = c.book_id
+            WHERE to_tsvector('english', c.text) @@ websearch_to_tsquery('english', $1)
+            ORDER BY rank DESC LIMIT 5)
+           ORDER BY rank DESC LIMIT 10""",
+        query,
+    )
+    return {"query": query, "results": [dict(r) for r in results]}
+
+
+# ── Auto-tag from Content ─────────────────────────────────────────────────
+@router.post("/books/{book_id}/auto-tag")
+async def auto_tag(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """LLM reads first pages and suggests tags/genres."""
+    from uuid import UUID
+
+    import fitz
+    import httpx
+
+    from brainycat.config import settings
+
+    row = await db.fetch_one(
+        "SELECT bf.file_path, bf.format, b.title FROM book_files bf JOIN books b ON b.id = bf.book_id WHERE bf.book_id = $1 LIMIT 1",
+        UUID(book_id),
+    )
+    if not row:
+        return {"error": "no file"}
+
+    text = ""
+    if row["format"] == "pdf":
+        doc = fitz.open(row["file_path"])
+        for i in range(min(5, len(doc))):
+            text += doc[i].get_text() + "\n"
+        doc.close()
+    elif row["format"] == "epub":
+        import ebooklib
+        from bs4 import BeautifulSoup
+        from ebooklib import epub
+
+        book = epub.read_epub(row["file_path"], options={"ignore_ncx": True})
+        for item in list(book.get_items_of_type(ebooklib.ITEM_DOCUMENT))[:3]:
+            soup = BeautifulSoup(item.get_content(), "html.parser")
+            text += soup.get_text() + "\n"
+
+    if not text:
+        return {"error": "no text"}
+
+    prompt = f"""Based on the first pages of "{row["title"]}", suggest:
+1. Genre (fiction/non-fiction + subgenre)
+2. 5-8 tags (topics, themes, keywords)
+3. Target audience
+4. Mood/tone
+
+Return JSON: {{"genre": "...", "tags": ["..."], "audience": "...", "mood": "..."}}
+
+TEXT:
+{" ".join(text.split()[:1000])}"""
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                f"{settings.intello_url}/v1/chat/completions",
+                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.2},
+            )
+            if r.status_code == 200:
+                import json
+
+                content = r.json()["choices"][0]["message"]["content"]
+                start = content.find("{")
+                end = content.rfind("}") + 1
+                if start >= 0 and end > start:
+                    result = json.loads(content[start:end])
+                    # Apply tags to book
+                    for tag_name in result.get("tags", []):
+                        tag = await db.fetch_one(
+                            "INSERT INTO tags (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = $1 RETURNING id",
+                            tag_name.lower(),
+                        )
+                        if tag:
+                            await db.execute(
+                                "INSERT INTO books_tags (book_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                                UUID(book_id),
+                                tag["id"],
+                            )
+                    return result
+    except Exception as e:
+        return {"error": str(e)}
+    return {"error": "LLM unavailable"}

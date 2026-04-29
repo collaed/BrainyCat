@@ -1598,3 +1598,39 @@ async def compare_books(a: str = Query(...), b: str = Query(...)) -> dict[str, A
         "book_b": dict(book_b) if book_b else None,
         "shared_tags": [r["name"] for r in shared],
     }
+
+
+# ── Book Timeline ─────────────────────────────────────────────────────────
+@router.get("/books/{book_id}/timeline")
+async def book_timeline(book_id: str) -> list[dict[str, Any]]:
+    """Get the full history of a book (import, enrichment, reads, annotations)."""
+    from uuid import UUID
+
+    bid = UUID(book_id)
+    events = []
+
+    # Import date
+    book = await db.fetch_one("SELECT created_at, title FROM books WHERE id = $1", bid)
+    if book:
+        events.append({"type": "imported", "date": str(book["created_at"]), "detail": "Added to library"})
+
+    # Enrichment events
+    enrichments = await db.fetch_all(
+        "SELECT created_at, method, success FROM enrichment_log WHERE book_id = $1 ORDER BY created_at LIMIT 20", bid
+    )
+    for e in enrichments:
+        if e["success"]:
+            events.append({"type": "enriched", "date": str(e["created_at"]), "detail": f"Enriched via {e['method']}"})
+
+    # Reading progress
+    progress = await db.fetch_all("SELECT updated_at, status, percentage FROM reading_progress WHERE book_id = $1 ORDER BY updated_at", bid)
+    for p in progress:
+        events.append({"type": "reading", "date": str(p["updated_at"]), "detail": f"{p['status']} ({p['percentage']:.0f}%)"})
+
+    # Annotations
+    ann_count = await db.fetch_one("SELECT count(*) as n, min(created_at) as first FROM annotations WHERE book_id = $1", bid)
+    if ann_count and ann_count["n"] > 0:
+        events.append({"type": "annotated", "date": str(ann_count["first"]), "detail": f"{ann_count['n']} annotations"})
+
+    events.sort(key=lambda x: x["date"])
+    return events
