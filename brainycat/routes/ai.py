@@ -402,3 +402,89 @@ TEXT:
     except Exception as e:
         return {"error": str(e)}
     return {"error": "LLM unavailable"}
+
+
+# ── Story Graph ───────────────────────────────────────────────────────────
+@router.post("/books/{book_id}/story-graph")
+async def create_story_graph(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Analyze a book's narrative arc (tension/action over time)."""
+    from brainycat.story_graph import analyze_book
+
+    return await analyze_book(book_id, str(user["id"]))
+
+
+@router.get("/books/{book_id}/story-graph")
+async def get_story_graph(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get stored story graph for a book."""
+    from uuid import UUID
+
+    row = await db.fetch_one(
+        "SELECT points, metadata FROM story_graphs WHERE book_id = $1 AND user_id = $2",
+        UUID(book_id),
+        user["id"],
+    )
+    if not row:
+        return {"error": "no story graph — trigger analysis first"}
+    return {"points": row["points"], "metadata": row["metadata"]}
+
+
+@router.get("/books/{book_id}/story-graph.svg")
+async def story_graph_svg(book_id: str, theme: str = "dark", user: Any = Depends(get_current_user)) -> Any:
+    """Export story graph as SVG (printable)."""
+    from uuid import UUID
+
+    from fastapi.responses import Response
+
+    from brainycat.story_graph import render_svg
+
+    row = await db.fetch_one(
+        "SELECT points, metadata FROM story_graphs WHERE book_id = $1 AND user_id = $2",
+        UUID(book_id),
+        user["id"],
+    )
+    if not row:
+        return {"error": "no story graph"}
+
+    title = (row["metadata"] or {}).get("title", "Book")
+    svg = render_svg([{"title": title, "points": row["points"]}], theme=theme)
+    return Response(content=svg, media_type="image/svg+xml")
+
+
+@router.get("/story-graphs/compare")
+async def compare_story_graphs(ids: str, theme: str = "dark", user: Any = Depends(get_current_user)) -> Any:
+    """Compare multiple story graphs overlaid. ids=comma-separated book IDs."""
+    from uuid import UUID
+
+    from fastapi.responses import Response
+
+    from brainycat.story_graph import render_svg
+
+    book_ids = [i.strip() for i in ids.split(",") if i.strip()]
+    graphs = []
+    for bid in book_ids[:6]:
+        row = await db.fetch_one(
+            "SELECT points, metadata FROM story_graphs WHERE book_id = $1 AND user_id = $2",
+            UUID(bid),
+            user["id"],
+        )
+        if row:
+            graphs.append({"title": (row["metadata"] or {}).get("title", bid[:8]), "points": row["points"]})
+
+    if not graphs:
+        return {"error": "no graphs found"}
+
+    svg = render_svg(graphs, theme=theme)
+    return Response(content=svg, media_type="image/svg+xml")
+
+
+@router.post("/story-graph/generate")
+async def generate_story_graph(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Generate a proposed narrative arc for a new story based on premise + inspiration books."""
+    from brainycat.story_graph import generate_story_arc
+
+    return await generate_story_arc(
+        premise=body.get("premise", ""),
+        genre=body.get("genre", "fiction"),
+        length=body.get("length", "novel"),
+        inspiration_ids=body.get("inspiration_book_ids", []),
+    )
