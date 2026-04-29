@@ -1088,3 +1088,32 @@ async def import_from_url(body: dict[str, Any] | None = None, user: Any = Depend
         f.write(r.content)
 
     return {"ok": True, "filename": filename, "size_mb": round(len(r.content) / 1048576, 1), "path": path}
+
+
+# ── Recommendations ───────────────────────────────────────────────────────
+@router.get("/recommendations/similar/{book_id}")
+async def similar_recommendations(book_id: str) -> list[dict[str, Any]]:
+    """Get book recommendations based on shared tags."""
+    from brainycat.recommendations import recommend_similar
+
+    return await recommend_similar(book_id)
+
+
+@router.get("/recommendations/for-you")
+async def for_you_recommendations(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Personalized recommendations based on reading history."""
+    from brainycat.recommendations import recommend_for_user
+
+    return await recommend_for_user(str(user["id"]))
+
+
+# ── Obsidian Export ───────────────────────────────────────────────────────
+@router.get("/export/obsidian")
+async def export_obsidian(user: Any = Depends(get_current_user)) -> Any:
+    """Export all annotations as Obsidian-compatible Markdown vault (ZIP)."""
+    from fastapi.responses import Response
+
+    from brainycat.obsidian_export import export_vault
+
+    data = await export_vault(str(user["id"]))
+    return Response(content=data, media_type="application/zip", headers={"Content-Disposition": "attachment; filename=brainycat-vault.zip"})

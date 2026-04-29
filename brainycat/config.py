@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     exp_pdf_embed: str = "0"
     readarr_url: str = ""
     readarr_api_key: str = ""
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
 
 
 settings = Settings()

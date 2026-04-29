@@ -81,6 +81,7 @@ async def shutdown() -> None:
 
 # ABS mobile app compatibility
 from brainycat.abs_compat import router as abs_router  # noqa: E402
+from brainycat.oauth import router as oauth_router  # noqa: E402
 from brainycat.routes.admin import router as admin_router  # noqa: E402
 from brainycat.routes.ai import router as ai_router  # noqa: E402
 from brainycat.routes.auth import router as auth_router  # noqa: E402
@@ -107,6 +108,7 @@ app.include_router(ai_router)
 app.include_router(kosync_router)
 app.include_router(ws_router)
 app.include_router(kobo_router)
+app.include_router(oauth_router)
 
 
 # ── Health ────────────────────────────────────────────────────────────────

@@ -773,3 +773,47 @@ async def opds_ps_page(book_id: str, page_num: int, width: int = 1200) -> Any:
     doc.close()
 
     return Response(content=img_bytes, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
+
+
+# ── Reading Time Estimator ────────────────────────────────────────────────
+@router.get("/books/{book_id}/reading-time")
+async def reading_time_estimate(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Estimate time to finish based on user's reading pace."""
+    # Get book page/word count
+    book = await db.fetch_one(
+        "SELECT page_count, word_count, estimated_reading_minutes FROM books WHERE id = $1",
+        UUID(book_id),
+    )
+    if not book:
+        return {"error": "not found"}
+
+    # Get user's average pace from reading_log
+    pace = await db.fetch_one(
+        """SELECT CASE WHEN sum(pages_read) > 0
+            THEN sum(minutes)::float / sum(pages_read)
+            ELSE 1.5 END as min_per_page
+           FROM reading_log WHERE user_id = $1 AND pages_read > 0""",
+        user["id"],
+    )
+    min_per_page = pace["min_per_page"] if pace else 1.5
+
+    # Get current progress
+    progress = await db.fetch_one(
+        "SELECT percentage FROM reading_progress WHERE user_id = $1 AND book_id = $2",
+        user["id"],
+        UUID(book_id),
+    )
+    pct_done = (progress["percentage"] or 0) / 100 if progress else 0
+
+    pages = book["page_count"] or 300
+    remaining_pages = pages * (1 - pct_done)
+    est_minutes = int(remaining_pages * min_per_page)
+
+    return {
+        "total_pages": pages,
+        "pages_remaining": int(remaining_pages),
+        "minutes_remaining": est_minutes,
+        "hours_remaining": round(est_minutes / 60, 1),
+        "pace_min_per_page": round(min_per_page, 2),
+        "percentage_done": round(pct_done * 100, 1),
+    }
