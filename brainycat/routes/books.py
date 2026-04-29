@@ -1691,3 +1691,52 @@ async def extract_pages(book_id: str, body: dict[str, Any], user: Any = Depends(
         )
 
     return {"ok": True, "new_book_id": str(new_book["id"]), "pages": end - start + 1, "title": new_title}
+
+
+# ── Cover Refresh ─────────────────────────────────────────────────────────
+@router.post("/books/{book_id}/refresh-cover")
+async def refresh_cover(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Try to fetch a better cover from online sources."""
+    from uuid import UUID
+    import httpx
+    import os
+
+    book = await db.fetch_one("SELECT isbn, title, cover_path FROM books WHERE id = $1", UUID(book_id))
+    if not book:
+        return {"error": "not found"}
+
+    cover_dir = f"/data/books/{book_id}"
+    os.makedirs(cover_dir, exist_ok=True)
+    cover_path = os.path.join(cover_dir, "cover.jpg")
+
+    isbn = book["isbn"]
+    title = book["title"]
+
+    # Try sources in order
+    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+        # 1. Open Library (by ISBN)
+        if isbn:
+            r = await client.get(f"https://covers.openlibrary.org/b/isbn/{isbn}-L.jpg")
+            if r.status_code == 200 and len(r.content) > 1000:
+                with open(cover_path, "wb") as f:
+                    f.write(r.content)
+                await db.execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, UUID(book_id))
+                return {"source": "openlibrary", "size": len(r.content)}
+
+        # 2. Google Books (by ISBN or title)
+        query = f"isbn:{isbn}" if isbn else title
+        r = await client.get(f"https://www.googleapis.com/books/v1/volumes?q={query}&maxResults=1")
+        if r.status_code == 200:
+            items = r.json().get("items", [])
+            if items:
+                img_url = items[0].get("volumeInfo", {}).get("imageLinks", {}).get("thumbnail", "")
+                if img_url:
+                    img_url = img_url.replace("zoom=1", "zoom=2").replace("&edge=curl", "")
+                    img_r = await client.get(img_url)
+                    if img_r.status_code == 200 and len(img_r.content) > 1000:
+                        with open(cover_path, "wb") as f:
+                            f.write(img_r.content)
+                        await db.execute("UPDATE books SET cover_path = $1 WHERE id = $2", cover_path, UUID(book_id))
+                        return {"source": "google_books", "size": len(img_r.content)}
+
+    return {"source": None, "message": "no cover found online"}
