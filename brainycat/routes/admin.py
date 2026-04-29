@@ -1026,3 +1026,25 @@ async def readarr_search(body: dict[str, Any] | None = None) -> dict[str, Any]:
     from brainycat.experimental.readarr import search_readarr
 
     return await search_readarr(body.get("query", ""))
+
+
+# ── Kindle Clippings Import ───────────────────────────────────────────────
+@router.post("/import/kindle-clippings")
+async def import_kindle_clippings(body: dict[str, Any] | None = None, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Import Kindle My Clippings.txt content."""
+    body = body or {}
+    text = body.get("text", "")
+    if not text:
+        return {"error": "provide 'text' field with My Clippings.txt content"}
+    from brainycat.kindle_clippings import import_clippings
+
+    return await import_clippings(text, str(user["id"]))
+
+
+# ── Book DNA / Wrapped ────────────────────────────────────────────────────
+@router.get("/wrapped/{year}")
+async def reading_wrapped(year: int, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Spotify Wrapped-style yearly reading summary."""
+    from brainycat.experimental.book_dna import generate_wrapped
+
+    return await generate_wrapped(str(user["id"]), year)

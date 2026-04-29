@@ -91,6 +91,7 @@ from brainycat.routes.kosync import router as kosync_router  # noqa: E402
 from brainycat.routes.media import router as media_router  # noqa: E402
 from brainycat.routes.reader import router as reader_router  # noqa: E402
 from brainycat.routes.social import router as social_router  # noqa: E402
+from brainycat.routes.ws import router as ws_router  # noqa: E402
 
 app.include_router(abs_router)
 app.include_router(catalog_router)
@@ -103,6 +104,7 @@ app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(ai_router)
 app.include_router(kosync_router)
+app.include_router(ws_router)
 
 
 # ── Health ────────────────────────────────────────────────────────────────
