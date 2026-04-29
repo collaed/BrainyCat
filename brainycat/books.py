@@ -78,6 +78,7 @@ async def upload_book(
     # Quick content dedup via SimHash (first 1000 words)
     try:
         from brainycat.fingerprints import quick_simhash
+
         sim = await quick_simhash(file_path)
         if sim and sim.get("duplicate_of"):
             return {"warning": "likely_duplicate", "similar_to": sim["duplicate_of"], "similarity": sim["score"]}

@@ -428,7 +428,9 @@ async def set_book_status(book_id: str, body: dict[str, Any], user: Any = Depend
         f"INSERT INTO reading_progress (user_id, book_id, status{', started_at' if status == 'reading' else ''}{', finished_at' if status == 'finished' else ''}) "
         f"VALUES ($1, $2, $3{', now()' if status == 'reading' else ''}{', now()' if status == 'finished' else ''}) "
         f"ON CONFLICT (user_id, book_id) DO UPDATE SET status = $3{now_field}",
-        user["id"], UUID(book_id), status,
+        user["id"],
+        UUID(book_id),
+        status,
     )
     return {"ok": True, "status": status}
 
@@ -441,6 +443,49 @@ async def books_by_status(status: str, user: Any = Depends(get_current_user)) ->
         "FROM reading_progress rp JOIN books b ON b.id = rp.book_id "
         "WHERE rp.user_id = $1 AND rp.status = $2 "
         "ORDER BY rp.updated_at DESC",
-        user["id"], status,
+        user["id"],
+        status,
     )
     return [dict(r) for r in rows]
+
+
+# ── Global Notebook (all annotations across all books) ────────────────────
+@router.get("/notebook")
+async def global_notebook(limit: int = Query(100), q: str = Query(None), user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """All annotations, clippings, and highlights across all books — searchable."""
+    query = """
+        SELECT 'annotation' as type, a.text, a.note, a.created_at, b.title as book_title, b.id as book_id
+        FROM annotations a JOIN books b ON b.id = a.book_id
+        WHERE a.user_id = $1
+    """
+    params: list[Any] = [user["id"]]
+
+    if q:
+        query += " AND (a.text ILIKE $2 OR a.note ILIKE $2 OR b.title ILIKE $2)"
+        params.append(f"%{q}%")
+
+    query += " ORDER BY a.created_at DESC LIMIT $" + str(len(params) + 1)
+    params.append(limit)
+
+    annotations = await db.fetch_all(query, *params)
+
+    # Also get clippings
+    clip_query = """
+        SELECT 'clipping' as type, c.text, NULL as note, c.created_at, b.title as book_title, b.id as book_id
+        FROM clippings c JOIN books b ON b.id = c.book_id
+        WHERE c.user_id = $1
+    """
+    clip_params: list[Any] = [user["id"]]
+    if q:
+        clip_query += " AND (c.text ILIKE $2 OR b.title ILIKE $2)"
+        clip_params.append(f"%{q}%")
+    clip_query += " ORDER BY c.created_at DESC LIMIT $" + str(len(clip_params) + 1)
+    clip_params.append(limit)
+
+    clippings = await db.fetch_all(clip_query, *clip_params)
+
+    # Merge and sort
+    all_items = [dict(r) for r in annotations] + [dict(r) for r in clippings]
+    all_items.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+
+    return {"items": all_items[:limit], "total": len(all_items)}

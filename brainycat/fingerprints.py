@@ -405,7 +405,6 @@ async def quick_simhash(file_path: str) -> dict[str, Any] | None:
     import hashlib
     import os
 
-
     ext = os.path.splitext(file_path)[1].lower()
     text = ""
 

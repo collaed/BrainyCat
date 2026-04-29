@@ -174,12 +174,19 @@ async def _title_cleanup_loop() -> None:
     # Auto-detect series from title patterns
     try:
         from brainycat.series_detect import detect_series
+
         series_result = await detect_series(limit=20)
     except Exception:
         series_result = {}
 
     if isbn_found or titles_fixed or genres_added or series_result.get("detected"):
-        await log.ainfo("title_cleanup", isbn_found=isbn_found, titles_fixed=titles_fixed, genres_added=genres_added, series_detected=series_result.get("detected", 0))
+        await log.ainfo(
+            "title_cleanup",
+            isbn_found=isbn_found,
+            titles_fixed=titles_fixed,
+            genres_added=genres_added,
+            series_detected=series_result.get("detected", 0),
+        )
 
 
 async def _split_pdf_chunk(pdf_path: str, max_bytes: int) -> str | None:

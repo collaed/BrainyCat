@@ -1534,3 +1534,29 @@ async def fulltext_search(q: str = Query(...), limit: int = Query(20), _u: Any =
     )
 
     return {"query": q, "results": [dict(r) for r in rows], "count": len(rows)}
+
+
+@router.get("/books/{book_id}/pdf-page/{page_num}")
+async def serve_pdf_page(book_id: str, page_num: int, _u: Any = Depends(get_current_user)) -> Any:
+    """Serve a single PDF page as PNG — for range-streaming large PDFs."""
+    import fitz
+    from fastapi.responses import Response
+
+    row = await db.fetch_one(
+        "SELECT bf.file_path FROM book_files bf WHERE bf.book_id = $1 AND bf.format = 'pdf' LIMIT 1",
+        UUID(book_id),
+    )
+    if not row or not os.path.isfile(row["file_path"]):
+        return {"error": "not found"}
+
+    doc = fitz.open(row["file_path"])
+    if page_num < 0 or page_num >= len(doc):
+        doc.close()
+        return {"error": "page out of range"}
+
+    page = doc[page_num]
+    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+    img_bytes = pix.tobytes("png")
+    doc.close()
+
+    return Response(content=img_bytes, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
