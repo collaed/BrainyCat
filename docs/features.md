@@ -517,3 +517,86 @@ AGPL-3.0
 - **Shareable note cards** — SVG highlight images
 - **PDF annotation embedding** — write highlights into PDF file
 - **ISBN lookup evaluation** — Open Library comparison
+
+---
+
+## 15. Story Graph (Narrative Arc Visualization)
+
+### Analysis
+- `POST /api/v1/books/{id}/story-graph` — LLM analyzes book in 10 segments, scores tension (0-10) + key events
+- `GET /api/v1/books/{id}/story-graph` — retrieve stored analysis
+- Persisted in `story_graphs` table (JSONB points)
+- Format: `[{position: 0-100, tension: 0-10, event: "...", chapter: "..."}]`
+
+### Export & Comparison
+- `GET /api/v1/books/{id}/story-graph.svg` — printable SVG chart (dark/light themes)
+- `GET /api/v1/story-graphs/compare?ids=a,b,c` — overlay up to 6 books on one chart
+- SVG: line chart with grid, color-coded per book, legend, axis labels
+
+### AI Story Generation
+- `POST /api/v1/story-graph/generate {premise, genre, length, inspiration_book_ids}`
+- Loads inspiration books' arcs, LLM generates new arc blending patterns
+- Returns 10-12 plot points with chapter suggestions
+- Use cases: writers visualizing pacing, readers previewing structure, story planning
+
+---
+
+## 16. Additional Features (Late Session)
+
+### MARC21 Library Interop
+- `GET /api/v1/export/marc?limit=500` — binary MARC21 file download
+- `POST /api/v1/import/marc {data: base64}` — import MARC records
+- Compatible with Koha, Evergreen, OpenBiblio (real library systems)
+
+### Public Catalog
+- `GET /catalog` — clean, responsive, no-auth book browsing page
+- Dark/light auto-theme, live search, cover grid
+- For sharing your library with friends/family
+
+### RSVP Speed Reading
+- Spritz-style word-at-a-time display in the reader
+- Configurable WPM (100-1000+), pause/resume
+- Highlights optimal recognition point (middle letter)
+
+### PDF Page Extraction
+- `POST /api/v1/books/{id}/extract-pages {start, end, title}`
+- Creates new book from page range (chapter extraction from textbooks)
+
+### WebDAV Sync
+- `GET/PROPFIND /api/v1/webdav/books` — list books (XML/JSON)
+- `GET /api/v1/webdav/books/{id}/{filename}` — download
+- Basic auth, compatible with Koodo Reader, Moon+, FBReader
+
+### Vocabulary Difficulty Scoring
+- `GET /api/v1/books/{id}/vocabulary`
+- CEFR level estimation (A1-C2), unique word count, richness ratio
+- Advanced words sample, most frequent words
+
+### LLM OCR Post-Correction
+- `POST /api/v1/ocr/correct {text, language}`
+- Fixes garbled scanned text (30-50% error reduction)
+- Processes in 2000-word chunks
+
+### Book NLP / Character Extraction
+- `POST /api/v1/books/{id}/characters`
+- Extracts characters (name, role, importance), themes, key quotes
+
+### Chapter Auto-Summaries
+- `POST /api/v1/books/{id}/summarize-chapters`
+- Bulleted notes per chapter via LLM (EPUB)
+
+### Auto-tag from Content
+- `POST /api/v1/books/{id}/auto-tag`
+- LLM suggests genre + tags + audience + mood, auto-applies tags
+
+### Reading Challenges
+- `POST /api/v1/challenges {name, target, criteria, deadline}`
+- `GET /api/v1/challenges` — list with progress
+
+### Book Timeline
+- `GET /api/v1/books/{id}/timeline`
+- Full event history: imported → enriched → read → annotated
+
+### Similar Passages Finder
+- `POST /api/v1/search/similar-passages {text}`
+- Full-text search across all annotations and clippings

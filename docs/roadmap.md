@@ -106,18 +106,59 @@ Focus: Deep AI integration, research tools.
 
 ---
 
+## v2.2 — Writing & Creative Tools (November 2026)
+
+Focus: Bridge reading and writing, story planning.
+
+| # | Feature | Effort | Status |
+|---|---|---|---|
+| 1 | Story Graph templates (Save the Cat, Hero's Journey, 3-Act) | Low | TODO |
+| 2 | Story Graph → outline export (Markdown, Scrivener) | Low | TODO |
+| 3 | Character relationship graph (visual, from Book NLP) | Medium | NLP done, graph TODO |
+| 4 | Writing prompts from reading (LLM generates prompts from highlights) | Low | TODO |
+| 5 | Comparative literature analysis (theme overlap across books) | Medium | Similar passages done |
+| 6 | Book-to-book influence mapping ("This book references...") | High | TODO |
+
+---
+
+## v3.0 — Advanced AI & Research (2027)
+
+Focus: Deep AI integration, academic tools.
+
+| # | Feature | Effort |
+|---|---|---|
+| 1 | PDF reflow (deconstruct into reflowable text) | High |
+| 2 | Suffix array dedup (substring-level duplicate detection) | Medium |
+| 3 | Semantic search across full library text (pgvector embeddings) | High |
+| 4 | Auto-generated study guides from textbooks | Medium |
+| 5 | Citation graph extraction (bibliography → linked books) | High |
+| 6 | MARC Z39.50 client (query real library catalogs) | Medium |
+| 7 | Book DNA: Spotify Wrapped with AI-generated narrative insights | Medium |
+| 8 | Spaced repetition from highlights (Anki-style flashcards) | Medium |
+| 9 | Reading comprehension quizzes (auto-generated from content) | Medium |
+
+---
+
 ## Ideas Parking Lot
 
 Not scheduled, evaluate when relevant:
 
-- **Readarr deep integration** — auto-download from indexers (Readarr archived June 2025)
-- **Podcast ingestion** — subscribe to podcasts, transcribe, add to library
+- **Readarr deep integration** — auto-download from indexers (Readarr archived June 2025, community forks exist)
+- **Podcast ingestion** — subscribe to podcasts, transcribe, add to library as "books"
 - **Physical book scanner** — dedicated hardware (Raspberry Pi + camera) for bulk ISBN scanning
 - **E-ink optimized UI** — simplified interface for Boox/Remarkable browsers
 - **Handwriting recognition** — OCR stylus annotations into searchable text
-- **Book marketplace** — buy/sell/trade between instances
+- **Book marketplace** — buy/sell/trade between instances (federated)
 - **Reading speed training** — progressive RSVP exercises with comprehension tests
-- **Spaced repetition** — flashcards from highlights (Anki-style)
+- **Voice cloning** — record 10s of your voice → generate audiobooks in your voice (XTTS via Intello)
+- **Chapter detection** — ML-based silence detection to split monolithic audiobook MP3s
+- **OAI-PMH protocol** — metadata harvesting standard for institutional libraries
+- **Prowlarr integration** — search indexers for wanted books
+- **AI cover generation** — Stable Diffusion placeholder covers from title + genre
+- **StoryGraph API scraping** — import reading history from StoryGraph (no official API)
+- **Kobo deep sync** — full Kobo API (shelves, bookmarks, annotations, reading stats)
+- **Text↔Audio sync UI** — Whispersync-style immersion reading (Intello /api/v1/align ready)
+- **Multi-narrator detection** — identify speaker changes in audiobooks via diarization
 
 ---
 
