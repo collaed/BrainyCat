@@ -452,3 +452,68 @@ BRAINYCAT_EXP_PDF_EMBED=0
 ## License
 
 AGPL-3.0
+
+---
+
+## 14. Features Added This Session (April 29, 2026)
+
+### AI Intelligence
+- **Auto-tag from content** — LLM reads first pages, suggests genre + tags + audience + mood, auto-applies tags
+- **Chapter auto-summaries** — bulleted notes per chapter via LLM (EPUB)
+- **Book NLP / Characters** — extract characters, themes, key quotes
+- **LLM OCR post-correction** — fix garbled scanned text (30-50% error reduction)
+- **Vocabulary difficulty scoring** — CEFR level estimation (A1-C2) based on word frequency analysis
+- **Similar passages finder** — full-text search across all annotations/clippings
+
+### Reading Experience
+- **RSVP Speed Reading** — Spritz-style word-at-a-time display at configurable WPM
+- **Bionic Reading mode** — bold first letter of each word (ADHD/dyslexia support)
+- **Reading speed test** — calibrate WPM, stored in preferences
+- **Reading time estimator** — personalized "X hours to finish" based on actual pace
+- **Book Recap** — "where was I?" LLM summary up to current reading position
+- **Reading challenges** — personal goals with criteria and deadlines
+
+### Sync & Compatibility
+- **WebDAV sync** — generic endpoint for any WebDAV reader (Koodo, Moon+, FBReader)
+- **OPDS-PS page streaming** — individual PDF pages as PNG at requested width
+- **Kobo Sync** — library listing + progress for Kobo e-readers
+- **ABS improvements** — /api/status, /api/ping, series, collections endpoints
+- **TTS Podcast feed** — subscribe to audiobooks in any podcast app
+- **WebSocket broadcast** — live enrichment events pushed to connected clients
+
+### Import & Export
+- **Goodreads/StoryGraph CSV import** — reading history with status mapping
+- **Kindle Clippings import** — My Clippings.txt parser with book matching
+- **MARC21 export/import** — standard library format (Koha, Evergreen compatible)
+- **Obsidian vault export** — ZIP of Markdown files with highlights/clippings
+- **Import from URL** — paste link, server downloads and imports
+- **Camera ISBN scanner** — phone camera barcode detection in browser
+
+### Library Management
+- **Book timeline** — full event history (imported → enriched → read → annotated)
+- **Book comparison** — side-by-side metadata + shared tags
+- **Smart merge** — detect ISBN duplicates, consolidate files/annotations
+- **PDF page extraction** — extract page range as new book
+- **Activity feed** — timeline of all library events
+- **Book lending tracker** — who has my physical copy?
+- **Reading goals** — "50 books in 2026" with progress tracking
+- **Collections** — user-created book groups
+
+### Authentication & UI
+- **OAuth/OIDC** — Google + generic OIDC (Keycloak, Authentik)
+- **API key management** — view/regenerate for sync integrations
+- **Theme toggle** — dark/light/auto, persisted
+- **Public catalog** — `/catalog` — no-auth browsing page for sharing
+- **Clean header** — two-row nav with live book count
+
+### Experimental Framework
+- **TextProfileSignature** — Apache Nutch fuzzy hash
+- **MinHash LSH** — datasketch corpus-scale dedup
+- **Duplicate page detection** — pixel hash per PDF page
+- **eKitaab file rename** — Author - Title [ISBN].ext
+- **Kindle EPUB fix** — extended fixes (empty img, control chars)
+- **Reading heatmap** — GitHub-style contribution graph
+- **AI mind maps** — structured concept maps from books
+- **Shareable note cards** — SVG highlight images
+- **PDF annotation embedding** — write highlights into PDF file
+- **ISBN lookup evaluation** — Open Library comparison
