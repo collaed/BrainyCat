@@ -1560,3 +1560,41 @@ async def serve_pdf_page(book_id: str, page_num: int, _u: Any = Depends(get_curr
     doc.close()
 
     return Response(content=img_bytes, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
+
+
+# ── Book Comparison ───────────────────────────────────────────────────────
+@router.get("/books/compare")
+async def compare_books(a: str = Query(...), b: str = Query(...)) -> dict[str, Any]:
+    """Side-by-side comparison of two books."""
+    from uuid import UUID
+
+    book_a = await db.fetch_one(
+        """SELECT b.id, b.title, b.isbn, b.description, b.quality_score, b.page_count,
+                  b.language, b.pubdate, a.name as author
+           FROM books b LEFT JOIN books_authors ba ON ba.book_id = b.id
+           LEFT JOIN authors a ON a.id = ba.author_id WHERE b.id = $1""",
+        UUID(a),
+    )
+    book_b = await db.fetch_one(
+        """SELECT b.id, b.title, b.isbn, b.description, b.quality_score, b.page_count,
+                  b.language, b.pubdate, a.name as author
+           FROM books b LEFT JOIN books_authors ba ON ba.book_id = b.id
+           LEFT JOIN authors a ON a.id = ba.author_id WHERE b.id = $1""",
+        UUID(b),
+    )
+
+    # Shared tags
+    shared = await db.fetch_all(
+        """SELECT t.name FROM books_tags bt1
+           JOIN books_tags bt2 ON bt2.tag_id = bt1.tag_id AND bt2.book_id = $2
+           JOIN tags t ON t.id = bt1.tag_id
+           WHERE bt1.book_id = $1""",
+        UUID(a),
+        UUID(b),
+    )
+
+    return {
+        "book_a": dict(book_a) if book_a else None,
+        "book_b": dict(book_b) if book_b else None,
+        "shared_tags": [r["name"] for r in shared],
+    }

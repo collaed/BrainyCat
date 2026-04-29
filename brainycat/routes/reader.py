@@ -817,3 +817,27 @@ async def reading_time_estimate(book_id: str, user: Any = Depends(get_current_us
         "pace_min_per_page": round(min_per_page, 2),
         "percentage_done": round(pct_done * 100, 1),
     }
+
+
+# ── Reading Speed Test ────────────────────────────────────────────────────
+@router.post("/reading/speed-test")
+async def reading_speed_test(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Record a reading speed test result. Body: {words: int, seconds: int}."""
+    words = body.get("words", 0)
+    seconds = body.get("seconds", 1)
+    wpm = int(words / (seconds / 60))
+
+    await db.execute(
+        "UPDATE users SET preferences = jsonb_set(COALESCE(preferences, '{}'), '{reading_wpm}', $1::jsonb) WHERE id = $2",
+        str(wpm),
+        user["id"],
+    )
+    return {"wpm": wpm, "pages_per_hour": round(wpm / 250 * 60 / 1.5, 1)}
+
+
+@router.get("/reading/speed")
+async def get_reading_speed(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get user's calibrated reading speed."""
+    row = await db.fetch_one("SELECT preferences->'reading_wpm' as wpm FROM users WHERE id = $1", user["id"])
+    wpm = int(row["wpm"]) if row and row["wpm"] else 250
+    return {"wpm": wpm, "pages_per_hour": round(wpm / 250 * 60 / 1.5, 1)}

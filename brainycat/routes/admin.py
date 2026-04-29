@@ -1117,3 +1117,42 @@ async def export_obsidian(user: Any = Depends(get_current_user)) -> Any:
 
     data = await export_vault(str(user["id"]))
     return Response(content=data, media_type="application/zip", headers={"Content-Disposition": "attachment; filename=brainycat-vault.zip"})
+
+
+# ── Activity Feed ─────────────────────────────────────────────────────────
+@router.get("/activity")
+async def activity_feed(limit: int = Query(50)) -> list[dict[str, Any]]:
+    """Library activity timeline — imports, enrichments, reads."""
+    events = await db.fetch_all(
+        """(SELECT 'enrichment' as type, el.created_at, el.method as detail, b.title
+            FROM enrichment_log el JOIN books b ON b.id = el.book_id
+            WHERE el.success = true ORDER BY el.created_at DESC LIMIT 20)
+           UNION ALL
+           (SELECT 'import' as type, b.created_at, b.original_filename as detail, b.title
+            FROM books b ORDER BY b.created_at DESC LIMIT 10)
+           UNION ALL
+           (SELECT 'progress' as type, rp.updated_at as created_at, rp.status as detail, b.title
+            FROM reading_progress rp JOIN books b ON b.id = rp.book_id
+            ORDER BY rp.updated_at DESC LIMIT 10)
+           ORDER BY created_at DESC LIMIT $1""",
+        limit,
+    )
+    return [dict(r) for r in events]
+
+
+# ── Smart Merge ───────────────────────────────────────────────────────────
+@router.get("/merge/candidates")
+async def merge_candidates() -> list[dict[str, Any]]:
+    """Find duplicate books that can be merged."""
+    from brainycat.smart_merge import find_merge_candidates
+
+    return await find_merge_candidates()
+
+
+@router.post("/merge")
+async def merge_books_endpoint(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Merge duplicate books. Body: {keep_id, merge_ids: [...]}."""
+    body = body or {}
+    from brainycat.smart_merge import merge_books
+
+    return await merge_books(body.get("keep_id", ""), body.get("merge_ids", []))
