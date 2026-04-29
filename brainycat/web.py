@@ -115,6 +115,14 @@ app.include_router(health_router)
 app.include_router(webdav_router)
 
 
+@app.get("/catalog")
+async def public_catalog():
+    """Public library catalog (no auth required)."""
+    from fastapi.responses import FileResponse
+
+    return FileResponse("static/catalog-public.html")
+
+
 # ── Health ────────────────────────────────────────────────────────────────
 @app.get("/api/v1/health")
 async def health() -> dict[str, Any]:

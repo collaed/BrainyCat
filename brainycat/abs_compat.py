@@ -410,3 +410,41 @@ async def abs_sleep_rewind(book_id: str, user: Any = Depends(get_current_user)) 
     from brainycat.sleep_fade import get_rewind_suggestion
 
     return await get_rewind_suggestion(str(user["id"]), book_id)
+
+
+# ── Additional ABS endpoints for newer app versions ───────────────────────
+@router.get("/api/status")
+async def abs_status() -> dict:
+    """ABS server status — required by some app versions."""
+    return {"isInit": True, "language": "en", "ConfigPath": "/config", "MetadataPath": "/metadata", "Port": 8000}
+
+
+@router.get("/api/ping")
+async def abs_ping() -> dict:
+    """ABS ping — health check for mobile app."""
+    return {"success": True}
+
+
+@router.get("/api/items/{item_id}/cover")
+async def abs_item_cover(item_id: str) -> Any:
+    """ABS cover endpoint (alternate path used by some app versions)."""
+    return await abs_cover(item_id)
+
+
+@router.get("/api/libraries/{lib_id}/series")
+async def abs_series(lib_id: str, _u: Any = Depends(get_current_user)) -> dict:
+    """ABS series listing."""
+    rows = await fetch_all(
+        "SELECT s.id, s.name, count(bs.book_id) as num_books FROM series s LEFT JOIN books_series bs ON bs.series_id = s.id GROUP BY s.id ORDER BY s.name LIMIT 50"
+    )
+    return {"results": [{"id": str(r["id"]), "name": r["name"], "numBooks": r["num_books"]} for r in rows]}
+
+
+@router.get("/api/libraries/{lib_id}/collections")
+async def abs_collections(lib_id: str, user: Any = Depends(get_current_user)) -> dict:
+    """ABS collections listing."""
+    rows = await fetch_all(
+        "SELECT c.id, c.name, count(cb.book_id) as num_books FROM collections c LEFT JOIN collection_books cb ON cb.collection_id = c.id WHERE c.user_id = $1 GROUP BY c.id ORDER BY c.name",
+        user["id"],
+    )
+    return {"results": [{"id": str(r["id"]), "name": r["name"], "numBooks": r["num_books"]} for r in rows]}

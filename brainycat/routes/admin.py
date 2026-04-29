@@ -1197,3 +1197,48 @@ async def book_characters(book_id: str) -> dict[str, Any]:
     from brainycat.experimental.book_nlp import extract_characters
 
     return await extract_characters(book_id)
+
+
+# ── MARC Export/Import ────────────────────────────────────────────────────
+@router.get("/export/marc")
+async def export_marc_records(limit: int = Query(500)) -> Any:
+    """Export library as MARC21 binary file."""
+    from fastapi.responses import Response
+
+    from brainycat.marc import export_marc
+
+    data = await export_marc(limit)
+    return Response(content=data, media_type="application/marc", headers={"Content-Disposition": "attachment; filename=brainycat.mrc"})
+
+
+@router.post("/import/marc")
+async def import_marc_records(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Import books from MARC21 data (base64-encoded)."""
+    import base64
+
+    body = body or {}
+    raw = body.get("data", "")
+    if not raw:
+        return {"error": "provide 'data' (base64-encoded MARC21)"}
+    data = base64.b64decode(raw)
+    from brainycat.marc import parse_marc_record
+
+    # Split records by record terminator
+    records = data.split(b"\x1d")
+    imported = 0
+    for rec in records:
+        if len(rec) < 25:
+            continue
+        parsed = parse_marc_record(rec + b"\x1d")
+        if parsed.get("title"):
+            existing = await db.fetch_one("SELECT id FROM books WHERE title = $1 LIMIT 1", parsed["title"])
+            if not existing:
+                await db.execute(
+                    "INSERT INTO books (title, isbn, description, language, quality_score) VALUES ($1, $2, $3, $4, 30)",
+                    parsed["title"],
+                    parsed.get("isbn"),
+                    parsed.get("description"),
+                    parsed.get("language"),
+                )
+                imported += 1
+    return {"imported": imported, "total_records": len(records)}
