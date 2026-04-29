@@ -146,16 +146,26 @@ async function setStatus(id, status) {
 </head>
 <body>
 <header>
-<h1>🐱 BrainyCat</h1>
-<div class="search-box" style="position:relative"><input id="search" type="text" placeholder="Search title, author, ISBN, tag, description..." autofocus><button id="search-clear" onclick="document.getElementById('search').value='';doSearch()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.1rem;display:none">✕</button></div>
-<input id="filter-author" placeholder="Author..." class="btn sm" style="width:100px;border:1px solid var(--border);background:var(--bg)">
+<div class="primary-row">
+<div class="logo">🐱 BrainyCat</div>
 <nav>
-<a href="catalog.html">📖 Catalog</a>
-<a href="incoming.html">📥 Incoming</a>
+<a href="index.html">📖 Library</a>
+<a href="catalog.html">🔍 Discover</a>
 <a href="intelligence.html">🧠 Intel</a>
-<a href="stats.html">📊 Stats</a>
-<a href="recommendations.html">💡 For You</a>
+<a onclick="toggleShelves()" style="cursor:pointer">📚 Shelves</a>
+<a onclick="openSettings()" style="cursor:pointer">⚙️</a>
 </nav>
+</div>
+<div class="secondary-row">
+<div class="filter-group">
+<span class="active-filter" id="active-shelf">All</span>
+</div>
+<div class="stats">
+<span>📡 <a href="api/v1/opds/catalog.xml" style="color:var(--muted);text-decoration:none">OPDS</a></span>
+<span style="color:#334155">|</span>
+<span><strong id="book-count">...</strong> books</span>
+</div>
+</div>
 </header>
 <div class="container">
 <div class="toolbar">

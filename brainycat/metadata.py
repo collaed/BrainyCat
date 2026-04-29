@@ -65,37 +65,34 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
 
     results: list[dict[str, Any]] = []
 
-    # Primary: Intello unified lookup — DISABLED (was assigning wrong ISBNs)
-    # TODO: re-enable when Intello fixes result matching
-    # if False:  # noqa: SIM108
-    # try:
-    # import asyncio as _aio
+    # Primary: Intello unified lookup (re-enabled after fix)
+    try:
+        import asyncio as _aio
+        from brainycat.config import settings
 
-    # from brainycat.config import settings
-
-    # async with _aio.timeout(15):
-    # client = get_client()
-    # lookup_body: dict[str, Any] = {"query": title, "media_type": "book"}
-    # if isbn:
-    # lookup_body["isbn"] = isbn
-    # resp = await client.post(
-    # f"{settings.intello_url}/api/v1/lookup",
-    # json=lookup_body,
-    # timeout=15,
-    # )
-    # if resp.status_code == 200:
-    # lookup_data = resp.json()
-    # for source_name, source_data in lookup_data.get("sources", {}).items():
-    # for result in source_data.get("results", [])[:1]:
-    # results.append(result)
-    # await execute(
-    # "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, $2, true, $3::jsonb)",
-    # UUID(book_id),
-    # source_name,
-    # "{}",
-    # )
-    # except Exception:
-    # pass
+        async with _aio.timeout(15):
+            client = get_client()
+            lookup_body: dict[str, Any] = {"query": title, "media_type": "book"}
+            if isbn:
+                lookup_body["isbn"] = isbn
+            resp = await client.post(
+                f"{settings.intello_url}/api/v1/lookup",
+                json=lookup_body,
+                timeout=15,
+            )
+        if resp.status_code == 200:
+            lookup_data = resp.json()
+            for source_name, source_data in lookup_data.get("sources", {}).items():
+                for result in source_data.get("results", [])[:1]:
+                    results.append(result)
+                    await execute(
+                        "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, $2, true, $3::jsonb)",
+                        UUID(book_id),
+                        source_name,
+                        "{}",
+                    )
+    except Exception:
+        pass
 
     # Fallback: direct source queries (if Intello lookup returned nothing)
     if not results:
