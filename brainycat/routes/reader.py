@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -571,3 +573,48 @@ async def reading_stats(user: Any = Depends(get_current_user)) -> dict[str, Any]
         user["id"],
     )
     return dict(row) if row else {}
+
+
+# ── Download with embedded annotations ────────────────────────────────────
+@router.get("/books/{book_id}/download-annotated")
+async def download_annotated(book_id: str, user: Any = Depends(get_current_user)) -> Any:
+    """Download PDF with annotations embedded (permanent highlights)."""
+    import shutil
+    import tempfile
+
+    import fitz
+    from fastapi.responses import FileResponse
+
+    row = await db.fetch_one(
+        "SELECT bf.file_path, bf.file_name FROM book_files bf WHERE bf.book_id = $1 AND bf.format = 'pdf' LIMIT 1",
+        UUID(book_id),
+    )
+    if not row or not os.path.isfile(row["file_path"]):
+        return {"error": "no pdf"}
+
+    annotations = await db.fetch_all(
+        "SELECT page_num, text FROM annotations WHERE book_id = $1 AND user_id = $2 AND page_num IS NOT NULL",
+        UUID(book_id),
+        user["id"],
+    )
+
+    if not annotations:
+        return FileResponse(row["file_path"], filename=row["file_name"])
+
+    # Copy to temp, embed annotations, serve
+    tmp = tempfile.mktemp(suffix=".pdf")
+    shutil.copy2(row["file_path"], tmp)
+    doc = fitz.open(tmp)
+    for ann in annotations:
+        if ann["page_num"] < 0 or ann["page_num"] >= len(doc):
+            continue
+        page = doc[ann["page_num"]]
+        instances = page.search_for((ann["text"] or "")[:100])
+        if instances:
+            h = page.add_highlight_annot(instances)
+            if h:
+                h.set_colors(stroke=(1, 0.8, 0))
+                h.update()
+    doc.save(tmp, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+    doc.close()
+    return FileResponse(tmp, filename=row["file_name"], media_type="application/pdf")

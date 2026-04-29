@@ -34,7 +34,7 @@ async def kosync_register(request: Request) -> dict[str, Any]:
     """KOReader user registration (returns existing user's key)."""
     body = await request.json()
     username = body.get("username", "")
-    _ = body.get("password", "")  # noqa: F841
+    _ = body.get("password", "")
     user = await db.fetch_one("SELECT api_key FROM users WHERE username = $1", username)
     if user:
         return {"username": username}

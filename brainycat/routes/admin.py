@@ -1004,3 +1004,25 @@ async def pdf_embed(book_id: str) -> dict[str, Any]:
     from brainycat.experimental.pdf_embed_annotations import embed_annotations
 
     return await embed_annotations(book_id)
+
+
+# ── Calibre Library Import ────────────────────────────────────────────────
+@router.post("/import/calibre")
+async def import_calibre(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Import books from a Calibre library folder."""
+    body = body or {}
+    path = body.get("path", "/data/calibre")
+    limit = body.get("limit", 100)
+    from brainycat.calibre_import import import_calibre_library
+
+    return await import_calibre_library(path, limit)
+
+
+# ── Readarr Search ────────────────────────────────────────────────────────
+@router.post("/readarr/search")
+async def readarr_search(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Search Readarr for a book."""
+    body = body or {}
+    from brainycat.experimental.readarr import search_readarr
+
+    return await search_readarr(body.get("query", ""))

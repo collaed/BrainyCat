@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     exp_mind_map: str = "0"
     exp_share_cards: str = "0"
     exp_pdf_embed: str = "0"
+    readarr_url: str = ""
+    readarr_api_key: str = ""
 
 
 settings = Settings()
