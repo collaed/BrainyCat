@@ -92,3 +92,21 @@ async def update_settings(body: dict[str, Any], user: Any = Depends(get_current_
 
 
 # Add auto_send_kindle to allowed settings
+
+
+# ── API Key Management ────────────────────────────────────────────────────
+@router.get("/user/api-key")
+async def get_api_key(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get user's API key (for KOReader sync, MCP, etc.)."""
+    row = await db.fetch_one("SELECT api_key FROM users WHERE id = $1", user["id"])
+    return {"api_key": row["api_key"] if row else None}
+
+
+@router.post("/user/api-key/regenerate")
+async def regenerate_api_key(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Regenerate API key."""
+    import secrets
+
+    new_key = secrets.token_hex(16)
+    await db.execute("UPDATE users SET api_key = $1 WHERE id = $2", new_key, user["id"])
+    return {"api_key": new_key}

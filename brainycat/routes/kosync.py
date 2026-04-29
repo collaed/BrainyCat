@@ -105,3 +105,57 @@ async def kosync_get_progress(
     if not row:
         return {}
     return dict(row)
+
+
+# ── KOReader Bookmark/Highlight Sync ──────────────────────────────────────
+@router.put("/syncs/bookmarks")
+async def kosync_put_bookmarks(
+    request: Request,
+    x_auth_user: str | None = Header(None),
+    x_auth_key: str | None = Header(None),
+) -> dict[str, Any]:
+    """KOReader sends bookmarks/highlights for a document."""
+    user = await _auth_kosync(x_auth_user, x_auth_key)
+    if not user:
+        return {"message": "Unauthorized"}
+
+    body = await request.json()
+    document = body.get("document", "")
+    bookmarks = body.get("bookmarks", [])
+
+    # Store bookmarks as JSON
+    import json
+
+    await db.execute(
+        """INSERT INTO kosync_bookmarks (user_id, document, bookmarks)
+           VALUES ($1, $2, $3::jsonb)
+           ON CONFLICT (user_id, document) DO UPDATE SET bookmarks = $3::jsonb, updated_at = now()""",
+        user["id"],
+        document,
+        json.dumps(bookmarks),
+    )
+    return {"document": document, "count": len(bookmarks)}
+
+
+@router.get("/syncs/bookmarks/{document:path}")
+async def kosync_get_bookmarks(
+    document: str,
+    x_auth_user: str | None = Header(None),
+    x_auth_key: str | None = Header(None),
+) -> dict[str, Any]:
+    """KOReader fetches bookmarks/highlights."""
+    user = await _auth_kosync(x_auth_user, x_auth_key)
+    if not user:
+        return {"message": "Unauthorized"}
+
+    row = await db.fetch_one(
+        "SELECT bookmarks FROM kosync_bookmarks WHERE user_id = $1 AND document = $2",
+        user["id"],
+        document,
+    )
+    if not row:
+        return {"bookmarks": []}
+
+    import json
+
+    return {"bookmarks": json.loads(row["bookmarks"]) if isinstance(row["bookmarks"], str) else row["bookmarks"]}

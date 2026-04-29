@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -336,23 +335,6 @@ async def get_reading_goals(user: Any = Depends(get_current_user)) -> dict[str, 
     }
 
 
-@router.post("/reading-goals")
-async def set_reading_goal(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Set reading goal: {target: 50, year: 2026}."""
-    import datetime
-
-    target = body.get("target", 50)
-    year = body.get("year", datetime.date.today().year)
-    await db.execute(
-        "INSERT INTO reading_goals (user_id, year, target) VALUES ($1, $2, $3) ON CONFLICT (user_id, year) DO UPDATE SET target = $3",
-        user["id"],
-        year,
-        target,
-    )
-    return {"ok": True, "year": year, "target": target}
-
-
-# ── Pen/stylus annotations ───────────────────────────────────────────────
 @router.post("/books/{book_id}/pen-annotations")
 async def save_pen_annotations(book_id: str, body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Save stylus strokes for a page position."""
@@ -618,3 +600,125 @@ async def download_annotated(book_id: str, user: Any = Depends(get_current_user)
     doc.save(tmp, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
     doc.close()
     return FileResponse(tmp, filename=row["file_name"], media_type="application/pdf")
+
+
+# ── Reading Goals ─────────────────────────────────────────────────────────
+@router.put("/reading/goal")
+async def set_reading_goal(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Set a reading goal (e.g., 50 books in 2026)."""
+    year = body.get("year", 2026)
+    target = body.get("target", 12)
+    goal_type = body.get("type", "books")  # books or minutes
+
+    await db.execute(
+        """INSERT INTO reading_goals (user_id, year, target, goal_type)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (user_id, year, goal_type) DO UPDATE SET target = $3""",
+        user["id"],
+        year,
+        target,
+        goal_type,
+    )
+    return {"ok": True, "year": year, "target": target, "type": goal_type}
+
+
+@router.get("/reading/goal")
+async def get_reading_goal(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get reading goal progress for current year."""
+    from datetime import date
+
+    year = date.today().year
+    goal = await db.fetch_one(
+        "SELECT target, goal_type FROM reading_goals WHERE user_id = $1 AND year = $2",
+        user["id"],
+        year,
+    )
+    if not goal:
+        return {"goal": None}
+
+    if goal["goal_type"] == "books":
+        progress = await db.fetch_one(
+            """SELECT count(DISTINCT book_id) as completed
+               FROM reading_progress WHERE user_id = $1 AND status = 'finished'
+               AND extract(year from finished_at) = $2""",
+            user["id"],
+            year,
+        )
+        current = progress["completed"] if progress else 0
+    else:
+        progress = await db.fetch_one(
+            "SELECT COALESCE(sum(minutes), 0) as total FROM reading_log WHERE user_id = $1 AND extract(year from logged_at) = $2",
+            user["id"],
+            year,
+        )
+        current = progress["total"] if progress else 0
+
+    return {
+        "year": year,
+        "target": goal["target"],
+        "current": current,
+        "type": goal["goal_type"],
+        "percentage": round(current / goal["target"] * 100, 1) if goal["target"] > 0 else 0,
+    }
+
+
+# ── Collections ───────────────────────────────────────────────────────────
+@router.post("/collections")
+async def create_collection(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Create a book collection."""
+    name = body.get("name", "")
+    description = body.get("description", "")
+    row = await db.fetch_one(
+        "INSERT INTO collections (user_id, name, description) VALUES ($1, $2, $3) RETURNING id",
+        user["id"],
+        name,
+        description,
+    )
+    return {"id": str(row["id"]), "name": name}
+
+
+@router.get("/collections")
+async def list_collections(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List user's collections with book counts."""
+    rows = await db.fetch_all(
+        """SELECT c.id, c.name, c.description, count(cb.book_id) as book_count
+           FROM collections c LEFT JOIN collection_books cb ON cb.collection_id = c.id
+           WHERE c.user_id = $1 GROUP BY c.id ORDER BY c.name""",
+        user["id"],
+    )
+    return [dict(r) for r in rows]
+
+
+@router.post("/collections/{collection_id}/books")
+async def add_to_collection(collection_id: str, body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Add a book to a collection."""
+    book_id = body.get("book_id")
+    await db.execute(
+        "INSERT INTO collection_books (collection_id, book_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        UUID(collection_id),
+        UUID(book_id),
+    )
+    return {"ok": True}
+
+
+@router.delete("/collections/{collection_id}/books/{book_id}")
+async def remove_from_collection(collection_id: str, book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Remove a book from a collection."""
+    await db.execute(
+        "DELETE FROM collection_books WHERE collection_id = $1 AND book_id = $2",
+        UUID(collection_id),
+        UUID(book_id),
+    )
+    return {"ok": True}
+
+
+@router.get("/collections/{collection_id}/books")
+async def collection_books(collection_id: str, user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Get books in a collection."""
+    rows = await db.fetch_all(
+        """SELECT b.id, b.title, b.cover_path, b.quality_score
+           FROM collection_books cb JOIN books b ON b.id = cb.book_id
+           WHERE cb.collection_id = $1 ORDER BY cb.added_at DESC""",
+        UUID(collection_id),
+    )
+    return [dict(r) for r in rows]
