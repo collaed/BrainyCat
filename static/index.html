@@ -77,6 +77,25 @@ nav a:hover{background:var(--surface);color:var(--text)}
 /* Floating action bar */
 #bulk-bar{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:2px solid var(--accent);padding:.5rem 1rem;display:none;align-items:center;gap:.5rem;z-index:50;justify-content:center}
 #bulk-bar.active{display:flex}
+
+/* Focus indicator (accessibility) */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* Touch targets */
+nav a,button,.btn{min-height:40px;min-width:40px;display:inline-flex;align-items:center;justify-content:center}
+/* Card hover micro-interaction */
+.grid .card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.3)}
+.grid .card{transition:transform .15s,box-shadow .15s}
+/* Search clear button */
+.search-wrap{position:relative}
+.search-wrap .clear-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.1rem;min-height:24px;min-width:24px;display:none}
+.search-wrap input:not(:placeholder-shown)~.clear-btn{display:block}
+/* More menu */
+.more-menu{position:relative;display:inline-flex}
+.more-menu .dropdown{display:none;position:absolute;top:100%;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:.5rem 0;min-width:140px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.3)}
+.more-menu:hover .dropdown,.more-menu:focus-within .dropdown{display:block}
+.more-menu .dropdown a{display:flex;padding:.5rem 1rem;color:var(--text);text-decoration:none;font-size:.85rem;gap:.4rem}
+.more-menu .dropdown a:hover{background:rgba(255,255,255,0.05)}
+
 </style>
 <link id="skin-css" rel="stylesheet" href="">
 <script>
@@ -181,16 +200,18 @@ async function scanISBN() {
 </script>
 </head>
 <body>
-<header>
+<header role="banner">
 <div class="primary-row">
 <div class="logo">🐱 BrainyCat</div>
-<nav>
+<nav role="navigation" aria-label="Main navigation">
 <a href="index.html">📖 Library</a>
 <a href="catalog.html">🔍 Discover</a>
-<a href="intelligence.html">🧠 Intel</a>
-<a onclick="toggleShelves()" style="cursor:pointer">📚 Shelves</a>
 <a onclick="scanISBN()" style="cursor:pointer" title="Scan ISBN">📷</a>
-<a onclick="openSettings()" style="cursor:pointer">⚙️</a>
+<div class="more-menu"><a style="cursor:pointer">⋯</a><div class="dropdown">
+<a href="intelligence.html">🧠 Intel</a>
+<a onclick="toggleShelves()">📚 Shelves</a>
+<a onclick="openSettings()">⚙️ Settings</a>
+</div></div>
 </nav>
 </div>
 <div class="secondary-row">
