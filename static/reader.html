@@ -24,6 +24,57 @@ function toggleBionic() {
   });
 }
 
+
+function toggleRSVP() {
+  let overlay = document.getElementById("rsvp-overlay");
+  if (overlay) { overlay.remove(); return; }
+  overlay = document.createElement("div");
+  overlay.id = "rsvp-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:var(--bg,#0f1115);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text,#e2e8f0)";
+  overlay.innerHTML = `<div id="rsvp-word" style="font-size:3rem;font-weight:700;min-height:4rem;display:flex;align-items:center"></div>
+    <div style="margin-top:2rem;display:flex;gap:1rem;align-items:center">
+      <button onclick="rsvpSpeed(-50)">−</button>
+      <span id="rsvp-wpm">300</span> WPM
+      <button onclick="rsvpSpeed(50)">+</button>
+      <button onclick="rsvpTogglePause()" id="rsvp-btn">⏸</button>
+      <button onclick="document.getElementById('rsvp-overlay').remove()">✕</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  startRSVP();
+}
+let _rsvpWords=[], _rsvpIdx=0, _rsvpWpm=300, _rsvpTimer=null;
+function startRSVP() {
+  // Get text from current EPUB/PDF view
+  const frames = document.querySelectorAll("iframe");
+  let text = "";
+  frames.forEach(f => { try { text += f.contentDocument.body.innerText + " "; } catch(e){} });
+  if (!text) text = document.querySelector(".reader-content")?.innerText || "No text available";
+  _rsvpWords = text.split(/\s+/).filter(w => w.length > 0);
+  _rsvpIdx = 0;
+  _rsvpWpm = 300;
+  rsvpPlay();
+}
+function rsvpPlay() {
+  clearInterval(_rsvpTimer);
+  const ms = 60000 / _rsvpWpm;
+  _rsvpTimer = setInterval(() => {
+    if (_rsvpIdx >= _rsvpWords.length) { clearInterval(_rsvpTimer); return; }
+    const w = _rsvpWords[_rsvpIdx++];
+    const mid = Math.floor(w.length / 3);
+    document.getElementById("rsvp-word").innerHTML = w.slice(0,mid) + "<span style='color:#4facfe'>" + w[mid] + "</span>" + w.slice(mid+1);
+  }, ms);
+  document.getElementById("rsvp-btn").textContent = "⏸";
+}
+function rsvpTogglePause() {
+  if (_rsvpTimer) { clearInterval(_rsvpTimer); _rsvpTimer = null; document.getElementById("rsvp-btn").textContent = "▶"; }
+  else rsvpPlay();
+}
+function rsvpSpeed(delta) {
+  _rsvpWpm = Math.max(100, _rsvpWpm + delta);
+  document.getElementById("rsvp-wpm").textContent = _rsvpWpm;
+  if (_rsvpTimer) rsvpPlay();
+}
+
 </script>
 <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js">
 function toggleBionic() {
@@ -49,6 +100,57 @@ function toggleBionic() {
   });
 }
 
+
+function toggleRSVP() {
+  let overlay = document.getElementById("rsvp-overlay");
+  if (overlay) { overlay.remove(); return; }
+  overlay = document.createElement("div");
+  overlay.id = "rsvp-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:var(--bg,#0f1115);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text,#e2e8f0)";
+  overlay.innerHTML = `<div id="rsvp-word" style="font-size:3rem;font-weight:700;min-height:4rem;display:flex;align-items:center"></div>
+    <div style="margin-top:2rem;display:flex;gap:1rem;align-items:center">
+      <button onclick="rsvpSpeed(-50)">−</button>
+      <span id="rsvp-wpm">300</span> WPM
+      <button onclick="rsvpSpeed(50)">+</button>
+      <button onclick="rsvpTogglePause()" id="rsvp-btn">⏸</button>
+      <button onclick="document.getElementById('rsvp-overlay').remove()">✕</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  startRSVP();
+}
+let _rsvpWords=[], _rsvpIdx=0, _rsvpWpm=300, _rsvpTimer=null;
+function startRSVP() {
+  // Get text from current EPUB/PDF view
+  const frames = document.querySelectorAll("iframe");
+  let text = "";
+  frames.forEach(f => { try { text += f.contentDocument.body.innerText + " "; } catch(e){} });
+  if (!text) text = document.querySelector(".reader-content")?.innerText || "No text available";
+  _rsvpWords = text.split(/\s+/).filter(w => w.length > 0);
+  _rsvpIdx = 0;
+  _rsvpWpm = 300;
+  rsvpPlay();
+}
+function rsvpPlay() {
+  clearInterval(_rsvpTimer);
+  const ms = 60000 / _rsvpWpm;
+  _rsvpTimer = setInterval(() => {
+    if (_rsvpIdx >= _rsvpWords.length) { clearInterval(_rsvpTimer); return; }
+    const w = _rsvpWords[_rsvpIdx++];
+    const mid = Math.floor(w.length / 3);
+    document.getElementById("rsvp-word").innerHTML = w.slice(0,mid) + "<span style='color:#4facfe'>" + w[mid] + "</span>" + w.slice(mid+1);
+  }, ms);
+  document.getElementById("rsvp-btn").textContent = "⏸";
+}
+function rsvpTogglePause() {
+  if (_rsvpTimer) { clearInterval(_rsvpTimer); _rsvpTimer = null; document.getElementById("rsvp-btn").textContent = "▶"; }
+  else rsvpPlay();
+}
+function rsvpSpeed(delta) {
+  _rsvpWpm = Math.max(100, _rsvpWpm + delta);
+  document.getElementById("rsvp-wpm").textContent = _rsvpWpm;
+  if (_rsvpTimer) rsvpPlay();
+}
+
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js">
 function toggleBionic() {
@@ -72,6 +174,57 @@ function toggleBionic() {
       }
     } catch(e) {}
   });
+}
+
+
+function toggleRSVP() {
+  let overlay = document.getElementById("rsvp-overlay");
+  if (overlay) { overlay.remove(); return; }
+  overlay = document.createElement("div");
+  overlay.id = "rsvp-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:var(--bg,#0f1115);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text,#e2e8f0)";
+  overlay.innerHTML = `<div id="rsvp-word" style="font-size:3rem;font-weight:700;min-height:4rem;display:flex;align-items:center"></div>
+    <div style="margin-top:2rem;display:flex;gap:1rem;align-items:center">
+      <button onclick="rsvpSpeed(-50)">−</button>
+      <span id="rsvp-wpm">300</span> WPM
+      <button onclick="rsvpSpeed(50)">+</button>
+      <button onclick="rsvpTogglePause()" id="rsvp-btn">⏸</button>
+      <button onclick="document.getElementById('rsvp-overlay').remove()">✕</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  startRSVP();
+}
+let _rsvpWords=[], _rsvpIdx=0, _rsvpWpm=300, _rsvpTimer=null;
+function startRSVP() {
+  // Get text from current EPUB/PDF view
+  const frames = document.querySelectorAll("iframe");
+  let text = "";
+  frames.forEach(f => { try { text += f.contentDocument.body.innerText + " "; } catch(e){} });
+  if (!text) text = document.querySelector(".reader-content")?.innerText || "No text available";
+  _rsvpWords = text.split(/\s+/).filter(w => w.length > 0);
+  _rsvpIdx = 0;
+  _rsvpWpm = 300;
+  rsvpPlay();
+}
+function rsvpPlay() {
+  clearInterval(_rsvpTimer);
+  const ms = 60000 / _rsvpWpm;
+  _rsvpTimer = setInterval(() => {
+    if (_rsvpIdx >= _rsvpWords.length) { clearInterval(_rsvpTimer); return; }
+    const w = _rsvpWords[_rsvpIdx++];
+    const mid = Math.floor(w.length / 3);
+    document.getElementById("rsvp-word").innerHTML = w.slice(0,mid) + "<span style='color:#4facfe'>" + w[mid] + "</span>" + w.slice(mid+1);
+  }, ms);
+  document.getElementById("rsvp-btn").textContent = "⏸";
+}
+function rsvpTogglePause() {
+  if (_rsvpTimer) { clearInterval(_rsvpTimer); _rsvpTimer = null; document.getElementById("rsvp-btn").textContent = "▶"; }
+  else rsvpPlay();
+}
+function rsvpSpeed(delta) {
+  _rsvpWpm = Math.max(100, _rsvpWpm + delta);
+  document.getElementById("rsvp-wpm").textContent = _rsvpWpm;
+  if (_rsvpTimer) rsvpPlay();
 }
 
 </script>
@@ -163,6 +316,57 @@ function toggleBionic() {
       }
     } catch(e) {}
   });
+}
+
+
+function toggleRSVP() {
+  let overlay = document.getElementById("rsvp-overlay");
+  if (overlay) { overlay.remove(); return; }
+  overlay = document.createElement("div");
+  overlay.id = "rsvp-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:var(--bg,#0f1115);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text,#e2e8f0)";
+  overlay.innerHTML = `<div id="rsvp-word" style="font-size:3rem;font-weight:700;min-height:4rem;display:flex;align-items:center"></div>
+    <div style="margin-top:2rem;display:flex;gap:1rem;align-items:center">
+      <button onclick="rsvpSpeed(-50)">−</button>
+      <span id="rsvp-wpm">300</span> WPM
+      <button onclick="rsvpSpeed(50)">+</button>
+      <button onclick="rsvpTogglePause()" id="rsvp-btn">⏸</button>
+      <button onclick="document.getElementById('rsvp-overlay').remove()">✕</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  startRSVP();
+}
+let _rsvpWords=[], _rsvpIdx=0, _rsvpWpm=300, _rsvpTimer=null;
+function startRSVP() {
+  // Get text from current EPUB/PDF view
+  const frames = document.querySelectorAll("iframe");
+  let text = "";
+  frames.forEach(f => { try { text += f.contentDocument.body.innerText + " "; } catch(e){} });
+  if (!text) text = document.querySelector(".reader-content")?.innerText || "No text available";
+  _rsvpWords = text.split(/\s+/).filter(w => w.length > 0);
+  _rsvpIdx = 0;
+  _rsvpWpm = 300;
+  rsvpPlay();
+}
+function rsvpPlay() {
+  clearInterval(_rsvpTimer);
+  const ms = 60000 / _rsvpWpm;
+  _rsvpTimer = setInterval(() => {
+    if (_rsvpIdx >= _rsvpWords.length) { clearInterval(_rsvpTimer); return; }
+    const w = _rsvpWords[_rsvpIdx++];
+    const mid = Math.floor(w.length / 3);
+    document.getElementById("rsvp-word").innerHTML = w.slice(0,mid) + "<span style='color:#4facfe'>" + w[mid] + "</span>" + w.slice(mid+1);
+  }, ms);
+  document.getElementById("rsvp-btn").textContent = "⏸";
+}
+function rsvpTogglePause() {
+  if (_rsvpTimer) { clearInterval(_rsvpTimer); _rsvpTimer = null; document.getElementById("rsvp-btn").textContent = "▶"; }
+  else rsvpPlay();
+}
+function rsvpSpeed(delta) {
+  _rsvpWpm = Math.max(100, _rsvpWpm + delta);
+  document.getElementById("rsvp-wpm").textContent = _rsvpWpm;
+  if (_rsvpTimer) rsvpPlay();
 }
 
 </script>
@@ -962,6 +1166,57 @@ function toggleBionic() {
       }
     } catch(e) {}
   });
+}
+
+
+function toggleRSVP() {
+  let overlay = document.getElementById("rsvp-overlay");
+  if (overlay) { overlay.remove(); return; }
+  overlay = document.createElement("div");
+  overlay.id = "rsvp-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:var(--bg,#0f1115);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text,#e2e8f0)";
+  overlay.innerHTML = `<div id="rsvp-word" style="font-size:3rem;font-weight:700;min-height:4rem;display:flex;align-items:center"></div>
+    <div style="margin-top:2rem;display:flex;gap:1rem;align-items:center">
+      <button onclick="rsvpSpeed(-50)">−</button>
+      <span id="rsvp-wpm">300</span> WPM
+      <button onclick="rsvpSpeed(50)">+</button>
+      <button onclick="rsvpTogglePause()" id="rsvp-btn">⏸</button>
+      <button onclick="document.getElementById('rsvp-overlay').remove()">✕</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  startRSVP();
+}
+let _rsvpWords=[], _rsvpIdx=0, _rsvpWpm=300, _rsvpTimer=null;
+function startRSVP() {
+  // Get text from current EPUB/PDF view
+  const frames = document.querySelectorAll("iframe");
+  let text = "";
+  frames.forEach(f => { try { text += f.contentDocument.body.innerText + " "; } catch(e){} });
+  if (!text) text = document.querySelector(".reader-content")?.innerText || "No text available";
+  _rsvpWords = text.split(/\s+/).filter(w => w.length > 0);
+  _rsvpIdx = 0;
+  _rsvpWpm = 300;
+  rsvpPlay();
+}
+function rsvpPlay() {
+  clearInterval(_rsvpTimer);
+  const ms = 60000 / _rsvpWpm;
+  _rsvpTimer = setInterval(() => {
+    if (_rsvpIdx >= _rsvpWords.length) { clearInterval(_rsvpTimer); return; }
+    const w = _rsvpWords[_rsvpIdx++];
+    const mid = Math.floor(w.length / 3);
+    document.getElementById("rsvp-word").innerHTML = w.slice(0,mid) + "<span style='color:#4facfe'>" + w[mid] + "</span>" + w.slice(mid+1);
+  }, ms);
+  document.getElementById("rsvp-btn").textContent = "⏸";
+}
+function rsvpTogglePause() {
+  if (_rsvpTimer) { clearInterval(_rsvpTimer); _rsvpTimer = null; document.getElementById("rsvp-btn").textContent = "▶"; }
+  else rsvpPlay();
+}
+function rsvpSpeed(delta) {
+  _rsvpWpm = Math.max(100, _rsvpWpm + delta);
+  document.getElementById("rsvp-wpm").textContent = _rsvpWpm;
+  if (_rsvpTimer) rsvpPlay();
 }
 
 </script></body></html>

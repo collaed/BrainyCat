@@ -1634,3 +1634,60 @@ async def book_timeline(book_id: str) -> list[dict[str, Any]]:
 
     events.sort(key=lambda x: x["date"])
     return events
+
+
+# ── PDF Page Extraction ───────────────────────────────────────────────────
+@router.post("/books/{book_id}/extract-pages")
+async def extract_pages(book_id: str, body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Extract a page range from a PDF as a new book."""
+    import os
+    from uuid import UUID
+
+    import fitz
+
+    start = body.get("start", 0)
+    end = body.get("end", -1)
+    title = body.get("title", "")
+
+    row = await db.fetch_one(
+        "SELECT bf.file_path, b.title FROM book_files bf JOIN books b ON b.id = bf.book_id WHERE bf.book_id = $1 AND bf.format = 'pdf' LIMIT 1",
+        UUID(book_id),
+    )
+    if not row or not os.path.isfile(row["file_path"]):
+        return {"error": "no pdf"}
+
+    doc = fitz.open(row["file_path"])
+    if end < 0:
+        end = len(doc) - 1
+    end = min(end, len(doc) - 1)
+
+    if start > end or start < 0:
+        doc.close()
+        return {"error": "invalid range"}
+
+    # Create new PDF
+    new_doc = fitz.open()
+    new_doc.insert_pdf(doc, from_page=start, to_page=end)
+
+    new_title = title or f"{row['title']} (pp. {start + 1}-{end + 1})"
+    out_dir = "/data/books/" + str(UUID(book_id))[:8] + "-extract"
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f"{new_title[:60]}.pdf")
+    new_doc.save(out_path)
+    new_doc.close()
+    doc.close()
+
+    # Create book entry
+    new_book = await db.fetch_one(
+        "INSERT INTO books (title, quality_score) VALUES ($1, 30) RETURNING id",
+        new_title,
+    )
+    if new_book:
+        await db.execute(
+            "INSERT INTO book_files (book_id, file_path, format, file_name) VALUES ($1, $2, 'pdf', $3)",
+            new_book["id"],
+            out_path,
+            os.path.basename(out_path),
+        )
+
+    return {"ok": True, "new_book_id": str(new_book["id"]), "pages": end - start + 1, "title": new_title}
