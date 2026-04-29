@@ -59,6 +59,22 @@ def clean_title_for_query(title: str) -> str:
     if t.startswith("Downloads/"):
         t = t[10:]
 
+    # Strip publisher prefixes (PP. = Packt, OReilly. = O'Reilly)
+    import re as _re
+
+    for prefix in ["PP.", "OReilly.", "OR.", "Apress.", "Manning.", "Wiley.", "Sams."]:
+        if t.startswith(prefix):
+            t = t[len(prefix) :]
+            break
+
+    # Strip date suffixes (e.g., ".Feb.2014", ".2020.3")
+    t = _re.sub(r"\.(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.\d{4}$", "", t)
+    t = _re.sub(r"\.\d{4}\.\d?$", "", t)
+
+    # Replace dots with spaces (common in scene-style filenames)
+    if t.count(".") >= 2 and not t.endswith((".pdf", ".epub", ".mobi")):
+        t = t.replace(".", " ")
+
     # Strip trailing " u" (unprotected marker)
     if t.endswith(" u"):
         t = t[:-2]
