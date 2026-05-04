@@ -918,3 +918,31 @@ async def list_challenges(user: Any = Depends(get_current_user)) -> list[dict[st
         user["id"],
     )
     return [dict(r) for r in rows]
+
+
+# ── OPDS Recommendations Feed ────────────────────────────────────────────
+@router.get("/opds/recommendations/{book_id}")
+async def opds_recommendations(book_id: str) -> Any:
+    """OPDS feed of recommended books (navigable from KOReader)."""
+    from fastapi.responses import Response
+    from brainycat.recommendations import recommend_similar
+
+    recs = await recommend_similar(book_id, limit=10)
+
+    entries = ""
+    for r in recs:
+        entries += f"""<entry>
+  <id>urn:brainycat:book:{r["id"]}</id>
+  <title>{r["title"].replace("&", "&amp;").replace("<", "&lt;")}</title>
+  <link rel="http://opds-spec.org/acquisition" href="/api/v1/books/{r["id"]}/file/epub" type="application/epub+zip"/>
+  <link rel="http://opds-spec.org/image/thumbnail" href="/api/v1/books/{r["id"]}/cover" type="image/jpeg"/>
+</entry>\n"""
+
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>urn:brainycat:recommendations:{book_id}</id>
+  <title>Recommended Books</title>
+  <updated>{__import__("datetime").datetime.now().isoformat()}</updated>
+  {entries}
+</feed>"""
+    return Response(content=xml, media_type="application/atom+xml")

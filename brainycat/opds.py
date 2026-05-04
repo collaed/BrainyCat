@@ -19,7 +19,7 @@ async def catalog(page: int = 1) -> Response:
     total_count = total["n"] if total else 0
 
     books = await fetch_all(f"""
-        SELECT b.id, b.title, b.description, b.isbn, b.updated_at,
+        SELECT b.id, b.title, b.description, b.isbn, b.updated_at, b.page_count, b.estimated_reading_minutes, b.quality_score,
                array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors,
                array_agg(DISTINCT bf.format) FILTER (WHERE bf.format IS NOT NULL) as formats
         FROM books b
@@ -60,7 +60,7 @@ async def search_opds(q: str, page: int = 1) -> Response:
     offset = (page - 1) * PAGE_SIZE
     books = await fetch_all(
         f"""
-        SELECT b.id, b.title, b.description, b.isbn, b.updated_at,
+        SELECT b.id, b.title, b.description, b.isbn, b.updated_at, b.page_count, b.estimated_reading_minutes, b.quality_score,
                array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors,
                array_agg(DISTINCT bf.format) FILTER (WHERE bf.format IS NOT NULL) as formats
         FROM books b
@@ -103,6 +103,10 @@ def _entry(b: Any) -> str:
   <link rel="http://opds-spec.org/image" href="/api/v1/books/{b["id"]}/cover" type="image/jpeg"/>
   <link rel="http://opds-spec.org/image/thumbnail" href="/api/v1/books/{b["id"]}/cover" type="image/jpeg"/>
   {acq_links}
+  <link rel="related" href="/api/v1/opds/recommendations/{b["id"]}" type="application/atom+xml;profile=opds-catalog" title="Similar Books"/>
+  {f'<dcterms:extent xmlns:dcterms="http://purl.org/dc/terms/">{b["page_count"]} pages</dcterms:extent>' if b.get("page_count") else ""}
+  {f'<opds:readingTime xmlns:opds="http://brainycat.app/opds">{b["estimated_reading_minutes"]} min</opds:readingTime>' if b.get("estimated_reading_minutes") else ""}
+  {f'<opds:quality xmlns:opds="http://brainycat.app/opds">{b["quality_score"]}/100</opds:quality>' if b.get("quality_score") else ""}
 </entry>"""
 
 
