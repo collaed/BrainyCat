@@ -1,52 +1,74 @@
-"""Library of Congress API — highest quality official metadata."""
+"""Library of Congress — via SRU/LCDB endpoint (not blocked by Cloudflare)."""
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from brainycat.http_client import get_client
 
-API_URL = "https://www.loc.gov/books"
+# lx2.loc.gov is LoC's direct SRU server (not behind Cloudflare)
+SRU_URL = "https://lx2.loc.gov/sru/lcdb"
 
 
 async def search(title: str | None = None, isbn: str | None = None) -> dict[str, Any] | None:
-    """Search Library of Congress."""
-    params: dict[str, Any] = {"fo": "json", "c": 5}
+    """Search Library of Congress via SRU/MODS."""
     if isbn:
-        params["q"] = isbn
+        query = f"bath.isbn={isbn}"
     elif title:
-        params["q"] = title
+        query = f'bath.title="{title}"'
     else:
         return None
 
+    params = {
+        "version": "1.1",
+        "operation": "searchRetrieve",
+        "query": query,
+        "maximumRecords": "1",
+        "recordSchema": "mods",
+    }
+
     try:
         client = get_client()
-        resp = await client.get(API_URL, params=params)
+        resp = await client.get(SRU_URL, params=params, timeout=8)
         if resp.status_code != 200:
             return None
-        data = resp.json()
+        xml = resp.text
     except Exception:
         return None
 
-    results = data.get("results", [])
-    if not results:
+    # Check if we got results
+    if "<zs:numberOfRecords>0</zs:numberOfRecords>" in xml:
         return None
 
-    item = results[0]
-    contributors = item.get("contributor", [])
-    subjects = item.get("subject", [])
-    languages = item.get("language", [])
+    # Parse MODS XML (simple regex — avoids lxml dependency)
+    def extract(tag: str) -> str | None:
+        # Handle namespaced and non-namespaced
+        m = re.search(rf"<(?:mods:)?{tag}[^>]*>([^<]+)</(?:mods:)?{tag}>", xml)
+        return m.group(1).strip() if m else None
+
+    def extract_all(tag: str) -> list[str]:
+        return [m.strip() for m in re.findall(rf"<(?:mods:)?{tag}[^>]*>([^<]+)</(?:mods:)?{tag}>", xml)]
+
+    title_found = extract("title")
+    if not title_found:
+        return None
+
+    authors = extract_all("namePart")
+    publisher = extract("publisher")
+    date_issued = extract("dateIssued")
+    subjects = extract_all("topic")
+    lccn = None
+    lccn_match = re.search(r'<(?:mods:)?identifier type="lccn">([^<]+)', xml)
+    if lccn_match:
+        lccn = lccn_match.group(1).strip()
 
     return {
-        "source": "loc",
-        "title": item.get("title"),
-        "description": item.get("description", [None])[0] if item.get("description") else None,
-        "isbn": isbn,
-        "language": languages[0] if languages else None,
-        "publisher": None,
-        "pubdate": item.get("date"),
-        "genres": subjects[:10],
-        "cover_url": item.get("image_url", [None])[0] if item.get("image_url") else None,
-        "authors": contributors,
-        "loc_url": item.get("url"),
+        "title": title_found,
+        "authors": authors[:3],
+        "publisher": publisher,
+        "pubdate": date_issued,
+        "subjects": subjects[:10],
+        "lccn": lccn,
+        "source": "loc_sru",
     }
