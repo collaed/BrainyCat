@@ -41,7 +41,21 @@ async def deep_enrich(book_id: str) -> dict[str, Any]:
             title = identified["clean_title"]
 
         # Reject corporate/publisher names as authors
-        _CORPORATE_NAMES = {"VMware", "Packt", "O'Reilly", "Microsoft", "Google", "Amazon", "Apress", "Manning", "Wiley", "Springer", "Elsevier", "Pearson", "McGraw-Hill"}
+        _CORPORATE_NAMES = {
+            "VMware",
+            "Packt",
+            "O'Reilly",
+            "Microsoft",
+            "Google",
+            "Amazon",
+            "Apress",
+            "Manning",
+            "Wiley",
+            "Springer",
+            "Elsevier",
+            "Pearson",
+            "McGraw-Hill",
+        }
         if identified.get("author") and identified["author"] != "Unknown" and identified["author"] not in _CORPORATE_NAMES:
             # Link author
             author_row = await fetch_one(

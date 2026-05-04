@@ -1259,3 +1259,20 @@ async def external_recommendations(book_id: str) -> dict[str, Any]:
     from brainycat.recommendations import recommend_external
 
     return await recommend_external(book["title"], book.get("author") or "")
+
+
+# ── Consistency Check ─────────────────────────────────────────────────────
+@router.post("/books/{book_id}/consistency-check")
+async def consistency_check(book_id: str) -> dict[str, Any]:
+    """LLM validates that a book's metadata is internally consistent."""
+    from brainycat.consistency_check import check_consistency
+
+    return await check_consistency(book_id)
+
+
+@router.post("/consistency-check/batch")
+async def batch_consistency_check(limit: int = Query(10)) -> dict[str, Any]:
+    """Check consistency for recently enriched books."""
+    from brainycat.consistency_check import batch_check
+
+    return await batch_check(limit)
