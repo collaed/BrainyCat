@@ -135,6 +135,10 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     results = []
     for source_name, r in raw_results:
         if r:
+            # Relevance guard: reject results that don't match our book
+            result_title = r.get("title", "")
+            if result_title and not is_relevant(title, result_title, r.get("isbn"), isbn):
+                continue
             results.append(r)
             await execute(
                 "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, $2, true, $3::jsonb)",
