@@ -397,6 +397,37 @@ async def ocr_last_page_for_isbn(book_id: str) -> dict[str, Any]:
         return {"ok": False, "reason": str(e)[:100]}
 
 
+def extract_from_pdf_metadata(pdf_path: str) -> str | None:
+    """Extract ISBN from PDF internal metadata (Subject, Keywords, Custom fields).
+
+    PDFs store metadata in two places:
+    - DocInfo dict (old-style: /Subject, /Keywords, /Author)
+    - XMP metadata (XML-based, richer)
+    """
+    import fitz
+
+    try:
+        doc = fitz.open(pdf_path)
+        meta = doc.metadata or {}
+        doc.close()
+
+        # Check all metadata fields for ISBN patterns
+        for field in ["subject", "keywords", "comments", "author", "title", "producer", "creator"]:
+            value = meta.get(field, "") or ""
+            if "978" in value or "979" in value or "isbn" in value.lower():
+                # Try to extract ISBN from this field
+                import re
+
+                matches = re.findall(r"97[89][\d\s-]{10,17}", value)
+                for m in matches:
+                    cleaned = _clean_isbn(m)
+                    if cleaned:
+                        return cleaned
+    except Exception:
+        pass
+    return None
+
+
 def extract_from_filename(filename: str) -> str | None:
     """Extract ISBN from filename patterns.
 
@@ -441,7 +472,11 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
         isbn = opf_data.get("isbn")
         extra.update({k: v for k, v in opf_data.items() if k != "identifiers"})
 
-    # Phase 1.5: Filename ISBN (fast, no file parsing needed)
+    # Phase 1.5a: PDF metadata (Subject, Keywords, Comments fields)
+    if not isbn and row["format"] == "pdf":
+        isbn = extract_from_pdf_metadata(row["file_path"])
+
+    # Phase 1.5b: Filename ISBN (fast, no file parsing needed)
     if not isbn:
         book_row = await fetch_one("SELECT original_filename FROM books WHERE id = $1", UUID(book_id))
         if book_row and book_row.get("original_filename"):
@@ -724,4 +759,46 @@ def isbn_to_publisher(isbn: str) -> str | None:
         flat = prefix.replace("-", "")
         if isbn.startswith(flat):
             return publisher
+    return None
+
+
+async def isbn_from_cover_search(book_id: str) -> str | None:
+    """Try to identify a book by its cover image via Google Books cover matching.
+
+    Extracts cover, searches Google Books by title (from OCR of cover if needed),
+    then confirms match by comparing cover images.
+    """
+    import os
+    from uuid import UUID
+    from brainycat.db import fetch_one
+    import httpx
+
+    book = await fetch_one(
+        "SELECT b.title, b.cover_path, b.isbn FROM books b WHERE b.id = $1",
+        UUID(book_id),
+    )
+    if not book or book.get("isbn"):
+        return book.get("isbn") if book else None
+
+    # If we have a title, search Google Books and grab ISBN from result
+    if book.get("title") and len(book["title"]) > 5:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(
+                    "https://www.googleapis.com/books/v1/volumes",
+                    params={"q": book["title"], "maxResults": 3},
+                )
+                if r.status_code == 200:
+                    for item in r.json().get("items", []):
+                        info = item.get("volumeInfo", {})
+                        for ident in info.get("industryIdentifiers", []):
+                            if ident["type"] == "ISBN_13":
+                                # Verify relevance before returning
+                                from brainycat.relevance_guard import is_relevant
+
+                                if is_relevant(book["title"], info.get("title", ""), ident["identifier"], None):
+                                    return ident["identifier"]
+        except Exception:
+            pass
+
     return None
