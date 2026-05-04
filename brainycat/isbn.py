@@ -397,6 +397,31 @@ async def ocr_last_page_for_isbn(book_id: str) -> dict[str, Any]:
         return {"ok": False, "reason": str(e)[:100]}
 
 
+def extract_from_filename(filename: str) -> str | None:
+    """Extract ISBN from filename patterns.
+
+    Common patterns:
+    - 9781491950395_Head_First_Agile.pdf
+    - Head First Agile [9781491950395].epub
+    - Author - Title -- 9781491950395 -- hash.epub
+    - ISBN-9781491950395.pdf
+    """
+    import re
+
+    # Find any 13-digit sequence starting with 978/979
+    matches = re.findall(r"97[89]\d{10}", filename.replace("-", "").replace(" ", ""))
+    for m in matches:
+        if _verify_isbn13(m):
+            return m
+    # Try 10-digit ISBN (less common in filenames)
+    matches10 = re.findall(r"(?<![\d])\d{9}[\dXx](?![\d])", filename.replace("-", ""))
+    for m in matches10:
+        cleaned = _clean_isbn(m)
+        if cleaned:
+            return cleaned
+    return None
+
+
 async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
     """Extract ISBN + metadata from a book's files and update the DB."""
     # Try EPUB/PDF first, then any format via ebook-convert
@@ -415,6 +440,12 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
         opf_data = extract_from_opf(row["file_path"])
         isbn = opf_data.get("isbn")
         extra.update({k: v for k, v in opf_data.items() if k != "identifiers"})
+
+    # Phase 1.5: Filename ISBN (fast, no file parsing needed)
+    if not isbn:
+        book_row = await fetch_one("SELECT original_filename FROM books WHERE id = $1", UUID(book_id))
+        if book_row and book_row.get("original_filename"):
+            isbn = extract_from_filename(book_row["original_filename"])
 
     # Phase 2: Text content with multilingual anchors
     if not isbn:
