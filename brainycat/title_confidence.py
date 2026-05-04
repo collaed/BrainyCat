@@ -91,8 +91,8 @@ def clean_title_for_query(title: str) -> str:
         if t.endswith(suffix):
             t = t[: -len(suffix)]
 
-    # Hyphens as word separators (if no spaces and many hyphens)
-    if " " not in t and t.count("-") >= 3:
+    # Hyphens as word separators (if mostly hyphenated)
+    if t.count("-") >= 3 and t.count(" ") <= 1:
         t = t.replace("-", " ")
 
     # Strip trailing " u" (unprotected marker)

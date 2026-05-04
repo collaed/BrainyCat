@@ -321,45 +321,9 @@ async function filterShelf(id) {
         document.getElementById('shelves-panel').style.display = 'none';
     }
 }
-async function setStatus(id, status) {
-    await BC.put("/books/" + id + "/status", {status});
-    alert("Status: " + status.replace("_"," "));
-}
+async 
 
-async function scanISBN() {
-  if (!navigator.mediaDevices) { alert("Camera not available"); return; }
-  const div = document.createElement("div");
-  div.id = "scanner-modal";
-  div.style.cssText = "position:fixed;inset:0;z-index:9999;background:#000d;display:flex;flex-direction:column;align-items:center;justify-content:center";
-  div.innerHTML = '<video id="scan-video" style="max-width:90%;max-height:70%" autoplay></video><p style="color:#fff;margin-top:1rem">Point camera at ISBN barcode</p><button onclick="this.parentElement.remove();window._scanStream?.getTracks().forEach(t=>t.stop())" style="margin-top:.5rem;padding:.5rem 1rem">Close</button>';
-  document.body.appendChild(div);
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-    window._scanStream = stream;
-    const video = document.getElementById("scan-video");
-    video.srcObject = stream;
-    // Use BarcodeDetector API if available
-    if ("BarcodeDetector" in window) {
-      const detector = new BarcodeDetector({formats:["ean_13","ean_8"]});
-      const interval = setInterval(async () => {
-        try {
-          const barcodes = await detector.detect(video);
-          if (barcodes.length > 0) {
-            clearInterval(interval);
-            stream.getTracks().forEach(t => t.stop());
-            div.remove();
-            const isbn = barcodes[0].rawValue;
-            alert("Found ISBN: " + isbn);
-            // Search library
-            window.location.hash = "#search=" + isbn;
-          }
-        } catch(e) {}
-      }, 500);
-    } else {
-      div.querySelector("p").textContent = "BarcodeDetector not supported in this browser. Try Chrome.";
-    }
-  } catch(e) { alert("Camera error: " + e.message); div.remove(); }
-}
+
 
 </script>
 <script>
@@ -602,45 +566,9 @@ async function filterShelf(id) {
         document.getElementById('shelves-panel').style.display = 'none';
     }
 }
-async function setStatus(id, status) {
-    await BC.put("/books/" + id + "/status", {status});
-    alert("Status: " + status.replace("_"," "));
-}
+async 
 
-async function scanISBN() {
-  if (!navigator.mediaDevices) { alert("Camera not available"); return; }
-  const div = document.createElement("div");
-  div.id = "scanner-modal";
-  div.style.cssText = "position:fixed;inset:0;z-index:9999;background:#000d;display:flex;flex-direction:column;align-items:center;justify-content:center";
-  div.innerHTML = '<video id="scan-video" style="max-width:90%;max-height:70%" autoplay></video><p style="color:#fff;margin-top:1rem">Point camera at ISBN barcode</p><button onclick="this.parentElement.remove();window._scanStream?.getTracks().forEach(t=>t.stop())" style="margin-top:.5rem;padding:.5rem 1rem">Close</button>';
-  document.body.appendChild(div);
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-    window._scanStream = stream;
-    const video = document.getElementById("scan-video");
-    video.srcObject = stream;
-    // Use BarcodeDetector API if available
-    if ("BarcodeDetector" in window) {
-      const detector = new BarcodeDetector({formats:["ean_13","ean_8"]});
-      const interval = setInterval(async () => {
-        try {
-          const barcodes = await detector.detect(video);
-          if (barcodes.length > 0) {
-            clearInterval(interval);
-            stream.getTracks().forEach(t => t.stop());
-            div.remove();
-            const isbn = barcodes[0].rawValue;
-            alert("Found ISBN: " + isbn);
-            // Search library
-            window.location.hash = "#search=" + isbn;
-          }
-        } catch(e) {}
-      }, 500);
-    } else {
-      div.querySelector("p").textContent = "BarcodeDetector not supported in this browser. Try Chrome.";
-    }
-  } catch(e) { alert("Camera error: " + e.message); div.remove(); }
-}
+
 
 </script>
 
@@ -666,105 +594,3 @@ async function scanISBN() {
 </div>
 </div></div>
 </body></html>
-<script>
-// Set skin selector to current skin on load
-document.addEventListener('DOMContentLoaded', function() {
-  const sel = document.getElementById('skin-select');
-  if (sel) sel.value = localStorage.getItem('brainycat-skin') || 'default';
-});
-
-async function openSettings() {
-    const modal = document.getElementById('settings-modal');
-    modal.style.display = 'flex';
-    try {
-        const s = await BC.get('/settings');
-        document.getElementById('set-kindle').value = s.kindle_email || '';
-        document.getElementById('set-email').value = s.email || '';
-        const g = await BC.get('/reading-goals');
-        document.getElementById('set-goal').value = g.target || '';
-        document.getElementById('set-autosend').checked = s.auto_send_kindle || false;
-        document.getElementById('set-packt-email').value = s.packt_email || '';
-    } catch(e) {}
-}
-async function saveSettings() {
-    const kindle = document.getElementById('set-kindle').value.trim();
-    const email = document.getElementById('set-email').value.trim();
-    const goal = parseInt(document.getElementById('set-goal').value) || 0;
-    const updates = {};
-    const packtEmail = document.getElementById('set-packt-email').value.trim();
-    const packtPass = document.getElementById('set-packt-pass').value;
-    if (kindle) updates.kindle_email = kindle;
-    if (packtEmail) updates.packt_email = packtEmail;
-    if (packtPass) updates.packt_password = packtPass;
-    if (email) updates.email = email;
-    updates.auto_send_kindle = document.getElementById('set-autosend').checked;
-    if (Object.keys(updates).length) await BC.patch('/settings', updates);
-    if (goal > 0) await BC.post('/reading-goals', {target: goal});
-    document.getElementById('settings-modal').style.display = 'none';
-}
-
-async function toggleShelves() {
-    const panel = document.getElementById('shelves-panel');
-    panel.style.display = panel.style.display === 'none' ? '' : 'none';
-    if (panel.style.display !== 'none') await loadShelves();
-}
-async function loadShelves() {
-    const shelves = await BC.get('/shelves');
-    document.getElementById('shelves-list').innerHTML = shelves.map(s =>
-        `<div onclick="filterShelf('${s.id}')" style="padding:.4rem .6rem;cursor:pointer;border-radius:6px;font-size:.82rem;display:flex;justify-content:space-between;align-items:center" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
-            <span>${s.icon} ${s.name.replace(s.icon+' ','')}</span>
-            <span style="color:var(--muted);font-size:.7rem">${s.count}</span>
-        </div>`
-    ).join('');
-}
-async function filterShelf(id) {
-    const data = await BC.get('/shelves/' + id + '?limit=200');
-    if (data.books) {
-        allBooks = data.books;
-        hasMore = false;
-        document.getElementById('book-count').textContent = data.books.length + ' books';
-        render();
-        document.getElementById('shelves-panel').style.display = 'none';
-    }
-}
-async function setStatus(id, status) {
-    await BC.put("/books/" + id + "/status", {status});
-    alert("Status: " + status.replace("_"," "));
-}
-
-async function scanISBN() {
-  if (!navigator.mediaDevices) { alert("Camera not available"); return; }
-  const div = document.createElement("div");
-  div.id = "scanner-modal";
-  div.style.cssText = "position:fixed;inset:0;z-index:9999;background:#000d;display:flex;flex-direction:column;align-items:center;justify-content:center";
-  div.innerHTML = '<video id="scan-video" style="max-width:90%;max-height:70%" autoplay></video><p style="color:#fff;margin-top:1rem">Point camera at ISBN barcode</p><button onclick="this.parentElement.remove();window._scanStream?.getTracks().forEach(t=>t.stop())" style="margin-top:.5rem;padding:.5rem 1rem">Close</button>';
-  document.body.appendChild(div);
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-    window._scanStream = stream;
-    const video = document.getElementById("scan-video");
-    video.srcObject = stream;
-    // Use BarcodeDetector API if available
-    if ("BarcodeDetector" in window) {
-      const detector = new BarcodeDetector({formats:["ean_13","ean_8"]});
-      const interval = setInterval(async () => {
-        try {
-          const barcodes = await detector.detect(video);
-          if (barcodes.length > 0) {
-            clearInterval(interval);
-            stream.getTracks().forEach(t => t.stop());
-            div.remove();
-            const isbn = barcodes[0].rawValue;
-            alert("Found ISBN: " + isbn);
-            // Search library
-            window.location.hash = "#search=" + isbn;
-          }
-        } catch(e) {}
-      }, 500);
-    } else {
-      div.querySelector("p").textContent = "BarcodeDetector not supported in this browser. Try Chrome.";
-    }
-  } catch(e) { alert("Camera error: " + e.message); div.remove(); }
-}
-
-</script>
