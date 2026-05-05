@@ -110,6 +110,7 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
     # Fallback: direct source queries (if Intello lookup returned nothing)
     if not results:
         source_fns = [
+            ("loc", lambda: __import__("brainycat.sources.loc", fromlist=["search"]).search(title=query_title, isbn=isbn)),
             ("open_library", open_library.search),
             ("google_books", google_books.search),
             ("gutendex", gutendex.search),

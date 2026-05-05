@@ -1311,3 +1311,40 @@ async def rollback_metadata(book_id: str, field: str) -> dict[str, Any]:
     from brainycat.metadata_audit import rollback_field
 
     return await rollback_field(book_id, field)
+
+
+# ── Cooldown View (books waiting for retry) ───────────────────────────────
+@router.get("/enrichment/cooldown")
+async def enrichment_cooldown() -> list[dict[str, Any]]:
+    """Books currently in cooldown — manual edits can help them match next time."""
+    rows = await db.fetch_all(
+        """SELECT b.id, b.title, b.quality_score, b.isbn, b.original_filename,
+                  COALESCE(a.cnt, 0) as attempts,
+                  lt.last_try,
+                  (interval '7 days' * (COALESCE(a.cnt, 0) / 10.0 + 1)) as cooldown_duration,
+                  lt.last_try + (interval '7 days' * (COALESCE(a.cnt, 0) / 10.0 + 1)) as next_retry
+           FROM books b
+           LEFT JOIN (SELECT book_id, count(*) as cnt FROM enrichment_log GROUP BY book_id) a ON a.book_id = b.id
+           LEFT JOIN (SELECT book_id, max(created_at) as last_try FROM enrichment_log GROUP BY book_id) lt ON lt.book_id = b.id
+           WHERE b.quality_score < 95
+           AND lt.last_try IS NOT NULL
+           AND lt.last_try >= now() - (interval '7 days' * (COALESCE(a.cnt, 0) / 10.0 + 1))
+           ORDER BY b.quality_score ASC, a.cnt DESC
+           LIMIT 50"""
+    )
+    return [dict(r) for r in rows]
+
+
+@router.post("/books/{book_id}/retry-now")
+async def retry_enrichment_now(book_id: str) -> dict[str, Any]:
+    """Force immediate re-enrichment (bypass cooldown). Use after manual edits."""
+    from uuid import UUID
+    from brainycat.metadata import enrich_book
+
+    # Clear the last attempt timestamp so cooldown doesn't block it
+    await db.execute(
+        "DELETE FROM enrichment_log WHERE book_id = $1 AND created_at = (SELECT max(created_at) FROM enrichment_log WHERE book_id = $1)",
+        UUID(book_id),
+    )
+    result = await enrich_book(book_id)
+    return result
