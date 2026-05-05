@@ -65,17 +65,20 @@ async def _enrichment_loop() -> None:
                 await conn.execute("UPDATE books SET updated_at = now() WHERE id = $1", locked["id"])
                 rows.append(locked)
 
-    enriched = 0
-    for row in rows:
+    # Enrich all locked books in parallel (not sequentially)
+    async def _enrich_one(row):
         try:
-            async with asyncio.timeout(30):  # 30s max per book
+            async with asyncio.timeout(30):
                 result = await enrich_book(str(row["id"]))
-                if result.get("enriched"):
-                    enriched += 1
+                return 1 if result.get("enriched") else 0
         except TimeoutError:
             await log.awarning("enrichment_timeout", book_id=str(row["id"]))
         except Exception:
             pass
+        return 0
+
+    results = await asyncio.gather(*[_enrich_one(r) for r in rows])
+    enriched = sum(results)
     # Stage 2: Deep enrich for books still below 50 after standard enrichment
     for row in rows:
         book = await get_pool()
