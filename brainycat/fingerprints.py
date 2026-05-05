@@ -223,6 +223,7 @@ async def compute_all_fingerprints(batch_size: int = 20) -> dict[str, Any]:
         JOIN book_files bf ON bf.book_id = b.id
         LEFT JOIN book_fingerprints fp ON fp.book_id = b.id
         WHERE fp.book_id IS NULL AND bf.format IN ('epub','pdf')
+        ORDER BY (b.isbn IS NULL) DESC  -- prioritize books without ISBN
         LIMIT $1
     """,
         batch_size,
