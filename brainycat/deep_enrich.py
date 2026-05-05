@@ -37,6 +37,9 @@ async def deep_enrich(book_id: str) -> dict[str, Any]:
         result["stages"].append({"stage": "llm_identify", **identified})
 
         if identified.get("clean_title"):
+            from brainycat.metadata_audit import record_change
+
+            await record_change(book_id, "title", title, identified["clean_title"], "deep_enrich_llm")
             await execute("UPDATE books SET title = $1, updated_at = now() WHERE id = $2", identified["clean_title"], UUID(book_id))
             title = identified["clean_title"]
 

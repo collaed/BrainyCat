@@ -1276,3 +1276,38 @@ async def batch_consistency_check(limit: int = Query(10)) -> dict[str, Any]:
     from brainycat.consistency_check import batch_check
 
     return await batch_check(limit)
+
+
+# ── Metadata Audit & Drift Detection ─────────────────────────────────────
+@router.get("/books/{book_id}/history")
+async def book_metadata_history(book_id: str) -> list[dict[str, Any]]:
+    """Full change history for a book — what changed, when, by which source."""
+    from brainycat.metadata_audit import get_history
+
+    return await get_history(book_id)
+
+
+@router.get("/books/{book_id}/drift")
+async def book_drift_check(book_id: str) -> dict[str, Any]:
+    """Check if metadata has drifted from original file identity."""
+    from brainycat.metadata_audit import check_drift
+
+    return await check_drift(book_id)
+
+
+@router.get("/drift/flagged")
+async def flagged_drift() -> list[dict[str, Any]]:
+    """Find books where metadata drifted significantly — needs user review."""
+    from brainycat.metadata_audit import find_drifted_books
+
+    return await find_drifted_books()
+
+
+@router.post("/books/{book_id}/rollback/{field}")
+async def rollback_metadata(book_id: str, field: str) -> dict[str, Any]:
+    """Rollback a metadata field to its original value."""
+    if field not in ("title", "description", "isbn"):
+        return {"error": "can only rollback: title, description, isbn"}
+    from brainycat.metadata_audit import rollback_field
+
+    return await rollback_field(book_id, field)

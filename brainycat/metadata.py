@@ -247,6 +247,12 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
             )
 
     # Store pubdate from enrichment
+    # Record changes in audit trail
+    from brainycat.metadata_audit import record_change
+
+    if merged.get("description") and not row.get("description"):
+        await record_change(book_id, "description", None, merged["description"][:200], "enrichment")
+
     if merged.get("pubdate") and not row.get("pubdate"):
         try:
             from dateutil.parser import parse as _parse_date
