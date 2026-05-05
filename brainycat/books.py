@@ -85,6 +85,11 @@ async def upload_book(
     except Exception:
         pass
 
+    # Compute KOReader-compatible hash for sync
+    from brainycat.koreader_hash import compute_koreader_hash
+
+    kr_hash = compute_koreader_hash(file_path)
+
     # Auto-fix EPUB issues
     if ext == ".epub":
         from brainycat.epub_fix import fix_epub

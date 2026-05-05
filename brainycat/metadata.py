@@ -457,3 +457,16 @@ Return: {{"thema_code": "XX", "thema_label": "...", "fiction": true/false, "genr
         return {"error": str(e)}
 
     return {"classified": False}
+
+
+async def log_metadata_change(book_id: str, field: str, old_value: Any, new_value: Any) -> None:
+    """Log a metadata change for audit trail."""
+    import json
+    from uuid import UUID
+
+    await execute(
+        "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, $2, true, $3::jsonb)",
+        UUID(book_id),
+        f"enforce_{field}",
+        json.dumps({"field": field, "old": str(old_value)[:200], "new": str(new_value)[:200]}),
+    )
