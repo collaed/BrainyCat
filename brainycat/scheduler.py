@@ -51,7 +51,7 @@ async def _enrichment_loop() -> None:
         "SELECT b.id, b.title FROM books b "
         "LEFT JOIN (SELECT book_id, count(*) as cnt FROM enrichment_log GROUP BY book_id) a ON a.book_id = b.id "
         "LEFT JOIN (SELECT book_id, max(created_at) as last_try FROM enrichment_log GROUP BY book_id) lt ON lt.book_id = b.id "
-        "WHERE b.quality_score < 100 "
+        "WHERE b.quality_score < 95 "  -- 100 is unreachable (rating rarely available)
         "AND (lt.last_try IS NULL OR lt.last_try < now() - interval '7 days' * (COALESCE(a.cnt, 0) / 10.0 + 1)) "
         "ORDER BY b.quality_score ASC, COALESCE(a.cnt, 0) ASC, b.updated_at ASC "
         "LIMIT 10"
