@@ -1453,3 +1453,42 @@ async def list_series(_a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
 async def series_missing(series_id: str, _a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
     from brainycat.series_detect import search_missing_in_series
     return await search_missing_in_series(series_id)
+
+
+# ── Full-Text Search ─────────────────────────────────────────────────────
+
+
+@router.get("/search-content")
+async def search_content_endpoint(q: str = Query(...), limit: int = Query(20), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    from brainycat.search_index import search_content
+    return await search_content(q, limit=limit)
+
+
+@router.post("/search-content/reindex")
+async def reindex(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.search_index import index_batch
+    return await index_batch(limit=50)
+
+
+# ── Consumption Rules ────────────────────────────────────────────────────
+
+
+@router.get("/rules")
+async def get_rules(_a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    from brainycat.consumption_rules import list_rules
+    return await list_rules()
+
+
+@router.post("/rules")
+async def create_rule_endpoint(body: dict[str, Any], _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.consumption_rules import create_rule
+    return await create_rule(
+        body["name"], body["pattern"], body.get("match_field", "filename"),
+        body["action"], body["action_value"], body.get("priority", 0),
+    )
+
+
+@router.delete("/rules/{rule_id}")
+async def delete_rule_endpoint(rule_id: str, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.consumption_rules import delete_rule
+    return await delete_rule(rule_id)

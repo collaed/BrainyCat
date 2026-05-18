@@ -27,6 +27,19 @@ Focus: Launch readiness, first-impression quality.
 | 5 | Duplicate page removal UI (keep/discard) | Low | Detection done |
 | 6 | AI cover generation (placeholder for books without covers) | Medium | TODO |
 | 7 | Onboarding tour (first-time user walkthrough) | Medium | TODO |
+| 8 | **Full-text search indexing** (PostgreSQL tsvector + ts_rank) | Medium | TODO |
+| 9 | **Consumption rules** (regex/pattern matching on filenames → auto-tag, set publisher) | Medium | TODO |
+| 10 | **OIDC/OAuth authentication** (Google, GitHub, generic OIDC) | Medium | TODO |
+| 11 | **Annotation sharing** between users on same server | Low | TODO |
+| 12 | **Obsidian export** for annotations and highlights | Low | TODO |
+| 13 | **Email consumption** (IMAP inbox → auto-import ebooks) | Medium | TODO |
+| 14 | **i18n** — multi-language UI (FR, DE, ES at minimum) | Medium | TODO |
+| 15 | **UI framework migration** — Svelte SPA with proper routing and state | High | TODO |
+| 16 | **ML-based auto-tagging** (train classifier on user's validated tags) | High | TODO |
+| 17 | **Comics/manga support** (ComicInfo.xml parsing, webtoon reader mode) | Medium | TODO |
+| 18 | **Smart filters** bindable to homescreen (Kavita-style) | Low | TODO |
+| 19 | **Reading lists** with sharing between users | Low | TODO |
+| 20 | **Dedicated readers per format** (dual-page spread, webtoon mode) | Medium | TODO |
 
 ---
 

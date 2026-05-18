@@ -154,6 +154,13 @@ async def _import_file(file_path: str) -> None:
 
     await log.ainfo("watcher_imported", title=title[:50], format=ext)
 
+    # Apply consumption rules
+    try:
+        from brainycat.consumption_rules import apply_rules
+        await apply_rules(str(book_id), filename, title=title)
+    except Exception:
+        pass
+
     # Pre-enrichment content guard: detect language and genre from samples
     try:
         from brainycat.content_guard import detect_content_signals

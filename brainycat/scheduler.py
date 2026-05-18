@@ -135,6 +135,10 @@ async def _format_stack_loop() -> None:
         await log.ainfo("format_stacked", **result)
     await detect_series(limit=20)
 
+    # Index content for full-text search
+    from brainycat.search_index import index_batch
+    await index_batch(limit=10)
+
 
 # ── Title cleanup + genre classification (with rate limiting) ─────────────
 async def _title_cleanup_loop() -> None:

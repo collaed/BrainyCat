@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Consumption Rules — BrainyCat</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<script src="/static/api.js"></script>
+<style>
+body{margin:0;padding:1rem 1.5rem}
+h1{font-size:1.2rem}
+nav a{color:var(--pico-muted-color);margin-right:1rem;text-decoration:none;font-size:.85rem}
+table{font-size:.85rem}
+th{font-size:.75rem;text-transform:uppercase}
+.form-row{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem;align-items:end}
+.form-row input,.form-row select{font-size:.85rem;height:2.2rem;margin:0}
+.form-row button{height:2.2rem;font-size:.85rem;white-space:nowrap}
+.pattern{font-family:monospace;background:var(--pico-muted-border-color);padding:.1rem .4rem;border-radius:3px;font-size:.8rem}
+</style>
+</head>
+<body>
+<nav><a href="/static/index.html">← Library</a></nav>
+<h1>⚙️ Consumption Rules</h1>
+<p style="font-size:.8rem;color:var(--pico-muted-color);margin-bottom:1rem">Auto-apply tags, publisher, language, or genre when filenames match a pattern. Rules run on every import.</p>
+
+<div class="form-row">
+  <input id="name" placeholder="Rule name" style="width:140px">
+  <input id="pattern" placeholder="Regex pattern" style="width:200px">
+  <select id="field"><option value="filename">Filename</option><option value="title">Title</option><option value="author">Author</option></select>
+  <select id="action"><option value="tag">Tag</option><option value="set_publisher">Publisher</option><option value="set_language">Language</option><option value="set_genre">Genre</option><option value="skip">Skip</option></select>
+  <input id="value" placeholder="Value" style="width:140px">
+  <button onclick="addRule()">+ Add</button>
+</div>
+
+<table>
+<thead><tr><th>Name</th><th>Pattern</th><th>Field</th><th>Action</th><th>Value</th><th></th></tr></thead>
+<tbody id="rows"></tbody>
+</table>
+
+<script>
+async function load(){
+  const rules=await BC.get('/rules');
+  document.getElementById('rows').innerHTML=rules.map(r=>`<tr>
+    <td>${r.name}</td>
+    <td><span class="pattern">${r.pattern}</span></td>
+    <td>${r.match_field}</td>
+    <td>${r.action}</td>
+    <td>${r.action_value}</td>
+    <td><button style="font-size:.7rem;padding:.2rem .5rem" onclick="del('${r.id}')">×</button></td>
+  </tr>`).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--pico-muted-color)">No rules yet. Add one above.</td></tr>';
+}
+async function addRule(){
+  await BC.post('/rules',{
+    name:document.getElementById('name').value,
+    pattern:document.getElementById('pattern').value,
+    match_field:document.getElementById('field').value,
+    action:document.getElementById('action').value,
+    action_value:document.getElementById('value').value,
+  });
+  document.getElementById('name').value='';
+  document.getElementById('pattern').value='';
+  document.getElementById('value').value='';
+  load();
+}
+async function del(id){await BC.del('/rules/'+id);load()}
+load();
+</script>
+</body>
+</html>
