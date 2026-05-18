@@ -62,3 +62,92 @@ async def detect_series(limit: int = 100) -> dict[str, Any]:
                 break
 
     return {"detected": detected, "checked": len(rows)}
+
+
+async def get_series_with_gaps(limit: int = 20) -> list[dict[str, Any]]:
+    """Find series in the library and identify missing volumes."""
+    rows = await fetch_all(
+        """
+        SELECT s.id, s.name, 
+               array_agg(b.id ORDER BY COALESCE(b.series_index, 0)) as book_ids,
+               array_agg(b.title ORDER BY COALESCE(b.series_index, 0)) as titles,
+               array_agg(COALESCE(b.series_index, 0) ORDER BY COALESCE(b.series_index, 0)) as indices,
+               count(*) as count
+        FROM series s
+        JOIN books_series bs ON bs.series_id = s.id
+        JOIN books b ON b.id = bs.book_id
+        GROUP BY s.id
+        HAVING count(*) >= 2
+        ORDER BY count(*) DESC
+        LIMIT $1
+        """,
+        limit,
+    )
+    results = []
+    for r in rows:
+        indices = [int(i) for i in r["indices"] if i > 0]
+        if not indices:
+            continue
+        max_idx = max(indices)
+        owned = set(indices)
+        missing = [i for i in range(1, max_idx + 1) if i not in owned]
+        results.append({
+            "series_id": str(r["id"]),
+            "name": r["name"],
+            "count": r["count"],
+            "books": [{"id": str(bid), "title": t, "index": idx}
+                      for bid, t, idx in zip(r["book_ids"], r["titles"], r["indices"])],
+            "missing_indices": missing,
+            "complete": len(missing) == 0,
+        })
+    return results
+
+
+async def search_missing_in_series(series_id: str) -> list[dict[str, Any]]:
+    """Search online catalogs for missing books in a series."""
+    from brainycat.http_client import get_client
+    from brainycat.rate_limit import rate_limiter
+
+    series = await fetch_one("SELECT name FROM series WHERE id = $1", __import__("uuid").UUID(series_id))
+    if not series:
+        return []
+
+    # Get what we already have
+    owned = await fetch_all(
+        "SELECT b.series_index FROM books b JOIN books_series bs ON bs.book_id = b.id WHERE bs.series_id = $1",
+        __import__("uuid").UUID(series_id),
+    )
+    owned_indices = {int(r["series_index"]) for r in owned if r["series_index"]}
+
+    # Search Google Books for the series
+    await rate_limiter.wait("google")
+    client = get_client()
+    try:
+        resp = await client.get(
+            "https://www.googleapis.com/books/v1/volumes",
+            params={"q": f'"{series["name"]}"', "maxResults": 20},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return []
+        items = resp.json().get("items", [])
+        missing = []
+        for item in items:
+            vi = item["volumeInfo"]
+            title = vi.get("title", "")
+            # Try to extract series index from title
+            for pattern in SERIES_PATTERNS:
+                m = pattern.search(title)
+                if m:
+                    idx = int(m.group(2))
+                    if idx not in owned_indices:
+                        missing.append({
+                            "title": title,
+                            "authors": vi.get("authors", []),
+                            "index": idx,
+                            "isbn": next((i["identifier"] for i in vi.get("industryIdentifiers", []) if "ISBN" in i["type"]), None),
+                        })
+                    break
+        return missing
+    except Exception:
+        return []

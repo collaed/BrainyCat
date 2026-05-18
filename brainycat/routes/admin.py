@@ -1420,3 +1420,36 @@ async def flag_ops(body: dict[str, Any], _a: Any = Depends(require_admin)) -> di
 async def list_bugs(status: str = Query("open"), _a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
     from brainycat.metadata_audit import list_bugs
     return await list_bugs(status=status)
+
+
+# ── Format Stacking & Series ─────────────────────────────────────────────
+
+
+@router.get("/format-duplicates")
+async def format_duplicates(_a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    from brainycat.format_stack import find_format_duplicates
+    return await find_format_duplicates()
+
+
+@router.post("/format-duplicates/stack")
+async def stack_formats(body: dict[str, Any], _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.format_stack import verify_and_stack
+    return await verify_and_stack(body["id_a"], body["id_b"])
+
+
+@router.post("/format-duplicates/auto-stack")
+async def auto_stack(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.format_stack import auto_stack_cycle
+    return await auto_stack_cycle()
+
+
+@router.get("/series")
+async def list_series(_a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    from brainycat.series_detect import get_series_with_gaps
+    return await get_series_with_gaps()
+
+
+@router.get("/series/{series_id}/missing")
+async def series_missing(series_id: str, _a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    from brainycat.series_detect import search_missing_in_series
+    return await search_missing_in_series(series_id)

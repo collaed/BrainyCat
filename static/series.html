@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Series — BrainyCat</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<script src="/static/api.js"></script>
+<style>
+body{margin:0;padding:1rem 1.5rem}
+h1{font-size:1.2rem}
+nav a{color:var(--pico-muted-color);margin-right:1rem;text-decoration:none;font-size:.85rem}
+.series-card{background:var(--pico-card-background-color);border:1px solid var(--pico-muted-border-color);border-radius:8px;padding:1rem;margin-bottom:1rem}
+.series-card h3{margin:0 0 .5rem;font-size:1rem}
+.series-card .books{display:flex;flex-wrap:wrap;gap:.4rem;margin:.5rem 0}
+.series-card .book{padding:.3rem .6rem;border-radius:4px;font-size:.8rem;background:var(--pico-primary);color:#fff}
+.series-card .missing{background:var(--pico-del-color);opacity:.6}
+.series-card .search-btn{font-size:.75rem;padding:.3rem .6rem;margin-top:.5rem}
+.complete{color:var(--pico-ins-color);font-size:.8rem}
+.incomplete{color:var(--pico-del-color);font-size:.8rem}
+#results{margin-top:1rem}
+.result{background:var(--pico-card-background-color);border:1px solid var(--pico-muted-border-color);border-radius:6px;padding:.6rem;margin-bottom:.5rem;font-size:.85rem}
+</style>
+</head>
+<body>
+<nav><a href="/static/index.html">← Library</a></nav>
+<h1>📚 Series</h1>
+<p style="font-size:.8rem;color:var(--pico-muted-color);margin-bottom:1rem">Books grouped by series. Missing volumes highlighted.</p>
+<div id="content"></div>
+<div id="results"></div>
+<script>
+async function load(){
+  const series=await BC.get('/series');
+  if(!series.length){document.getElementById('content').innerHTML='<p>No series detected yet. Run enrichment to detect series from titles.</p>';return}
+  document.getElementById('content').innerHTML=series.map(s=>`
+    <div class="series-card">
+      <h3>${esc(s.name)} <span class="${s.complete?'complete':'incomplete'}">${s.complete?'✓ Complete':s.missing_indices.length+' missing'}</span></h3>
+      <div class="books">
+        ${s.books.map(b=>`<span class="book" title="${esc(b.title)}">#${b.index} ${esc(b.title.substring(0,30))}</span>`).join('')}
+        ${s.missing_indices.map(i=>`<span class="book missing">#${i} ?</span>`).join('')}
+      </div>
+      ${s.missing_indices.length?`<button class="search-btn outline" onclick="searchMissing('${s.series_id}','${esc(s.name)}')">🔍 Find missing</button>`:''}
+    </div>
+  `).join('');
+}
+
+async function searchMissing(id,name){
+  document.getElementById('results').innerHTML='<p>Searching for missing books in "'+name+'"…</p>';
+  const missing=await BC.get('/series/'+id+'/missing');
+  if(!missing.length){document.getElementById('results').innerHTML='<p>No missing books found online.</p>';return}
+  document.getElementById('results').innerHTML='<h3>Found missing:</h3>'+missing.map(m=>`
+    <div class="result">
+      <strong>#${m.index}</strong> ${esc(m.title)} — ${esc((m.authors||[]).join(', '))}
+      ${m.isbn?` · ISBN ${m.isbn}`:''}
+    </div>
+  `).join('');
+}
+
+function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+load();
+</script>
+</body>
+</html>

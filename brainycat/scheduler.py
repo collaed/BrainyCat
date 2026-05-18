@@ -20,6 +20,7 @@ async def start_scheduler() -> None:
         ("enrichment", _enrichment_loop, 60),
         ("fingerprint", _fingerprint_loop, 30),
         ("title_cleanup", _title_cleanup_loop, 90),
+        ("format_stack", _format_stack_loop, 300),
         ("ocr", _ocr_loop, 120),
     ]
     for name, fn, interval in loops:
@@ -122,6 +123,17 @@ async def _fingerprint_loop() -> None:
         dupes = await find_duplicates_by_content(batch_size=20)
         if dupes["new_matches"] > 0:
             await log.ainfo("dupes_found", **dupes)
+
+
+# ── Format stacking ──────────────────────────────────────────────────────
+async def _format_stack_loop() -> None:
+    from brainycat.format_stack import auto_stack_cycle
+    from brainycat.series_detect import detect_series
+
+    result = await auto_stack_cycle(limit=5)
+    if result.get("stacked"):
+        await log.ainfo("format_stacked", **result)
+    await detect_series(limit=20)
 
 
 # ── Title cleanup + genre classification (with rate limiting) ─────────────
