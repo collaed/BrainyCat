@@ -138,14 +138,16 @@ async def _import_file(file_path: str) -> None:
         from brainycat.filename_history import record_rename
         await record_rename(book_id, "ingest", filename, canonical_name)
 
-    # Link author if found
-    author = meta.get("author")
-    if author:
+    # Link authors if found
+    authors = meta.get("authors") or ([meta["author"]] if meta.get("author") else [])
+    for author in authors:
+        if not author or not author.strip():
+            continue
         from brainycat.db import fetch_one
 
         row = await fetch_one(
             "INSERT INTO authors (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = $1 RETURNING id",
-            author,
+            author.strip(),
         )
         if row:
             await execute("INSERT INTO books_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", book_id, row["id"])
