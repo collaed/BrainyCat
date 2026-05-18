@@ -15,6 +15,20 @@ from xml.etree import ElementTree as ET
 from brainycat.db import execute, fetch_one
 from brainycat.filename_history import record_rename
 
+
+def _parse_date(date_str: str | None):
+    """Parse a date string to datetime, return None on failure."""
+    if not date_str:
+        return None
+    try:
+        from dateutil.parser import parse
+        d = parse(date_str)
+        if d.year < 1800:
+            return None
+        return d
+    except Exception:
+        return None
+
 NS = {
     "opf": "http://www.idpf.org/2007/opf",
     "dc": "http://purl.org/dc/elements/1.1/",
@@ -120,11 +134,10 @@ async def import_calibre_library(limit: int = 0) -> dict[str, Any]:
                 shutil.copy2(cover_src, cover_path)
 
             await execute(
-                "INSERT INTO books (id, title, cover_path, description, publisher, pubdate, created_at, updated_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, now(), now())",
+                "INSERT INTO books (id, title, cover_path, description, pubdate, created_at, updated_at) "
+                "VALUES ($1, $2, $3, $4, $5, now(), now())",
                 book_id, title, cover_path,
-                meta.get("description"), meta.get("publisher"),
-                meta.get("date"),
+                meta.get("description"), _parse_date(meta.get("date")),
             )
             await execute(
                 "INSERT INTO book_files (book_id, file_path, format, file_size, file_name) VALUES ($1, $2, $3, $4, $5)",

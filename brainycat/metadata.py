@@ -116,43 +116,41 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
             ("gutendex", gutendex.search),
         ]
 
-    async def _fetch(name: str, fn: Any) -> tuple[str, dict[str, Any] | None]:
-        from brainycat.retry import with_retry
+        async def _fetch(name: str, fn: Any) -> tuple[str, dict[str, Any] | None]:
+            from brainycat.retry import with_retry
 
-        try:
-            async with asyncio.timeout(15):  # 15s max per source
-                r = await with_retry(fn, title=title, isbn=isbn, retries=1, delay=2.0)
-                if not r and not isbn:
-                    for variant in _search_variants(title)[1:]:
-                        r = await with_retry(fn, title=variant, isbn=isbn, retries=0, delay=0)
-                        if r:
-                            break
-            return name, r
-        except TimeoutError:
-            return name, None
+            try:
+                async with asyncio.timeout(15):  # 15s max per source
+                    r = await with_retry(fn, title=title, isbn=isbn, retries=1, delay=2.0)
+                    if not r and not isbn:
+                        for variant in _search_variants(title)[1:]:
+                            r = await with_retry(fn, title=variant, isbn=isbn, retries=0, delay=0)
+                            if r:
+                                break
+                return name, r
+            except TimeoutError:
+                return name, None
 
-    raw_results = await asyncio.gather(*[_fetch(n, fn) for n, fn in source_fns])
+        raw_results = await asyncio.gather(*[_fetch(n, fn) for n, fn in source_fns])
 
-    results = []
-    for source_name, r in raw_results:
-        if r:
-            # Relevance guard: reject results that don't match our book
-            result_title = r.get("title", "")
-            if result_title and not is_relevant(title, result_title, r.get("isbn"), isbn):
-                continue
-            results.append(r)
-            await execute(
-                "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, $2, true, $3::jsonb)",
-                UUID(book_id),
-                source_name,
-                json.dumps({"fields": list(r.keys())}),
-            )
-        else:
-            await execute(
-                "INSERT INTO enrichment_log (book_id, method, success) VALUES ($1, $2, false)",
-                UUID(book_id),
-                source_name,
-            )
+        for source_name, r in raw_results:
+            if r:
+                result_title = r.get("title", "")
+                if result_title and not is_relevant(title, result_title, r.get("isbn"), isbn):
+                    continue
+                results.append(r)
+                await execute(
+                    "INSERT INTO enrichment_log (book_id, method, success, details) VALUES ($1, $2, true, $3::jsonb)",
+                    UUID(book_id),
+                    source_name,
+                    json.dumps({"fields": list(r.keys())}),
+                )
+            else:
+                await execute(
+                    "INSERT INTO enrichment_log (book_id, method, success) VALUES ($1, $2, false)",
+                    UUID(book_id),
+                    source_name,
+                )
 
     if not results:
         # Fallback: try sentence-based identification
@@ -323,7 +321,14 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
             break  # Use first series found
 
     # Credibility check: compare enrichment results against content signals
-    signals = (dict(row).get("extra_metadata") or {}).get("content_signals", {})
+    extra = dict(row).get("extra_metadata") or {}
+    if isinstance(extra, str):
+        import json as _ej
+        try:
+            extra = _ej.loads(extra)
+        except Exception:
+            extra = {}
+    signals = extra.get("content_signals", {})
     detected_lang = signals.get("detected_language")
     if detected_lang and merged.get("language"):
         enrich_lang = (merged["language"] or "")[:2].lower()

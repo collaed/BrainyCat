@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 
 from brainycat.config import settings
 from brainycat.logging import log
@@ -32,6 +33,7 @@ ALLOWED_EXT = {
     ".zip",
 }
 IGNORE_EXT = {".part", ".tmp", ".crdownload", ".downloading"}
+MIN_FILE_SIZE = 50_000  # 50KB — reject pamphlets, metadata files, recycle bin junk
 
 
 async def watch_incoming() -> None:
@@ -48,9 +50,11 @@ async def watch_incoming() -> None:
             for entry in os.scandir(incoming):
                 if entry.is_file():
                     ext = os.path.splitext(entry.name)[1].lower()
-                    if ext in IGNORE_EXT or entry.name.startswith("."):
+                    if ext in IGNORE_EXT or entry.name.startswith(".") or entry.name.startswith("$"):
                         continue
                     if ext not in ALLOWED_EXT:
+                        continue
+                    if entry.stat().st_size < MIN_FILE_SIZE:
                         continue
                     # Debounce: only process if file hasn't changed size in 5s
                     if entry.path in seen:
@@ -99,6 +103,9 @@ async def _import_file(file_path: str) -> None:
     # Extract metadata
     meta = extract_metadata(dst)
     title = meta.get("title") or os.path.splitext(filename)[0]
+    # Clean up common filename artifacts
+    title = title.replace("_", " ").strip()
+    title = re.sub(r"\s+", " ", title)
 
     # Save cover
     cover_path = None
