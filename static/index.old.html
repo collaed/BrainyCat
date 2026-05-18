@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrainyCat — Library</title>
+<style>
+:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6;--accent2:#2563eb;--success:#22c55e;--warn:#f59e0b;--danger:#ef4444}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+header{background:var(--surface);padding:.5rem 1rem;display:flex;align-items:center;gap:.6rem;border-bottom:1px solid var(--border);flex-wrap:wrap;position:sticky;top:0;z-index:20}
+header h1{font-size:1.1rem;flex-shrink:0}
+.search-box{flex:1;max-width:350px}
+.search-box input{width:100%;padding:.35rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.85rem}
+nav a{color:var(--muted);text-decoration:none;padding:.25rem .4rem;font-size:.75rem;border-radius:4px}
+nav a:hover{background:var(--surface);color:var(--text)}
+.container{max-width:1400px;margin:0 auto;padding:.8rem}
+/* Fixed-size buttons */
+.btn{padding:.35rem .7rem;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:.8rem;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:.3rem;min-width:fit-content}
+.btn:hover{border-color:var(--accent)}.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.success{background:var(--success);border-color:var(--success);color:#fff}
+.btn.warn{background:var(--warn);border-color:var(--warn);color:#fff}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn.sm{padding:.25rem .5rem;font-size:.75rem}
+.btn:disabled{opacity:.5;cursor:default}
+.toolbar{display:flex;gap:.4rem;margin-bottom:.6rem;flex-wrap:wrap;align-items:center}
+.toolbar select,.toolbar input{padding:.3rem .5rem;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:.8rem}
+.toolbar input{width:100px}
+.view-toggle{display:flex;gap:1px}.view-toggle .btn{border-radius:0}.view-toggle .btn:first-child{border-radius:6px 0 0 6px}.view-toggle .btn:last-child{border-radius:0 6px 6px 0}.view-toggle .btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+#drop-zone{border:2px dashed var(--border);border-radius:8px;padding:.8rem;text-align:center;color:var(--muted);margin-bottom:.6rem;font-size:.8rem;transition:border-color .2s}
+#drop-zone.dragover{border-color:var(--accent);color:var(--text)}
+/* Grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.6rem}
+.grid .card{background:var(--surface);border-radius:6px;overflow:hidden;cursor:pointer;transition:transform .1s}
+.grid .card:hover{transform:translateY(-2px)}
+.grid .card img{width:100%;aspect-ratio:2/3;object-fit:contain;background:var(--surface);border-radius:4px}
+.grid .card .info{padding:.3rem .4rem}
+.grid .card .title{font-size:.75rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grid .card .author{font-size:.65rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grid .card .badges{display:flex;gap:.15rem;margin-top:.15rem;flex-wrap:wrap}
+/* List */
+.list .row{display:flex;align-items:center;gap:.6rem;padding:.35rem .5rem;border-bottom:1px solid var(--border);cursor:pointer;font-size:.8rem}
+.list .row:hover{background:rgba(59,130,246,.05)}
+.list .row img{width:32px;height:48px;object-fit:cover;border-radius:2px;background:var(--border);flex-shrink:0}
+.list .row .cb{flex-shrink:0}
+.list .row .title{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.list .row .col-author{width:150px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0}
+.list .row .col-series{width:100px;color:var(--accent);font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0}
+.list .row .col-fmt{width:80px;flex-shrink:0}
+.list .row .col-q{width:35px;text-align:right;color:var(--muted);flex-shrink:0}
+.list-header{display:flex;gap:.6rem;padding:.3rem .5rem;border-bottom:2px solid var(--border);font-size:.72rem;color:var(--muted);font-weight:600;cursor:pointer;user-select:none}
+.list-header span:hover{color:var(--text)}.list-header .title{flex:1}.list-header .col-author{width:150px}.list-header .col-series{width:100px}.list-header .col-fmt{width:80px}.list-header .col-q{width:35px;text-align:right}
+.badge{font-size:.55rem;padding:.1rem .25rem;border-radius:3px;background:var(--border);color:var(--muted);text-transform:uppercase}
+.badge.epub{background:#164e63;color:#67e8f9}.badge.pdf{background:#713f12;color:#fbbf24}.badge.mp3,.badge.m4b{background:#4c1d95;color:#c4b5fd}.badge.mobi{background:#065f46;color:#6ee7b7}
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:100}
+.modal-overlay.active{display:flex}
+.modal{background:var(--surface);border-radius:10px;padding:1.2rem;max-width:650px;width:94%;max-height:88vh;overflow-y:auto;position:relative}
+.modal h2{font-size:1.05rem;margin-bottom:.4rem;padding-right:2rem}
+.modal .close{position:absolute;top:.8rem;right:1rem;cursor:pointer;font-size:1.1rem;color:var(--muted)}
+.modal .meta{font-size:.8rem;color:var(--muted);margin-bottom:.3rem}
+.modal .desc{font-size:.82rem;margin:.5rem 0;line-height:1.5;max-height:120px;overflow-y:auto}
+.modal .actions{display:flex;gap:.3rem;margin-top:.6rem;flex-wrap:wrap}
+.modal .nav-arrows{display:flex;gap:.3rem;position:absolute;top:.8rem;right:3rem}
+#job-status{display:none;margin-top:.5rem;padding:.4rem;background:var(--bg);border-radius:6px;font-size:.8rem}
+#job-status .bar{height:3px;background:var(--border);border-radius:2px;margin-top:.3rem;overflow:hidden}
+#job-status .bar .fill{height:100%;background:var(--accent);transition:width .3s}
+/* Tags */
+.tag-cloud{display:flex;flex-wrap:wrap;gap:.3rem;margin:.5rem 0}
+.tag-cloud .tag{padding:.2rem .5rem;border-radius:4px;background:var(--bg);color:var(--muted);font-size:.72rem;cursor:pointer;border:1px solid var(--border)}
+.tag-cloud .tag:hover{border-color:var(--accent);color:var(--text)}
+.empty{text-align:center;padding:2rem;color:var(--muted)}
+#loading{text-align:center;padding:.5rem;color:var(--muted);display:none}
+#book-count{color:var(--muted);font-size:.75rem;margin-left:auto}
+/* Grid checkbox */
+.grid .card{position:relative}
+.grid .card .grid-cb{position:absolute;top:4px;left:4px;z-index:2;cursor:pointer;accent-color:var(--accent)}
+/* Floating action bar */
+#bulk-bar{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:2px solid var(--accent);padding:.5rem 1rem;display:none;align-items:center;gap:.5rem;z-index:50;justify-content:center}
+#bulk-bar.active{display:flex}
+
+/* Focus indicator (accessibility) */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* Touch targets */
+nav a,button,.btn{min-height:40px;min-width:40px;display:inline-flex;align-items:center;justify-content:center}
+/* Card hover micro-interaction */
+.grid .card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.3)}
+.grid .card{transition:transform .15s,box-shadow .15s}
+/* Search clear button */
+.search-wrap{position:relative}
+.search-wrap .clear-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.1rem;min-height:24px;min-width:24px;display:none}
+.search-wrap input:not(:placeholder-shown)~.clear-btn{display:block}
+/* More menu */
+.more-menu{position:relative;display:inline-flex}
+.more-menu .dropdown{display:none;position:absolute;top:100%;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:.5rem 0;min-width:140px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.3)}
+.more-menu:hover .dropdown,.more-menu:focus-within .dropdown{display:block}
+.more-menu .dropdown a{display:flex;padding:.5rem 1rem;color:var(--text);text-decoration:none;font-size:.85rem;gap:.4rem}
+.more-menu .dropdown a:hover{background:rgba(255,255,255,0.05)}
+
+</style>
+<link id="skin-css" rel="stylesheet" href="">
+<script>
+// Skin switcher — loads CSS overlay, persists per-user
+(function() {
+  const skin = localStorage.getItem('brainycat-skin') || 'default';
+  if (skin !== 'default') {
+    document.getElementById('skin-css').href = `skins/${skin}.css`;
+    document.body.classList.add(`skin-${skin}`);
+  }
+  window.switchSkin = function(name) {
+    localStorage.setItem('brainycat-skin', name);
+    if (name === 'default') {
+      document.getElementById('skin-css').href = '';
+      document.body.className = document.body.className.replace(/skin-\w+/g, '');
+    } else {
+      document.getElementById('skin-css').href = `skins/${name}.css`;
+      document.body.className = document.body.className.replace(/skin-\w+/g, '') + ` skin-${name}`;
+    }
+  };
+})();
+
+async function openSettings() {
+    const modal = document.getElementById('settings-modal');
+    modal.style.display = 'flex';
+    try {
+        const s = await BC.get('/settings');
+        document.getElementById('set-kindle').value = s.kindle_email || '';
+        document.getElementById('set-email').value = s.email || '';
+        const g = await BC.get('/reading-goals');
+        document.getElementById('set-goal').value = g.target || '';
+        document.getElementById('set-autosend').checked = s.auto_send_kindle || false;
+        document.getElementById('set-packt-email').value = s.packt_email || '';
+    } catch(e) {}
+}
+
+
+async function toggleShelves() {
+    const panel = document.getElementById('shelves-panel');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    if (panel.style.display !== 'none') await loadShelves();
+}
+async function loadShelves() {
+    const shelves = await BC.get('/shelves');
+    document.getElementById('shelves-list').innerHTML = shelves.map(s =>
+        `<div onclick="filterShelf('${s.id}')" style="padding:.4rem .6rem;cursor:pointer;border-radius:6px;font-size:.82rem;display:flex;justify-content:space-between;align-items:center" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
+            <span>${s.icon} ${s.name.replace(s.icon+' ','')}</span>
+            <span style="color:var(--muted);font-size:.7rem">${s.count}</span>
+        </div>`
+    ).join('');
+}
+async function filterShelf(id) {
+    const data = await BC.get('/shelves/' + id + '?limit=200');
+    if (data.books) {
+        allBooks = data.books;
+        hasMore = false;
+        document.getElementById('book-count').textContent = data.books.length + ' books';
+        render();
+        document.getElementById('shelves-panel').style.display = 'none';
+    }
+}
+async function setStatus(id, status) {
+    await BC.put("/books/" + id + "/status", {status});
+    alert("Status: " + status.replace("_"," "));
+}
+
+async function scanISBN() {
+  if (!navigator.mediaDevices) { alert("Camera not available"); return; }
+  const div = document.createElement("div");
+  div.id = "scanner-modal";
+  div.style.cssText = "position:fixed;inset:0;z-index:9999;background:#000d;display:flex;flex-direction:column;align-items:center;justify-content:center";
+  div.innerHTML = '<video id="scan-video" style="max-width:90%;max-height:70%" autoplay></video><p style="color:#fff;margin-top:1rem">Point camera at ISBN barcode</p><button onclick="this.parentElement.remove();window._scanStream?.getTracks().forEach(t=>t.stop())" style="margin-top:.5rem;padding:.5rem 1rem">Close</button>';
+  document.body.appendChild(div);
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+    window._scanStream = stream;
+    const video = document.getElementById("scan-video");
+    video.srcObject = stream;
+    // Use BarcodeDetector API if available
+    if ("BarcodeDetector" in window) {
+      const detector = new BarcodeDetector({formats:["ean_13","ean_8"]});
+      const interval = setInterval(async () => {
+        try {
+          const barcodes = await detector.detect(video);
+          if (barcodes.length > 0) {
+            clearInterval(interval);
+            stream.getTracks().forEach(t => t.stop());
+            div.remove();
+            const isbn = barcodes[0].rawValue;
+            alert("Found ISBN: " + isbn);
+            // Search library
+            window.location.hash = "#search=" + isbn;
+          }
+        } catch(e) {}
+      }, 500);
+    } else {
+      div.querySelector("p").textContent = "BarcodeDetector not supported in this browser. Try Chrome.";
+    }
+  } catch(e) { alert("Camera error: " + e.message); div.remove(); }
+}
+
+</script>
+</head>
+<body>
+<header role="banner">
+<div class="primary-row">
+<div class="logo">🐱 BrainyCat</div>
+<nav role="navigation" aria-label="Main navigation">
+<a href="index.html">📖 Library</a>
+<a href="catalog.html">🔍 Discover</a>
+<a onclick="scanISBN()" style="cursor:pointer" title="Scan ISBN">📷</a>
+<div class="more-menu"><a style="cursor:pointer">⋯</a><div class="dropdown">
+<a href="intelligence.html">🧠 Intel</a>
+<a onclick="toggleShelves()">📚 Shelves</a>
+<a onclick="openSettings()">⚙️ Settings</a>
+</div></div>
+</nav>
+</div>
+<div class="secondary-row">
+<div class="filter-group">
+<span class="active-filter" id="active-shelf">All</span>
+</div>
+<div class="stats">
+<span>📡 <a href="api/v1/opds/catalog.xml" style="color:var(--muted);text-decoration:none">OPDS</a></span>
+<span style="color:#334155">|</span>
+<span><strong id="book-count">...</strong> books</span>
+</div>
+</div>
+</header>
+<div class="container">
+<div class="toolbar">
+<label style="font-size:.8rem;display:inline-flex;align-items:center;gap:.25rem;cursor:pointer"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)"> All</label>
+<select id="filter-format" title="Filter by file format"><option value="">All formats</option><option>epub</option><option>pdf</option><option>mobi</option><option>mp3</option><option>m4b</option></select>
+<select id="filter-missing" title="Filter by missing data" onchange="page=0;allBooks=[];hasMore=true;loadBooks()"><option value="">All books</option><option value="no_isbn">Missing ISBN</option><option value="no_desc">Missing description</option><option value="no_cover">Missing cover</option><option value="no_tags">No tags/genre</option><option value="low_quality">Low quality (&lt;30)</option></select>
+<select id="sort" title="Sort order"><option value="updated_at">Recent</option><option value="title">Title</option><option value="quality_score">Quality</option><option value="created_at">Added</option></select>
+<div class="view-toggle">
+<button class="btn active" id="btn-grid" onclick="setView('grid')" title="Grid view">▦</button>
+<button class="btn" id="btn-list" onclick="setView('list')" title="List view">☰</button>
+</div>
+<button class="btn primary" onclick="document.getElementById('file-input').click()" title="Upload ebook files">⬆ Upload</button>
+<button class="btn primary" onclick="uploadDirectory()" title="Upload entire folder">📁 Folder</button>
+<button class="btn" onclick="toggleShelves()" title="Magic Shelves">📚</button>
+<button class="btn" onclick="openSettings()" title="Settings">⚙️</button>
+<button id="batch-del-btn" class="btn danger" style="display:none" onclick="batchDelete()">🗑️ <span id="sel-count">0</span></button>
+<select id="skin-select" onchange="switchSkin(this.value)" title="UI Skin">
+<option value="default">🐱 Classic</option>
+<option value="spreadsheet">📊 Spreadsheet</option>
+<option value="cockpit">🎛️ Cockpit</option>
+<option value="notebook">📓 Notebook</option>
+<option value="canvas">🎨 Canvas</option>
+<option value="wizard">🧙 Wizard</option>
+</select>
+<a href="api/v1/opds/catalog.xml" title="OPDS Feed — use with Moon+ Reader, KOReader, Calibre" style="text-decoration:none;font-size:.8rem;padding:.3rem .5rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">📡 OPDS</a>
+<span id="book-count"></span>
+<input type="file" id="file-input" hidden accept=".epub,.pdf,.mobi,.azw3,.kfx,.fb2,.docx,.odt,.txt,.rtf,.html,.htm,.md,.cbz,.cbr,.djvu,.mp3,.m4b,.m4a,.flac,.opus,.ogg,.acsm,.zip" multiple>
+</div>
+
+<div id="shelves-panel" style="display:none;position:fixed;left:0;top:45px;width:260px;height:calc(100vh - 45px);background:var(--surface);border-right:1px solid var(--border);z-index:25;overflow-y:auto;padding:.8rem">
+<h3 style="font-size:.85rem;color:var(--muted);margin-bottom:.8rem">📚 Magic Shelves</h3>
+<div id="shelves-list"></div>
+</div>
+<div id="drop-zone">Drop files here to upload</div>
+<div id="content"></div>
+<div id="loading">Loading more...</div>
+</div>
+
+<div id="bulk-bar">
+<span id="bulk-count" style="font-size:.85rem;font-weight:600"></span>
+<button class="btn primary" onclick="bulkTag()" title="Add tags to selected books">🏷️ Tag</button>
+<button class="btn danger" onclick="bulkDelete()" title="Delete selected books">🗑️ Delete</button>
+<button class="btn success" onclick="bulkEnrich()" title="Fetch metadata for selected books">✨ Enrich</button>
+<button class="btn" onclick="bulkConvert()" title="Convert selected books to EPUB">📄 Convert to EPUB</button>
+<button class="btn warn" onclick="bulkKindle()" title="Email selected books to Kindle">📱 Send to Kindle</button>
+<button class="btn sm" onclick="clearSelection()" title="Deselect all">✕ Clear</button>
+</div>
+
+<div class="modal-overlay" id="modal"><div class="modal">
+<span class="close" onclick="closeModal()">✕</span>
+<div class="nav-arrows">
+<button class="btn sm" onclick="navBook(-1)">◀</button>
+<button class="btn sm" onclick="navBook(1)">▶</button>
+</div>
+<div id="modal-content"></div>
+</div></div>
+
+<script src="api.js?v=2">
+async function openSettings() {
+    const modal = document.getElementById('settings-modal');
+    modal.style.display = 'flex';
+    try {
+        const s = await BC.get('/settings');
+        document.getElementById('set-kindle').value = s.kindle_email || '';
+        document.getElementById('set-email').value = s.email || '';
+        const g = await BC.get('/reading-goals');
+        document.getElementById('set-goal').value = g.target || '';
+        document.getElementById('set-autosend').checked = s.auto_send_kindle || false;
+        document.getElementById('set-packt-email').value = s.packt_email || '';
+    } catch(e) {}
+}
+
+
+async function toggleShelves() {
+    const panel = document.getElementById('shelves-panel');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    if (panel.style.display !== 'none') await loadShelves();
+}
+async function loadShelves() {
+    const shelves = await BC.get('/shelves');
+    document.getElementById('shelves-list').innerHTML = shelves.map(s =>
+        `<div onclick="filterShelf('${s.id}')" style="padding:.4rem .6rem;cursor:pointer;border-radius:6px;font-size:.82rem;display:flex;justify-content:space-between;align-items:center" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
+            <span>${s.icon} ${s.name.replace(s.icon+' ','')}</span>
+            <span style="color:var(--muted);font-size:.7rem">${s.count}</span>
+        </div>`
+    ).join('');
+}
+async function filterShelf(id) {
+    const data = await BC.get('/shelves/' + id + '?limit=200');
+    if (data.books) {
+        allBooks = data.books;
+        hasMore = false;
+        document.getElementById('book-count').textContent = data.books.length + ' books';
+        render();
+        document.getElementById('shelves-panel').style.display = 'none';
+    }
+}
+async 
+
+
+
+</script>
+<script>
+let allBooks=[],view='grid',sortField='updated_at',sortOrder='desc',page=0,loading=false,hasMore=true,currentBookIdx=-1;
+const PAGE_SIZE=60,content=document.getElementById('content'),searchInput=document.getElementById('search');
+searchInput.addEventListener('input',()=>{document.getElementById('search-clear').style.display=searchInput.value?'':'none';});
+let selectedBooks=new Set();
+
+function setView(v){view=v;document.getElementById('btn-grid').classList.toggle('active',v==='grid');document.getElementById('btn-list').classList.toggle('active',v==='list');page=0;allBooks=[];hasMore=true;loadBooks();}
+
+async function loadBooks(append=false){
+    if(loading)return;loading=true;
+    if(!append){page=0;allBooks=[];hasMore=true;}
+    const q=searchInput.value,fmt=document.getElementById('filter-format').value,auth=document.getElementById('filter-author').value,missing=document.getElementById('filter-missing').value;
+    const lim=q?500:PAGE_SIZE;
+    const params=new URLSearchParams({sort:sortField,order:sortOrder,limit:String(lim),offset:String(page*lim)});
+    if(q)params.set('q',q);if(fmt)params.set('format',fmt);if(auth)params.set('author',auth);if(missing)params.set('missing',missing);
+    try{
+        const data=await BC.get('/books?'+params);
+        const books=data.books||[];
+        if(append)allBooks.push(...books);else allBooks=books;
+        hasMore=books.length>=lim;
+        document.getElementById('book-count').textContent=data.total+' books';
+        render();
+    }catch(e){console.error('loadBooks:',e);}
+    loading=false;
+}
+
+function render(){
+    if(!allBooks.length){content.innerHTML='<div class="empty">No books found</div>';return;}
+    if(view==='grid')renderGrid();else renderList();
+}
+
+function renderGrid(){
+    content.className='grid';
+    content.innerHTML=allBooks.map((b,i)=>`
+        <div class="card" onclick="openBookAt(${i})">
+            <input type="checkbox" class="grid-cb book-cb" data-id="${b.id}" onchange="updateSelection()" onclick="event.stopPropagation()">
+            <img src="${API}/books/${b.id}/cover" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 300%22><rect fill=%22%23334155%22 width=%22200%22 height=%22300%22/><text x=%2250%25%22 y=%2250%25%22 fill=%22%2394a3b8%22 text-anchor=%22middle%22 font-size=%2240%22>📚</text></svg>'">
+            <div class="info">
+                <div class="title" title="${b.title}">${b.title}</div>
+                <div class="author">${(b.authors||[]).join(', ')||'—'}</div>
+                <div class="badges">${(b.formats||[]).map(f=>`<span class="badge ${f}">${f}</span>`).join('')}${b.quality_score>0?`<span class="badge" style="background:#065f46;color:#6ee7b7">Q${b.quality_score}</span>`:''}</div>
+            </div>
+        </div>`).join('');
+}
+
+function renderList(){
+    content.className='list';
+    const hdr=`<div class="list-header"><span style="width:32px"></span><span style="width:20px"></span><span class="title" onclick="sortBy('title')">Title</span><span class="col-author">Author</span><span class="col-series">Series</span><span class="col-fmt">Format</span><span class="col-q" onclick="sortBy('quality_score')">Q</span></div>`;
+    const rows=allBooks.map((b,i)=>`
+        <div class="row">
+            <input type="checkbox" class="cb book-cb" data-id="${b.id}" onchange="updateSelection()" onclick="event.stopPropagation()">
+            <img src="${API}/books/${b.id}/cover" loading="lazy" onclick="openBookAt(${i})" onerror="this.style.visibility='hidden'">
+            <span class="title" onclick="openBookAt(${i})">${b.title}</span>
+            <span class="col-author">${(b.authors||[]).join(', ')||'—'}</span>
+            <span class="col-series">${b.series_index>1?'#'+b.series_index:''}</span>
+            <span class="col-fmt">${(b.formats||[]).map(f=>`<span class="badge ${f}">${f}</span>`).join('')}</span>
+            <span class="col-q">${b.quality_score||''}</span>
+        </div>`).join('');
+    content.innerHTML=hdr+rows;
+}
+
+function sortBy(f){if(sortField===f)sortOrder=sortOrder==='desc'?'asc':'desc';else{sortField=f;sortOrder=f==='title'?'asc':'desc';}document.getElementById('sort').value=sortField;page=0;allBooks=[];hasMore=true;loadBooks();}
+
+// Book detail with navigation
+function openBookAt(idx){currentBookIdx=idx;openBook(allBooks[idx].id);}
+function navBook(dir){
+    const next=currentBookIdx+dir;
+    if(next>=0&&next<allBooks.length){currentBookIdx=next;openBook(allBooks[next].id);}
+}
+
+async function openBook(id){
+    const b=await BC.get('/books/'+id);
+    const hasEpub=(b.formats||[]).includes('epub'),hasPdf=(b.formats||[]).includes('pdf');
+    const hasAudio=(b.formats||[]).some(f=>['mp3','m4b','m4a'].includes(f));
+    const canRead=hasEpub||hasPdf;
+    const tags=(b.extra_metadata?.genres||[]).concat(b.formats||[]);
+    document.getElementById('modal-content').innerHTML=`
+        <h2>${b.title}</h2>
+        <div class="meta">${(b.authors||[]).join(', ')} · Q:${b.quality_score}/100 · ISBN:${b.isbn||'—'} · ${(b.formats||[]).join(', ')}</div>
+            ${b.original_filename?`<div style="font-size:.7rem;color:var(--border);margin-top:.3rem" title="Original filename">📁 ${b.original_filename}</div>`:''}
+        <div class="desc">${b.description||'<em>No description</em>'}</div>
+        ${tags.length?'<div class="tag-cloud">'+tags.map(t=>`<span class="tag" onclick="searchTag('${t}')">${t}</span>`).join('')+'</div>':''}
+        <div id="job-status"><span id="job-msg"></span><div class="bar"><div class="fill" id="job-bar"></div></div></div>
+        <div id="similar" style="margin-top:.5rem"></div>
+        <div class="actions">
+            ${canRead?`<button class="btn primary" onclick="openReader('${id}',${hasEpub})" style="font-size:1.1em;padding:.5em 1.2em" title="Open in reader">📖 Read</button>`:''}
+                        <div style="display:flex;gap:.3rem;margin-bottom:.5rem">
+                <button class="btn sm" onclick="setStatus('${id}','want_to_read')" title="Want to Read">📋</button>
+                <button class="btn sm" onclick="setStatus('${id}','reading')" title="Currently Reading">📖</button>
+                <button class="btn sm" onclick="setStatus('${id}','finished')" title="Finished">✅</button>
+            </div>
+            ${hasAudio?`<button class="btn primary" onclick="location='player.html?id=${id}'" style="font-size:1.1em;padding:.5em 1.2em" title="Open audio player">🎧 Listen</button>`:''}
+            ${hasEpub?`<button class="btn" onclick="location='bilingual.html?id=${id}'" title="Side-by-side bilingual reader">🌐 Bilingual</button>`:''}
+            <button class="btn success" id="btn-enrich" onclick="enrich('${id}')" title="Fetch metadata from 32 sources">✨ Enrich</button>
+            <button class="btn" onclick="dlCover('${id}',this)" title="Download cover image">🖼️ Cover</button>
+            <button class="btn warn" onclick="sendKindle('${id}')" title="Send to Kindle via email">📱 Kindle</button>
+            ${hasEpub?`<button class="btn" onclick="convertTTS('${id}')">🔊 TTS</button>`:''}
+            ${hasEpub?`<button class="btn" onclick="translateBook('${id}')">🌐 Translate</button>`:''}
+            ${hasPdf?`<button class="btn" onclick="ocrBook('${id}')">📝 OCR</button>`:''}
+            <button class="btn" onclick="editBook('${id}')">✏️ Edit</button>
+            <button class="btn danger" onclick="deleteBook('${id}')">🗑️</button>
+        </div>`;
+    document.getElementById('modal').classList.add('active');
+    // Load similar books
+    BC.get('/books/'+id+'/similar').then(sim=>{
+        if(sim.length){
+            document.getElementById('similar').innerHTML='<div style="font-size:.75rem;color:var(--muted);margin-bottom:.3rem">Similar books:</div><div style="display:flex;gap:.3rem;flex-wrap:wrap">'+
+                sim.slice(0,5).map(s=>'<span class="badge" style="cursor:pointer;padding:.2rem .4rem" onclick="openBook(\''+s.id+'\')">'+s.title.slice(0,30)+(s.title.length>30?'...':'')+'</span>').join('')+'</div>';
+        }
+    }).catch(()=>{});
+}
+
+function closeModal(){document.getElementById('modal').classList.remove('active');}
+function openReader(id, hasEpub) {
+    location = 'reader.html?id=' + id;
+}
+function searchTag(t){searchInput.value=t;page=0;allBooks=[];hasMore=true;loadBooks();closeModal();}
+function showJobStatus(m,p){const el=document.getElementById('job-status');el.style.display='block';document.getElementById('job-msg').textContent=m;document.getElementById('job-bar').style.width=p+'%';}
+async function pollJob(jid){for(let i=0;i<300;i++){await new Promise(r=>setTimeout(r,2000));try{const j=await BC.get('/jobs/'+jid);if(!j)break;showJobStatus(`${j.job_type}: ${j.status} (${Math.round(j.progress||0)}%)`,j.progress||0);if(j.status==='complete'){showJobStatus('✅ Done!',100);loadBooks();return j;}if(j.status==='failed'){showJobStatus('❌ '+(j.error||'').slice(0,120),0);return j;}}catch{break;}}}
+async function enrich(id){const btn=document.getElementById('btn-enrich');btn.disabled=true;btn.textContent='⏳';const r=await BC.post('/books/'+id+'/enrich');btn.textContent=r.enriched?`✅ Q:${r.quality_score}`:'⚠️';loadBooks();setTimeout(()=>openBook(id),1500);}
+async function dlCover(id,btn){btn.disabled=true;btn.textContent='⏳';const r=await BC.post('/books/'+id+'/download-cover');btn.textContent=r.ok?'✅':'⚠️';setTimeout(()=>{btn.textContent='🖼️ Cover';btn.disabled=false;},2000);}
+async function sendKindle(id){const r=await BC.post('/books/'+id+'/send-to-kindle');alert(r.ok?'Sent to '+r.sent_to:(r.error||'Failed'));}
+async function convertTTS(id){showJobStatus('Starting TTS...',0);const r=await BC.post('/books/'+id+'/convert/tts');if(r.job_id)await pollJob(r.job_id);else showJobStatus('❌ '+JSON.stringify(r),0);}
+async function translateBook(id){const lang=prompt('Target language (en, fr, de, es):');if(!lang)return;showJobStatus('Translating...',0);const r=await BC.post(`/books/${id}/translate?target_lang=${lang}&backend=argos`);if(r.job_id)await pollJob(r.job_id);}
+async function ocrBook(id){showJobStatus('OCR (page by page)...',0);const r=await BC.post('/books/'+id+'/ocr');if(r.job_id)await pollJob(r.job_id);}
+async function editBook(id){
+    const b=await BC.get('/books/'+id);
+    document.getElementById('modal-content').innerHTML=`
+        <h2>Edit Metadata</h2>
+        <div style="display:grid;gap:.4rem;margin:.6rem 0">
+        <label style="font-size:.75rem;color:var(--muted)">Title</label>
+        <input id="ed-title" value="${b.title||''}" class="btn" style="text-align:left;cursor:text;width:100%">
+        <label style="font-size:.75rem;color:var(--muted)">Author</label>
+        <input id="ed-author" value="${(b.authors||[]).join(', ')}" class="btn" style="text-align:left;cursor:text;width:100%">
+        <label style="font-size:.75rem;color:var(--muted)">ISBN</label>
+        <input id="ed-isbn" value="${b.isbn||''}" class="btn" style="text-align:left;cursor:text;width:200px">
+        <label style="font-size:.75rem;color:var(--muted)">Description</label>
+        <textarea id="ed-desc" rows="3" style="padding:.35rem;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.8rem;width:100%">${b.description||''}</textarea>
+        <div style="display:flex;gap:.5rem;align-items:center">
+            <label style="font-size:.75rem;color:var(--muted)">Series Index</label>
+            <input id="ed-idx" type="number" step="0.1" value="${b.series_index||1}" class="btn" style="width:60px;text-align:left;cursor:text">
+            <label style="font-size:.75rem;color:var(--muted)"><input id="ed-workbook" type="checkbox" ${b.is_workbook?'checked':''}> Workbook/Technical</label>
+        </div>
+        </div>
+        <div class="actions">
+            <button class="btn success" onclick="saveEdit('${id}')">💾 Save</button>
+            <button class="btn" onclick="regenCover('${id}')">🎨 Regen Cover</button>
+            <button class="btn" onclick="openBook('${id}')">Cancel</button>
+        </div>`;
+}
+async function saveEdit(id){
+    const authorVal=document.getElementById('ed-author')?.value;
+    if(authorVal!==undefined)await api('/books/'+id+'/author',{method:'PUT',body:JSON.stringify({author:authorVal}),headers:{'Content-Type':'application/json'}});
+    await BC.patch('/books/'+id,{title:document.getElementById('ed-title').value,isbn:document.getElementById('ed-isbn').value||null,description:document.getElementById('ed-desc').value||null,series_index:parseFloat(document.getElementById('ed-idx').value)||1});
+    openBook(id);loadBooks();
+}
+async function regenCover(id){await BC.post('/books/'+id+'/download-cover');setTimeout(()=>openBook(id),1000);}
+async function deleteBook(id){if(!confirm('Delete this book?'))return;await BC.del('/books/'+id);closeModal();loadBooks();}
+
+// Batch selection
+function updateSelection(){selectedBooks.clear();document.querySelectorAll('.book-cb:checked').forEach(cb=>selectedBooks.add(cb.dataset.id));const bar=document.getElementById('bulk-bar');const n=selectedBooks.size;bar.classList.toggle('active',n>0);document.getElementById('bulk-count').textContent=n+' selected';document.getElementById('batch-del-btn').style.display=n>0?'inline-flex':'none';document.getElementById('sel-count').textContent=n;document.getElementById('select-all').checked=n>0&&n===document.querySelectorAll('.book-cb').length;}
+function toggleSelectAll(checked){document.querySelectorAll('.book-cb').forEach(cb=>{cb.checked=checked;});updateSelection();}
+function clearSelection(){document.querySelectorAll('.book-cb').forEach(cb=>{cb.checked=false;});document.getElementById('select-all').checked=false;updateSelection();}
+async function bulkTag(){const t=prompt('Tag(s) to add (comma-separated):');if(!t)return;const tags=t.split(',').map(s=>s.trim()).filter(Boolean);if(!tags.length)return;await BC.post('/books/batch/tag',{book_ids:[...selectedBooks],tags});clearSelection();loadBooks();}
+async function bulkDelete(){if(!confirm('Delete '+selectedBooks.size+' books?'))return;await api('/books/batch',{method:'DELETE',body:JSON.stringify({book_ids:[...selectedBooks]}),headers:{'Content-Type':'application/json'}});clearSelection();loadBooks();}
+async function bulkEnrich(){const ids=[...selectedBooks];document.getElementById('bulk-bar').querySelector('.btn.success').textContent='⏳ Enriching...';await BC.post('/books/batch/enrich',{book_ids:ids});clearSelection();loadBooks();}
+async function bulkConvert(){for(const id of selectedBooks){await BC.post('/books/'+id+'/convert/epub');}clearSelection();loadBooks();}
+async function bulkKindle(){for(const id of selectedBooks){await BC.post('/books/'+id+'/send-to-kindle');}alert('Sent '+selectedBooks.size+' books to Kindle');clearSelection();}
+async function batchDelete(){if(!confirm('Delete '+selectedBooks.size+' books?'))return;await api('/books/batch',{method:'DELETE',body:JSON.stringify({book_ids:[...selectedBooks]}),headers:{'Content-Type':'application/json'}});clearSelection();loadBooks();}
+
+// Upload
+const dropZone=document.getElementById('drop-zone'),fileInput=document.getElementById('file-input');
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('dragover');});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop',async e=>{e.preventDefault();dropZone.classList.remove('dragover');await uploadFileList(Array.from(e.dataTransfer.files));});
+fileInput.addEventListener('change',async()=>{await uploadFileList(Array.from(fileInput.files));});
+const ALLOWED_EXT=new Set(['.epub','.pdf','.mobi','.azw3','.kfx','.fb2','.docx','.odt','.txt','.rtf','.html','.htm','.md','.cbz','.cbr','.djvu','.mp3','.m4b','.m4a','.flac','.opus','.ogg','.acsm','.zip']);
+async function uploadDirectory(){if('showDirectoryPicker' in window){try{const dh=await window.showDirectoryPicker();await uploadFileList(await collectFiles(dh));}catch(e){if(e.name!=='AbortError')console.error(e);}}else{const inp=document.createElement('input');inp.type='file';inp.webkitdirectory=true;inp.multiple=true;inp.onchange=async()=>{await uploadFileList(Array.from(inp.files).filter(f=>ALLOWED_EXT.has(f.name.slice(f.name.lastIndexOf('.')).toLowerCase())));};inp.click();}}
+async function collectFiles(dh){const f=[];for await(const e of dh.values()){if(e.kind==='file'){if(ALLOWED_EXT.has(e.name.slice(e.name.lastIndexOf('.')).toLowerCase()))f.push(await e.getFile());}else if(e.kind==='directory')f.push(...await collectFiles(e));}return f;}
+async function uploadFileList(files){
+    files=files.filter(f=>ALLOWED_EXT.has(f.name.slice(f.name.lastIndexOf('.')).toLowerCase()));
+    if(!files.length){dropZone.textContent='No supported files';setTimeout(()=>{dropZone.textContent='Drop files here';},3000);return;}
+    dropZone.textContent='Checking...';
+    let existing=new Set();try{const lib=await BC.get('/books?limit=2000');(lib.books||[]).forEach(b=>{existing.add(b.title.toLowerCase().replace(/[^a-z0-9]/g,''));});}catch{}
+    const toUp=[];let skip=0;
+    for(const f of files){const n=f.name.replace(/\.\w+$/,'').replace(/[-_]/g,' ').trim().toLowerCase().replace(/[^a-z0-9]/g,'');if(existing.has(n)){skip++;}else{toUp.push(f);existing.add(n);}}
+    if(!toUp.length){dropZone.textContent=`All ${files.length} in library`;setTimeout(()=>{dropZone.textContent='Drop files here';},3000);return;}
+    let done=0,errs=0;
+    for(const f of toUp){try{await BC.upload('/books/upload',f);done++;}catch(e){errs++;console.error('Upload failed:',f.name,e);}dropZone.textContent=`${done+errs}/${toUp.length}${skip?' +'+skip+' skip':''}${errs?' '+errs+'err':''}`;}
+    dropZone.textContent=`✅ ${done} uploaded`;setTimeout(()=>{dropZone.textContent='Drop files here';},5000);loadBooks();
+}
+
+// Infinite scroll + search
+window.addEventListener('scroll',()=>{if(hasMore&&!loading&&window.innerHeight+window.scrollY>=document.body.offsetHeight-200){page++;loadBooks(true);}});
+let st;searchInput.addEventListener('input',()=>{clearTimeout(st);st=setTimeout(()=>{page=0;allBooks=[];hasMore=true;loadBooks();},300);});
+document.getElementById('filter-format').addEventListener('change',()=>{page=0;allBooks=[];hasMore=true;loadBooks();});
+document.getElementById('filter-author').addEventListener('input',()=>{clearTimeout(st);st=setTimeout(()=>{page=0;allBooks=[];hasMore=true;loadBooks();},300);});
+document.getElementById('sort').addEventListener('change',e=>{sortField=e.target.value;page=0;allBooks=[];hasMore=true;loadBooks();});
+document.addEventListener('keydown',e=>{if(e.key==='/'&&document.activeElement!==searchInput){e.preventDefault();searchInput.focus();}if(e.key==='Escape')closeModal();if(e.key==='ArrowLeft'&&document.getElementById('modal').classList.contains('active'))navBook(-1);if(e.key==='ArrowRight'&&document.getElementById('modal').classList.contains('active'))navBook(1);});
+loadBooks();
+
+async function openSettings() {
+    const modal = document.getElementById('settings-modal');
+    modal.style.display = 'flex';
+    try {
+        const s = await BC.get('/settings');
+        document.getElementById('set-kindle').value = s.kindle_email || '';
+        document.getElementById('set-email').value = s.email || '';
+        const g = await BC.get('/reading-goals');
+        document.getElementById('set-goal').value = g.target || '';
+        document.getElementById('set-autosend').checked = s.auto_send_kindle || false;
+        document.getElementById('set-packt-email').value = s.packt_email || '';
+    } catch(e) {}
+}
+
+
+async function toggleShelves() {
+    const panel = document.getElementById('shelves-panel');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    if (panel.style.display !== 'none') await loadShelves();
+}
+async function loadShelves() {
+    const shelves = await BC.get('/shelves');
+    document.getElementById('shelves-list').innerHTML = shelves.map(s =>
+        `<div onclick="filterShelf('${s.id}')" style="padding:.4rem .6rem;cursor:pointer;border-radius:6px;font-size:.82rem;display:flex;justify-content:space-between;align-items:center" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
+            <span>${s.icon} ${s.name.replace(s.icon+' ','')}</span>
+            <span style="color:var(--muted);font-size:.7rem">${s.count}</span>
+        </div>`
+    ).join('');
+}
+async function filterShelf(id) {
+    const data = await BC.get('/shelves/' + id + '?limit=200');
+    if (data.books) {
+        allBooks = data.books;
+        hasMore = false;
+        document.getElementById('book-count').textContent = data.books.length + ' books';
+        render();
+        document.getElementById('shelves-panel').style.display = 'none';
+    }
+}
+async 
+
+
+
+</script>
+
+<!-- Settings modal -->
+<div id="settings-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:200;display:none;justify-content:center;align-items:center">
+<div style="background:#16213e;border:1px solid #334155;border-radius:12px;padding:2rem;max-width:450px;width:90%">
+<h3 style="margin-bottom:1rem">⚙️ Settings</h3>
+<label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Kindle Email</label>
+<input id="set-kindle" placeholder="user@kindle.com" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:1rem">
+<p style="font-size:.75rem;color:#64748b;margin-bottom:1rem">Find this in Amazon → Manage Your Content and Devices → Preferences → Personal Document Settings</p>
+<label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Email</label>
+<input id="set-email" placeholder="you@example.com" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:1rem">
+<label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Packt Email</label>
+<input id="set-packt-email" placeholder="your@email.com" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:.5rem">
+<label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Packt Password</label>
+<input id="set-packt-pass" type="password" placeholder="••••••••" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:1rem">
+<label style="display:flex;align-items:center;gap:.5rem;font-size:.85rem;color:#94a3b8;margin-bottom:1rem"><input type="checkbox" id="set-autosend"> Auto-send new books to Kindle after enrichment</label>
+<label style="display:block;font-size:.85rem;color:#94a3b8;margin-bottom:.3rem">Reading Goal (books per year)</label>
+<input id="set-goal" type="number" placeholder="50" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:1rem">
+<div style="display:flex;gap:8px;justify-content:flex-end">
+<button onclick="document.getElementById('settings-modal').style.display='none'" style="padding:.5rem 1rem;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;cursor:pointer">Cancel</button>
+<button onclick="saveSettings()" style="padding:.5rem 1rem;border-radius:6px;border:none;background:#3b82f6;color:#fff;cursor:pointer">Save</button>
+</div>
+</div></div>
+</body></html>
