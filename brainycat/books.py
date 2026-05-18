@@ -418,6 +418,8 @@ async def serve_file(book_id: str, file_id: str) -> FileResponse:
 
 
 def _book_dict(row: Any) -> dict[str, Any]:
+    extra = row.get("extra_metadata") or {}
+    signals = extra.get("content_signals", {}) if isinstance(extra, dict) else {}
     return {
         "id": str(row["id"]),
         "title": row["title"],
@@ -429,6 +431,7 @@ def _book_dict(row: Any) -> dict[str, Any]:
         "series_index": row["series_index"],
         "authors": row["authors"] if row["authors"] else [],
         "formats": row["formats"] if row["formats"] else [],
+        "detected_genre": signals.get("detected_genre"),
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
     }

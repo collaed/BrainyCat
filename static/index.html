@@ -36,6 +36,8 @@ main{padding:1rem 1.5rem;max-width:1600px;margin:0 auto}
 .card img{width:100%;aspect-ratio:2/3;object-fit:cover;background:#1a1a2e;display:block}
 .card .card-cover,.card-cover{width:100%;aspect-ratio:2/3;object-fit:cover;background:#1a1a2e;display:block}
 .cover-placeholder{width:100%;aspect-ratio:2/3;overflow:hidden;border-radius:4px}
+.continue-cover{width:100px;aspect-ratio:2/3;object-fit:cover;border-radius:6px;display:block}
+.continue-cover.cover-placeholder{width:100px;aspect-ratio:2/3;border-radius:6px}
 .list-cover{width:28px;height:42px;object-fit:cover;border-radius:3px;display:inline-block;vertical-align:middle}
 .list-cover.cover-placeholder{width:28px;height:42px;aspect-ratio:auto;font-size:.7rem !important}
 .list-cover.cover-placeholder span{font-size:.7rem !important}
@@ -117,6 +119,11 @@ main{padding:1rem 1.5rem;max-width:1600px;margin:0 auto}
 </div>
 
 <main>
+  <div id="continue-reading" style="display:none;margin-bottom:1.5rem">
+    <h3 style="font-size:.9rem;color:var(--pico-muted-color);margin-bottom:.5rem">📖 Continue Reading</h3>
+    <div id="continue-books" style="display:flex;gap:.8rem;overflow-x:auto;padding-bottom:.5rem"></div>
+  </div>
+
   <div class="controls">
     <select id="sort" onchange="reload()">
       <option value="updated_at">Recent</option>
@@ -236,14 +243,18 @@ function coverUrl(b){
 function coverImg(b,cls){
   const url=coverUrl(b);
   if(url)return`<img class="${cls}" src="${url}" alt="" loading="lazy">`;
-  // Genre-colored placeholder: fiction=vertical bar, non-fiction=horizontal
-  const colors={fiction:'#3b82f6',romance:'#ef4444',thriller:'#1f2937',fantasy:'#8b5cf6',scifi:'#06b6d4',mystery:'#92400e',literary:'#22c55e',technology:'#1f2937',science:'#22c55e',selfhelp:'#eab308',business:'#3b82f6',history:'#92400e',philosophy:'#8b5cf6',psychology:'#3b82f6'};
-  const genre=((b.tags||[])[0]||'').toLowerCase().replace(/[^a-z]/g,'');
-  const color=colors[genre]||'#334155';
+  // Genre-colored placeholder with full title + author
+  const genreColors={fiction:'#3b82f6',romance:'#ef4444',thriller:'#1f2937',fantasy:'#8b5cf6',scifi:'#06b6d4',mystery:'#92400e',literary:'#22c55e',technology:'#1f2937',science:'#22c55e',selfhelp:'#eab308',business:'#3b82f6',history:'#92400e',philosophy:'#8b5cf6',psychology:'#3b82f6'};
+  // Use detected_genre from content_signals if available, else first tag
+  const genre=((b.detected_genre||((b.tags||[])[0])||'')).toLowerCase().replace(/[^a-z]/g,'');
+  const color=genreColors[genre]||'#475569';
   const isFiction=!['technology','science','selfhelp','business','history','philosophy','psychology'].includes(genre);
-  const bar=isFiction?`<div style="position:absolute;left:0;top:0;bottom:0;width:6px;background:${color}"></div>`:`<div style="position:absolute;left:0;right:0;top:0;height:6px;background:${color}"></div>`;
-  const initials=(b.title||'?').replace(/[^a-zA-Z\u00C0-\u024F0-9 ]/g,'').trim().split(/\s+/).slice(0,2).map(w=>(w[0]||'')).join('').toUpperCase()||'?';
-  return`<div class="${cls} cover-placeholder" style="position:relative;background:#1e293b;display:flex;align-items:center;justify-content:center">${bar}<span style="font-size:1.5rem;color:#64748b;font-weight:700;z-index:1">${initials}</span></div>`;
+  const bar=isFiction
+    ?`<div style="position:absolute;left:0;top:0;bottom:0;width:5px;background:${color}"></div>`
+    :`<div style="position:absolute;left:0;right:0;top:0;height:5px;background:${color}"></div>`;
+  const title=esc(b.title||'Untitled');
+  const author=esc((b.authors||[]).join(', '));
+  return`<div class="${cls} cover-placeholder" style="position:relative;background:#1e293b;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:.6rem;text-align:center;overflow:hidden">${bar}<span style="font-size:.7rem;font-weight:700;color:#e2e8f0;line-height:1.3;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;z-index:1">${title}</span>${author?`<span style="font-size:.6rem;color:#94a3b8;margin-top:.3rem;z-index:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">${author}</span>`:''}</div>`;
 }
 
 function renderGrid(){
@@ -329,6 +340,19 @@ window.addEventListener('scroll',()=>{
 // Init
 loadBooks();
 BC.get('/incoming/status').then(d=>{if(d.count)document.getElementById('incoming-link').textContent=`📥 ${d.count} incoming`}).catch(()=>{});
+// Continue reading shelf
+BC.get('/books?sort=updated_at&order=desc&limit=10').then(d=>{
+  const inProgress=(d.books||[]).filter(b=>b.quality_score>0);// proxy: books with activity
+  if(inProgress.length){
+    document.getElementById('continue-reading').style.display='block';
+    document.getElementById('continue-books').innerHTML=inProgress.slice(0,6).map(b=>`
+      <div style="flex-shrink:0;width:100px;cursor:pointer" onclick="openBook('${b.id}')">
+        ${coverImg(b,'continue-cover')}
+        <div style="font-size:.65rem;margin-top:.3rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.title)}</div>
+      </div>
+    `).join('');
+  }
+}).catch(()=>{});
 </script>
 </body>
 </html>
