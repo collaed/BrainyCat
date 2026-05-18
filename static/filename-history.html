@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Filename History — BrainyCat</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+body{font-family:system-ui;background:#1a1a2e;color:#e0e0e0;margin:0;padding:1rem}
+h1{color:#fff;margin-bottom:.5rem}
+.controls{display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;padding:.5rem;background:#16213e;border-radius:8px}
+.controls label{font-size:.85rem;color:#aaa}
+.controls select,.controls input{background:#0f3460;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:.3rem .5rem}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{background:#16213e;padding:.5rem;text-align:left;cursor:pointer;user-select:none}
+th:hover{background:#1a3a5c}
+td{padding:.5rem;border-bottom:1px solid #222;vertical-align:top}
+tr:hover{background:#16213e}
+.pct{font-weight:bold;min-width:3.5rem;display:inline-block;text-align:right}
+.pct-low{color:#ff6b6b}.pct-mid{color:#ffd93d}.pct-high{color:#6bff6b}
+.op{background:#0f3460;padding:.15rem .4rem;border-radius:3px;font-size:.75rem}
+.btn-revert{background:#e94560;color:#fff;border:none;border-radius:4px;padding:.25rem .6rem;cursor:pointer;font-size:.75rem}
+.btn-revert:hover{background:#c0392b}
+.btn-revert:disabled{opacity:.4;cursor:not-allowed}
+.reverted{opacity:.5;text-decoration:line-through}
+.fname{max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arrow{color:#666;margin:0 .3rem}
+nav{margin-bottom:1rem}
+nav a{color:#4fc3f7;margin-right:1rem;text-decoration:none}
+</style>
+</head>
+<body>
+<nav><a href="/">← Library</a><a href="/static/stats.html">Stats</a><a href="/static/intelligence.html">Intelligence</a></nav>
+<h1>📝 Filename History</h1>
+<p style="color:#888;margin-bottom:1rem">Track every rename operation. Sort by alignment % to find aggressive changes worth reviewing.</p>
+
+<div class="controls">
+  <label>Sort: <select id="sort">
+    <option value="created_at">Date</option>
+    <option value="alignment_pct">Alignment %</option>
+    <option value="operation">Operation</option>
+  </select></label>
+  <label>Order: <select id="order">
+    <option value="desc">Desc</option>
+    <option value="asc">Asc</option>
+  </select></label>
+  <label>Min %: <input type="number" id="minPct" min="0" max="100" step="5" placeholder="0"></label>
+  <label>Max %: <input type="number" id="maxPct" min="0" max="100" step="5" placeholder="100"></label>
+  <button onclick="load()" style="background:#4fc3f7;color:#000;border:none;border-radius:4px;padding:.4rem .8rem;cursor:pointer">Filter</button>
+</div>
+
+<table>
+<thead><tr>
+  <th onclick="setSort('alignment_pct')">Align %</th>
+  <th>Book</th>
+  <th onclick="setSort('operation')">Operation</th>
+  <th>Before</th>
+  <th>After</th>
+  <th onclick="setSort('created_at')">Date</th>
+  <th>Action</th>
+</tr></thead>
+<tbody id="rows"></tbody>
+</table>
+
+<script>
+const $=id=>document.getElementById(id);
+function setSort(col){$('sort').value=col;load()}
+function pctClass(v){return v<40?'pct-low':v<75?'pct-mid':'pct-high'}
+
+async function load(){
+  const p=new URLSearchParams({sort:$('sort').value,order:$('order').value,limit:'500'});
+  const min=$('minPct').value,max=$('maxPct').value;
+  if(min)p.set('min_alignment',min);
+  if(max)p.set('max_alignment',max);
+  const r=await fetch('/api/v1/filename-history?'+p);
+  const data=await r.json();
+  $('rows').innerHTML=data.map(h=>`<tr class="${h.reverted?'reverted':''}">
+    <td><span class="pct ${pctClass(h.alignment_pct)}">${h.alignment_pct}%</span></td>
+    <td>${esc(h.title||'')}</td>
+    <td><span class="op">${esc(h.operation)}</span></td>
+    <td class="fname" title="${esc(h.filename_before)}">${esc(h.filename_before)}</td>
+    <td class="fname" title="${esc(h.filename_after)}">${esc(h.filename_after)}</td>
+    <td>${new Date(h.created_at).toLocaleDateString()}</td>
+    <td>${h.reverted?'✓ reverted':`<button class="btn-revert" onclick="revert('${h.id}',this)">Revert</button>`}</td>
+  </tr>`).join('');
+}
+
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+async function revert(id,btn){
+  if(!confirm('Revert this rename?'))return;
+  btn.disabled=true;
+  const r=await fetch(`/api/v1/filename-history/${id}/revert`,{method:'POST'});
+  const d=await r.json();
+  if(d.ok)load();else{alert(d.error||'Failed');btn.disabled=false}
+}
+
+load();
+</script>
+</body>
+</html>

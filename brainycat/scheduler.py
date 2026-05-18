@@ -14,6 +14,8 @@ _tasks: list[asyncio.Task[None]] = []
 
 async def start_scheduler() -> None:
     """Start all background loops with supervision."""
+    _tasks.append(asyncio.create_task(_supervised("watcher", _watcher_loop, 10)))
+
     loops = [
         ("enrichment", _enrichment_loop, 60),
         ("fingerprint", _fingerprint_loop, 30),

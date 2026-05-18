@@ -104,6 +104,9 @@ async def fix_titles_from_api(limit: int = 10) -> dict[str, int]:
 
                     if len(full) > 3 and full != r["title"]:
                         await execute("UPDATE books SET title = $1 WHERE id = $2", full, r["id"])
+                        # Record the title change as filename history
+                        from brainycat.filename_history import record_rename
+                        await record_rename(r["id"], "title_cleanup_api", r["title"], full)
                         fixed += 1
 
                     # Also grab any extra metadata while we're here

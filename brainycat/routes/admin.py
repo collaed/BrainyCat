@@ -1348,3 +1348,32 @@ async def retry_enrichment_now(book_id: str) -> dict[str, Any]:
     )
     result = await enrich_book(book_id)
     return result
+
+
+# ── Filename History ─────────────────────────────────────────────────────
+
+
+@router.get("/filename-history")
+async def filename_history(
+    sort: str = Query("created_at", regex="^(created_at|alignment_pct|operation)$"),
+    order: str = Query("desc", regex="^(asc|desc)$"),
+    min_alignment: float | None = None,
+    max_alignment: float | None = None,
+    limit: int = Query(200, le=1000),
+    _a: Any = Depends(require_admin),
+) -> list[dict[str, Any]]:
+    from brainycat.filename_history import get_history
+    return await get_history(limit=limit, sort_by=sort, order=order,
+                            min_alignment=min_alignment, max_alignment=max_alignment)
+
+
+@router.post("/filename-history/{history_id}/revert")
+async def revert_filename(history_id: str, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.filename_history import revert_rename
+    return await revert_rename(history_id)
+
+
+@router.post("/import/calibre-library")
+async def import_calibre(limit: int = Query(0), _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.calibre_library_import import import_calibre_library
+    return await import_calibre_library(limit=limit)

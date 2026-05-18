@@ -314,6 +314,18 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
                     )
             break  # Use first series found
 
+    # Credibility check: compare enrichment results against content signals
+    signals = (dict(row).get("extra_metadata") or {}).get("content_signals", {})
+    detected_lang = signals.get("detected_language")
+    if detected_lang and merged.get("language"):
+        enrich_lang = (merged["language"] or "")[:2].lower()
+        if enrich_lang and enrich_lang != detected_lang:
+            await execute(
+                "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'), '{language_mismatch}', $1::jsonb) WHERE id = $2",
+                json.dumps({"detected": detected_lang, "enrichment": enrich_lang}),
+                UUID(book_id),
+            )
+
     # Update quality score
     score = _compute_quality(book_id, row, merged)
     await execute("UPDATE books SET quality_score = $1 WHERE id = $2", score, UUID(book_id))
@@ -352,6 +364,14 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
         from brainycat.contribute import contribute_back
 
         await contribute_back(book_id)
+    except Exception:
+        pass
+
+    # Organize into Genre/Author/Title tree now that we have metadata
+    try:
+        from brainycat.organize import organize_after_enrichment
+
+        await organize_after_enrichment(book_id)
     except Exception:
         pass
 

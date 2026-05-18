@@ -108,14 +108,21 @@ async def _import_file(file_path: str) -> None:
             f.write(meta["cover_data"])
 
     await execute(
-        "INSERT INTO books (id, title, language, cover_path, original_filename, created_at, updated_at) "
-        "VALUES ($1, $2, $3, $4, $5, now(), now())",
+        "INSERT INTO books (id, title, cover_path, created_at, updated_at) "
+        "VALUES ($1, $2, $3, now(), now())",
         book_id,
         title,
-        meta.get("language"),
         cover_path,
-        filename,
     )
+
+    # Store language via M:N table
+    lang = meta.get("language")
+    if lang:
+        await execute("INSERT INTO languages (code) VALUES ($1) ON CONFLICT DO NOTHING", lang)
+        from brainycat.db import fetch_one as _fo
+        lang_row = await _fo("SELECT id FROM languages WHERE code = $1", lang)
+        if lang_row:
+            await execute("INSERT INTO books_languages (book_id, language_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", book_id, lang_row["id"])
     await execute(
         "INSERT INTO book_files (book_id, file_path, format, file_size, file_name) VALUES ($1, $2, $3, $4, $5)",
         book_id,
@@ -124,6 +131,12 @@ async def _import_file(file_path: str) -> None:
         size,
         filename,
     )
+
+    # Record filename history if title differs from original filename
+    canonical_name = f"{title}{ext}"
+    if canonical_name != filename:
+        from brainycat.filename_history import record_rename
+        await record_rename(book_id, "ingest", filename, canonical_name)
 
     # Link author if found
     author = meta.get("author")
@@ -138,3 +151,10 @@ async def _import_file(file_path: str) -> None:
             await execute("INSERT INTO books_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", book_id, row["id"])
 
     await log.ainfo("watcher_imported", title=title[:50], format=ext)
+
+    # Pre-enrichment content guard: detect language and genre from samples
+    try:
+        from brainycat.content_guard import detect_content_signals
+        await detect_content_signals(str(book_id))
+    except Exception:
+        pass
