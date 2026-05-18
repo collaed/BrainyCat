@@ -237,15 +237,11 @@ def _extract_comic(path: str) -> dict[str, Any]:
             with zipfile.ZipFile(path) as zf:
                 images = [n for n in zf.namelist() if n.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp"))]
                 result["page_count"] = len(images)
-                # Try to extract ComicInfo.xml
-                if "ComicInfo.xml" in zf.namelist():
-                    from xml.etree import ElementTree as ET
-
-                    ci = ET.fromstring(zf.read("ComicInfo.xml"))
-                    result["title"] = ci.findtext("Title") or ""
-                    result["authors"] = [ci.findtext("Writer") or ""]
-                    result["series"] = ci.findtext("Series")
-                    result["series_index"] = ci.findtext("Number")
+            # Full ComicInfo.xml parsing
+            from brainycat.comicinfo import parse_comicinfo
+            ci = parse_comicinfo(path)
+            if ci:
+                result.update(ci)
     except Exception:
         pass
     return result

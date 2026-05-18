@@ -68,6 +68,16 @@ class Settings(BaseSettings):
     exp_lsh_dedup: str = "0"
     exp_isbntools: str = "0"
     exp_file_rename: str = "0"
+
+    # Feature toggles
+    enable_fts: bool = False
+
+    # Email consumption (IMAP)
+    imap_host: str = ""
+    imap_user: str = ""
+    imap_password: str = ""
+    imap_folder: str = "INBOX"
+    enable_email_import: bool = False
     exp_kindle_fix: str = "0"
     exp_heatmap: str = "0"
     exp_mind_map: str = "0"

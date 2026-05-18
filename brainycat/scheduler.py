@@ -136,8 +136,15 @@ async def _format_stack_loop() -> None:
     await detect_series(limit=20)
 
     # Index content for full-text search
-    from brainycat.search_index import index_batch
-    await index_batch(limit=10)
+    from brainycat.config import settings
+    if getattr(settings, 'enable_fts', False):
+        from brainycat.search_index import index_batch
+        await index_batch(limit=10)
+
+    # Email consumption
+    if getattr(settings, 'enable_email_import', False):
+        from brainycat.email_consume import check_email_inbox
+        await check_email_inbox()
 
 
 # ── Title cleanup + genre classification (with rate limiting) ─────────────
