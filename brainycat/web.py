@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -14,6 +14,7 @@ from brainycat import (
     books,
     db,
 )
+from brainycat.auth import get_current_user
 from brainycat.http_client import get_client
 from brainycat.logging import setup_logging
 
@@ -148,6 +149,16 @@ app.patch("/api/v1/books/{book_id}")(books.update_book)
 app.delete("/api/v1/books/{book_id}")(books.delete_book)
 app.get("/api/v1/books/{book_id}/cover")(books.serve_cover)
 app.get("/api/v1/books/{book_id}/file/{file_id}")(books.serve_file)
+
+
+@app.get("/api/v1/authors")
+async def list_authors(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    rows = await db.fetch_all(
+        "SELECT a.id, a.name, count(ba.book_id) as book_count "
+        "FROM authors a JOIN books_authors ba ON ba.author_id = a.id "
+        "GROUP BY a.id ORDER BY count(ba.book_id) DESC, a.name"
+    )
+    return [dict(r) for r in rows]
 
 
 # ── Author update

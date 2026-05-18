@@ -156,22 +156,41 @@ Focus: Deep AI integration, academic tools.
 
 Not scheduled, evaluate when relevant:
 
-- **Readarr deep integration** — auto-download from indexers (Readarr archived June 2025, community forks exist)
-- **Podcast ingestion** — subscribe to podcasts, transcribe, add to library as "books"
-- **Physical book scanner** — dedicated hardware (Raspberry Pi + camera) for bulk ISBN scanning
-- **E-ink optimized UI** — simplified interface for Boox/Remarkable browsers
-- **Handwriting recognition** — OCR stylus annotations into searchable text
-- **Book marketplace** — buy/sell/trade between instances (federated)
-- **Reading speed training** — progressive RSVP exercises with comprehension tests
-- **Voice cloning** — record 10s of your voice → generate audiobooks in your voice (XTTS via Intello)
-- **Chapter detection** — ML-based silence detection to split monolithic audiobook MP3s
-- **OAI-PMH protocol** — metadata harvesting standard for institutional libraries
-- **Prowlarr integration** — search indexers for wanted books
-- **AI cover generation** — Stable Diffusion placeholder covers from title + genre
-- **StoryGraph API scraping** — import reading history from StoryGraph (no official API)
-- **Kobo deep sync** — full Kobo API (shelves, bookmarks, annotations, reading stats)
-- **Text↔Audio sync UI** — Whispersync-style immersion reading (Intello /api/v1/align ready)
-- **Multi-narrator detection** — identify speaker changes in audiobooks via diarization
+### From community feedback (Kavita/Calibre-Web/Reddit/Lemmy issues)
+
+- **OPDS-PS (Page Streaming)** — users want to read directly from OPDS without downloading (KOReader, Foliate)
+- **Kindle-friendly browser UI** — simplified interface for Kindle's experimental browser (Calibre-Web #2723)
+- **E-ink optimized mode** — high contrast, no animations, large touch targets
+- **Readwise integration** — export highlights to Readwise → Obsidian (most requested sync)
+- **WebDAV library access** — users want to mount library as WebDAV for any reader app
+- **Bulk metadata editor** — select 20 books, change author/publisher/tags in one go
+- **Cover aspect ratio normalization** — auto-crop/resize covers to consistent 2:3
+- **Reading time estimates** — "3h 42min" based on word count and user's reading speed
+- **"Continue reading" shelf** — prominent on homepage, shows last 5 in-progress books
+- **Download all formats** — one-click ZIP of all formats for a book
+- **Duplicate detection UI** — side-by-side comparison with merge button
+- **Import from Goodreads/StoryGraph** — CSV import of reading history + ratings
+- **Progress sync across devices** — the #1 most requested feature everywhere
+- **Dark/light/sepia reader themes** — with per-book memory
+- **Offline PWA** — service worker for reading without internet
+- **Kobo sync** — full bidirectional (Calibre-Web's most complex feature)
+- **PDF reflow** — convert scanned/fixed-layout PDF to reflowable EPUB
+- **Audiobook chapter detection** — silence-based splitting for monolithic MP3s
+- **Book lending between users** — with return dates and notifications
+- **Reading challenges** — "50 books in 2026" with community leaderboards
+
+### Features that can be off by default (toggle in settings)
+
+- Full-text search indexing (`enable_fts`)
+- Email consumption (`enable_email_import`)
+- OCR pipeline (requires Intello)
+- AI features (companion, explain, translate — requires Intello)
+- Social features (federation, book clubs)
+- MCP server
+- Podcast RSS feeds
+- TTS generation
+- Content fingerprinting (CPU-intensive)
+- Automatic format conversion on import
 
 ---
 
@@ -183,3 +202,61 @@ Not scheduled, evaluate when relevant:
 4. **Experimental framework** — evaluate new algorithms side-by-side before committing
 5. **Protocol polyglot** — support every sync protocol readers use
 6. **Self-hosted sovereignty** — no cloud dependencies, no telemetry, AGPL-3.0
+
+---
+
+## Testing Plan
+
+Every module must have tests covering: happy path, edge cases, error handling, and integration.
+
+### Unit Tests (pytest, per module)
+
+| Module | Tests required |
+|--------|---------------|
+| `isbn.py` | Valid ISBN-10/13, unicode dashes, invalid checksums, extraction from filenames, barcode decode mock |
+| `metadata.py` | Merge logic (shortest title, longest desc), relevance guard rejection, empty results |
+| `watcher.py` | File import, duplicate skip, extension filtering, debounce, consumption rules application |
+| `filename_history.py` | Alignment computation (identical=100%, completely different=0%), record/revert |
+| `content_guard.py` | Language detection (FR/EN/DE samples), genre detection, insufficient text handling |
+| `sentence_match.py` | Sentence extraction, unusual sentence picking, Google API mock (1 result, many results, 0 results) |
+| `format_stack.py` | Same ISBN detection, title similarity threshold, fingerprint verification mock |
+| `series_detect.py` | All regex patterns (Book 1, Tome 3, #2, Vol. 4), gap detection, missing search |
+| `consumption_rules.py` | Regex matching, all action types (tag, publisher, language, genre, skip), priority ordering |
+| `organize.py` | Path sanitization, genre/author/title tree, collision handling |
+| `search_index.py` | Indexing, search ranking, snippet generation, empty results |
+| `calibre_library_import.py` | OPF parsing, title matching, cover copy, author linking |
+| `comicinfo.py` | Full ComicInfo.xml parsing, missing fields, manga flag |
+| `email_consume.py` | IMAP mock, attachment extraction, allowed extensions, filename decoding |
+| `auth.py` | Session cookie, API key, header auth, expired session, bcrypt verify |
+| `books.py` | Upload, list with filters, search, delete, cover serving |
+| `metadata_audit.py` | Record change, validate (delete), flag (create bug), get_pending |
+
+### Integration Tests
+
+| Scenario | What it tests |
+|----------|---------------|
+| Full import pipeline | Drop file in incoming → watcher picks up → extract metadata → consumption rules → content guard → DB record |
+| Enrichment cycle | Book with ISBN → query sources → merge → writeback → quality score update |
+| Format stacking | Import same book as EPUB + PDF → fingerprint → auto-merge → single record with 2 formats |
+| OCR submission | PDF without text → submit to Intello → poll → receive result → update book |
+| Series detection | Import "Harry Potter 1" + "Harry Potter 3" → detect series → show gap at #2 |
+| Sentence fallback | Book with no ISBN, garbled title → sentence match → identify → update metadata |
+
+### E2E Tests
+
+| Flow | Steps |
+|------|-------|
+| New user setup | Visit / → setup wizard → create admin → redirect to library |
+| Upload and read | Login → upload EPUB → appears in grid → click → read in reader → progress saved |
+| Bulk enrichment | Select 5 books → click Enrich → jobs run → quality scores update → covers appear |
+| Metadata review | Enrichment changes title → appears in Ops page → admin validates → history cleared |
+| Flag and revert | Enrichment makes bad change → admin flags → bug created → admin reverts via filename history |
+
+### Running Tests
+
+```bash
+make test          # Unit tests (fast, no network)
+make test-int      # Integration tests (needs PostgreSQL)
+make test-e2e      # E2E tests (needs running instance)
+make test-all      # Everything
+```

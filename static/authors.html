@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authors — BrainyCat</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<script src="/static/api.js"></script>
+<style>
+body{margin:0;padding:1rem 1.5rem}
+h1{font-size:1.2rem}
+nav a{color:var(--pico-muted-color);margin-right:1rem;text-decoration:none;font-size:.85rem}
+.authors-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.8rem}
+.author-card{background:var(--pico-card-background-color);border:1px solid var(--pico-muted-border-color);border-radius:8px;padding:.8rem;cursor:pointer;transition:border-color .15s}
+.author-card:hover{border-color:var(--pico-primary)}
+.author-card .name{font-weight:600;font-size:.9rem}
+.author-card .count{color:var(--pico-muted-color);font-size:.8rem}
+.books-panel{margin-top:1.5rem;display:none}
+.books-panel h2{font-size:1rem;margin-bottom:.5rem}
+.books-panel .book-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.6rem}
+.books-panel .book{background:var(--pico-card-background-color);border-radius:6px;overflow:hidden;border:1px solid var(--pico-muted-border-color);cursor:pointer}
+.books-panel .book img{width:100%;aspect-ratio:2/3;object-fit:cover;display:block}
+.books-panel .book .title{padding:.4rem;font-size:.75rem;font-weight:600}
+.search-bar{margin-bottom:1rem}
+.search-bar input{width:100%;max-width:300px;height:2.2rem;font-size:.9rem;margin:0}
+</style>
+</head>
+<body>
+<nav><a href="/static/index.html">← Library</a></nav>
+<h1>✍️ Authors</h1>
+<div class="search-bar"><input type="search" id="filter" placeholder="Filter authors…" oninput="filterAuthors()"></div>
+<div class="authors-grid" id="grid"></div>
+<div class="books-panel" id="panel">
+  <h2 id="panel-title"></h2>
+  <div class="book-list" id="book-list"></div>
+</div>
+<script>
+let authors=[];
+async function load(){
+  authors=await BC.get('/authors');
+  render(authors);
+}
+function render(list){
+  document.getElementById('grid').innerHTML=list.map(a=>`
+    <div class="author-card" onclick="showBooks('${a.id}','${esc(a.name)}')">
+      <div class="name">${esc(a.name)}</div>
+      <div class="count">${a.book_count} book${a.book_count>1?'s':''}</div>
+    </div>
+  `).join('')||'<p style="color:var(--pico-muted-color)">No authors found</p>';
+}
+function filterAuthors(){
+  const q=document.getElementById('filter').value.toLowerCase();
+  render(q?authors.filter(a=>a.name.toLowerCase().includes(q)):authors);
+}
+async function showBooks(id,name){
+  document.getElementById('panel').style.display='block';
+  document.getElementById('panel-title').textContent=name;
+  const data=await BC.get('/books?author='+encodeURIComponent(name)+'&limit=100');
+  const books=data.books||[];
+  document.getElementById('book-list').innerHTML=books.map(b=>`
+    <div class="book" onclick="window.location='/static/index.html#book=${b.id}'">
+      ${b.cover_path?`<img src="/api/v1/books/${b.id}/cover" alt="">`:''}
+      <div class="title">${esc(b.title)}</div>
+    </div>
+  `).join('');
+  document.getElementById('panel').scrollIntoView({behavior:'smooth'});
+}
+function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+load();
+</script>
+</body>
+</html>
