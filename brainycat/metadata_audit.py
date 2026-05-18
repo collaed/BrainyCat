@@ -32,8 +32,86 @@ async def record_change(book_id: str, field: str, old_value: Any, new_value: Any
 async def get_history(book_id: str) -> list[dict[str, Any]]:
     """Get full change history for a book."""
     rows = await db.fetch_all(
-        "SELECT field, old_value, new_value, source, created_at FROM metadata_history WHERE book_id = $1 ORDER BY created_at",
+        "SELECT id, field, old_value, new_value, source, status, flag_reason, created_at "
+        "FROM metadata_history WHERE book_id = $1 ORDER BY created_at",
         UUID(book_id),
+    )
+    return [dict(r) for r in rows]
+
+
+async def get_pending(limit: int = 200, book_id: str | None = None) -> list[dict[str, Any]]:
+    """Get pending (unvalidated) operations."""
+    if book_id:
+        rows = await db.fetch_all(
+            "SELECT h.id, h.book_id, b.title, h.field, h.old_value, h.new_value, h.source, h.created_at "
+            "FROM metadata_history h JOIN books b ON b.id = h.book_id "
+            "WHERE h.status = 'pending' AND h.book_id = $1 ORDER BY h.created_at DESC LIMIT $2",
+            UUID(book_id), limit,
+        )
+    else:
+        rows = await db.fetch_all(
+            "SELECT h.id, h.book_id, b.title, h.field, h.old_value, h.new_value, h.source, h.created_at "
+            "FROM metadata_history h JOIN books b ON b.id = h.book_id "
+            "WHERE h.status = 'pending' ORDER BY h.created_at DESC LIMIT $1",
+            limit,
+        )
+    return [dict(r) for r in rows]
+
+
+async def validate(history_ids: list[str]) -> dict[str, int]:
+    """Validate operations — marks them as accepted, then deletes them."""
+    if not history_ids:
+        return {"validated": 0}
+    uuids = [UUID(h) for h in history_ids]
+    await db.execute(
+        "DELETE FROM metadata_history WHERE id = ANY($1) AND status = 'pending'",
+        uuids,
+    )
+    return {"validated": len(uuids)}
+
+
+async def validate_all_for_book(book_id: str) -> dict[str, int]:
+    """Validate all pending operations for a book."""
+    result = await db.execute(
+        "DELETE FROM metadata_history WHERE book_id = $1 AND status = 'pending'",
+        UUID(book_id),
+    )
+    return {"validated": 1}
+
+
+async def flag(history_ids: list[str], reason: str) -> dict[str, Any]:
+    """Flag operations as suspicious and create a bug candidate."""
+    if not history_ids:
+        return {"flagged": 0}
+    uuids = [UUID(h) for h in history_ids]
+    await db.execute(
+        "UPDATE metadata_history SET status = 'flagged', flag_reason = $1 WHERE id = ANY($2)",
+        reason, uuids,
+    )
+    # Gather context for the bug report
+    rows = await db.fetch_all(
+        "SELECT h.*, b.title FROM metadata_history h JOIN books b ON b.id = h.book_id WHERE h.id = ANY($1)",
+        uuids,
+    )
+    ops = [{"field": r["field"], "old": r["old_value"], "new": r["new_value"], "source": r["source"]} for r in rows]
+    book_id = rows[0]["book_id"] if rows else None
+    title = rows[0]["title"] if rows else "Unknown"
+
+    import json
+    description = f"Book: {title}\nReason: {reason}\nOperations flagged: {len(ops)}"
+    await db.execute(
+        "INSERT INTO bug_candidates (book_id, history_ids, description, operations) VALUES ($1, $2, $3, $4::jsonb)",
+        book_id, uuids, description, json.dumps(ops),
+    )
+    return {"flagged": len(uuids), "bug_created": True}
+
+
+async def list_bugs(status: str = "open", limit: int = 50) -> list[dict[str, Any]]:
+    """List bug candidates for review."""
+    rows = await db.fetch_all(
+        "SELECT bc.*, b.title as book_title FROM bug_candidates bc "
+        "LEFT JOIN books b ON b.id = bc.book_id WHERE bc.status = $1 ORDER BY bc.created_at DESC LIMIT $2",
+        status, limit,
     )
     return [dict(r) for r in rows]
 

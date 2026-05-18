@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Metadata Operations — BrainyCat</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<script src="/static/api.js"></script>
+<style>
+body{margin:0;padding:1rem 1.5rem}
+h1{font-size:1.2rem;margin-bottom:.5rem}
+.controls{display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap}
+.controls button{font-size:.8rem;padding:.4rem .8rem}
+table{width:100%;font-size:.82rem}
+th{position:sticky;top:0;background:var(--pico-background-color);z-index:1;font-size:.75rem;text-transform:uppercase}
+td{padding:.4rem .5rem;vertical-align:top}
+tr:hover{background:rgba(255,255,255,.03)}
+.field{font-weight:600;color:var(--pico-primary)}
+.old{color:var(--pico-del-color);text-decoration:line-through;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.new{color:var(--pico-ins-color);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.source{font-size:.7rem;padding:.1rem .4rem;border-radius:3px;background:var(--pico-muted-border-color)}
+.cb{accent-color:var(--pico-primary)}
+nav{margin-bottom:1rem}
+nav a{color:var(--pico-muted-color);margin-right:1rem;text-decoration:none;font-size:.85rem}
+nav a:hover{color:var(--pico-color)}
+.stats{font-size:.8rem;color:var(--pico-muted-color);margin-left:auto}
+#flag-modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:100}
+#flag-modal.open{display:flex}
+#flag-modal .box{background:var(--pico-card-background-color);border-radius:12px;padding:1.5rem;max-width:400px;width:90%}
+</style>
+</head>
+<body>
+<nav><a href="/static/index.html">← Library</a><a href="/static/filename-history.html">Filename History</a><a href="#" onclick="showBugs()">🐛 Bugs</a></nav>
+<h1>📋 Metadata Operations</h1>
+<p style="font-size:.8rem;color:var(--pico-muted-color);margin-bottom:1rem">Review changes made by enrichment, title cleanup, and imports. Validate to clear, or flag suspicious ones.</p>
+
+<div class="controls">
+  <label><input type="checkbox" class="cb" id="select-all" onchange="toggleAll()"> All</label>
+  <button onclick="validateSelected()" class="outline">✓ Validate selected</button>
+  <button onclick="openFlagModal()" class="outline secondary">⚠ Flag selected</button>
+  <span class="stats" id="stats"></span>
+</div>
+
+<table>
+<thead><tr><th></th><th>Book</th><th>Field</th><th>Before</th><th>After</th><th>Source</th><th>Date</th><th></th></tr></thead>
+<tbody id="rows"></tbody>
+</table>
+
+<div id="flag-modal">
+  <div class="box">
+    <h3 style="margin:0 0 .5rem;font-size:1rem">Flag as suspicious</h3>
+    <textarea id="flag-reason" rows="3" placeholder="What looks wrong?" style="width:100%;font-size:.85rem"></textarea>
+    <div style="display:flex;gap:.5rem;margin-top:.8rem">
+      <button onclick="submitFlag()">Submit bug</button>
+      <button class="secondary" onclick="closeFlagModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let ops=[];
+
+async function load(){
+  ops=await BC.get('/metadata-ops?limit=500');
+  document.getElementById('stats').textContent=ops.length+' pending operations';
+  render();
+}
+
+function render(){
+  document.getElementById('rows').innerHTML=ops.map(o=>`<tr>
+    <td><input type="checkbox" class="cb row-cb" data-id="${o.id}"></td>
+    <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.title)}">${esc(o.title)}</td>
+    <td><span class="field">${o.field}</span></td>
+    <td class="old" title="${esc(o.old_value||'')}">${esc(o.old_value||'—')}</td>
+    <td class="new" title="${esc(o.new_value||'')}">${esc(o.new_value||'—')}</td>
+    <td><span class="source">${o.source}</span></td>
+    <td style="white-space:nowrap;font-size:.75rem">${new Date(o.created_at).toLocaleDateString()}</td>
+    <td><button style="font-size:.7rem;padding:.2rem .4rem" onclick="validateOne('${o.id}')">✓</button></td>
+  </tr>`).join('');
+}
+
+function getSelected(){return[...document.querySelectorAll('.row-cb:checked')].map(c=>c.dataset.id)}
+function toggleAll(){const v=document.getElementById('select-all').checked;document.querySelectorAll('.row-cb').forEach(c=>c.checked=v)}
+
+async function validateSelected(){
+  const ids=getSelected();
+  if(!ids.length)return alert('Select operations first');
+  await BC.post('/metadata-ops/validate',{ids});
+  load();
+}
+
+async function validateOne(id){
+  await BC.post('/metadata-ops/validate',{ids:[id]});
+  load();
+}
+
+function openFlagModal(){
+  if(!getSelected().length)return alert('Select operations first');
+  document.getElementById('flag-modal').classList.add('open');
+}
+function closeFlagModal(){document.getElementById('flag-modal').classList.remove('open')}
+
+async function submitFlag(){
+  const ids=getSelected();
+  const reason=document.getElementById('flag-reason').value||'Suspicious change';
+  await BC.post('/metadata-ops/flag',{ids,reason});
+  closeFlagModal();
+  document.getElementById('flag-reason').value='';
+  load();
+}
+
+async function showBugs(){
+  const bugs=await BC.get('/bugs');
+  if(!bugs.length)return alert('No open bugs');
+  let msg=bugs.map(b=>`• ${b.book_title||'?'}: ${b.description}`).join('\n\n');
+  alert(msg);
+}
+
+function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+load();
+</script>
+</body>
+</html>

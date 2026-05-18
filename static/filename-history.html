@@ -11,7 +11,7 @@ h1{color:#fff;margin-bottom:.5rem}
 .controls label{font-size:.85rem;color:#aaa}
 .controls select,.controls input{background:#0f3460;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:.3rem .5rem}
 table{width:100%;border-collapse:collapse;font-size:.85rem}
-th{background:#16213e;padding:.5rem;text-align:left;cursor:pointer;user-select:none}
+th{background:#16213e;padding:.5rem;text-align:left;cursor:pointer;user-select:none;position:sticky;top:0;z-index:1}
 th:hover{background:#1a3a5c}
 td{padding:.5rem;border-bottom:1px solid #222;vertical-align:top}
 tr:hover{background:#16213e}
@@ -74,7 +74,7 @@ async function load(){
   const r=await fetch('/api/v1/filename-history?'+p);
   const data=await r.json();
   $('rows').innerHTML=data.map(h=>`<tr class="${h.reverted?'reverted':''}">
-    <td><span class="pct ${pctClass(h.alignment_pct)}">${h.alignment_pct}%</span></td>
+    <td><span class="pct ${pctClass(h.alignment_pct)}">${h.alignment_pct.toFixed(2)}%</span></td>
     <td>${esc(h.title||'')}</td>
     <td><span class="op">${esc(h.operation)}</span></td>
     <td class="fname" title="${esc(h.filename_before)}">${esc(h.filename_before)}</td>

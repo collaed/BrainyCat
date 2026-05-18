@@ -1377,3 +1377,46 @@ async def revert_filename(history_id: str, _a: Any = Depends(require_admin)) -> 
 async def import_calibre(limit: int = Query(0), _a: Any = Depends(require_admin)) -> dict[str, Any]:
     from brainycat.calibre_library_import import import_calibre_library
     return await import_calibre_library(limit=limit)
+
+
+# ── Metadata Operations Review ───────────────────────────────────────────
+
+
+@router.get("/metadata-ops")
+async def metadata_ops_pending(
+    book_id: str | None = None,
+    limit: int = Query(200, le=1000),
+    _a: Any = Depends(require_admin),
+) -> list[dict[str, Any]]:
+    from brainycat.metadata_audit import get_pending
+    return await get_pending(limit=limit, book_id=book_id)
+
+
+@router.get("/books/{book_id}/operations")
+async def book_operations(book_id: str, _a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    from brainycat.metadata_audit import get_history
+    return await get_history(book_id)
+
+
+@router.post("/metadata-ops/validate")
+async def validate_ops(body: dict[str, Any], _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.metadata_audit import validate
+    return await validate(body.get("ids", []))
+
+
+@router.post("/metadata-ops/validate-book/{book_id}")
+async def validate_book_ops(book_id: str, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.metadata_audit import validate_all_for_book
+    return await validate_all_for_book(book_id)
+
+
+@router.post("/metadata-ops/flag")
+async def flag_ops(body: dict[str, Any], _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    from brainycat.metadata_audit import flag
+    return await flag(body.get("ids", []), body.get("reason", "Suspicious change"))
+
+
+@router.get("/bugs")
+async def list_bugs(status: str = Query("open"), _a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    from brainycat.metadata_audit import list_bugs
+    return await list_bugs(status=status)

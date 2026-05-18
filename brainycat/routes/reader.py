@@ -22,6 +22,19 @@ async def list_incoming(status: str | None = Query(None), _u: Any = Depends(get_
     return await scanner.list_incoming(status)
 
 
+@router.get("/incoming/status")
+async def incoming_status(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Quick count of files waiting in the incoming folder."""
+    import os
+    from brainycat.config import settings
+    from brainycat.watcher import ALLOWED_EXT
+    incoming = settings.incoming_dir
+    if not os.path.isdir(incoming):
+        return {"count": 0, "path": incoming}
+    count = sum(1 for e in os.scandir(incoming) if e.is_file() and os.path.splitext(e.name)[1].lower() in ALLOWED_EXT)
+    return {"count": count, "path": incoming}
+
+
 @router.post("/incoming/scan")
 async def trigger_scan(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
     return await scanner.scan_incoming()
