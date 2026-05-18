@@ -18,7 +18,7 @@ async def _stt_via_intello(audio_path: str, language: str = "") -> dict | None:
         with open(audio_path, "rb") as f:
             data = {"language": language} if language else {}
             resp = await client.post(
-                f"{settings.intello_url}/api/v1/voice/transcribe",
+                f"{settings.heavy_url}/api/v1/voice/transcribe",
                 files={"file": (os.path.basename(audio_path), f, "audio/mpeg")},
                 data=data,
             )

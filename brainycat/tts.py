@@ -24,7 +24,7 @@ async def _tts_via_intello(text: str, language: str = "en", engine: str = "auto"
         # Try Orpheus first (expressive, human-like voices)
         if engine in ("auto", "groq"):
             resp = await client.post(
-                f"{settings.intello_url}/api/v1/voice/synthesize",
+                f"{settings.heavy_url}/api/v1/voice/synthesize",
                 data={"text": text[:50000], "language": language, "engine": "groq", "voice": ""},
             )
             if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("audio/"):
@@ -32,7 +32,7 @@ async def _tts_via_intello(text: str, language: str = "en", engine: str = "auto"
 
         # Fallback to Piper
         resp = await client.post(
-            f"{settings.intello_url}/api/v1/voice/synthesize",
+            f"{settings.heavy_url}/api/v1/voice/synthesize",
             data={"text": text[:50000], "language": language, "engine": "piper"},
         )
         if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("audio/"):
@@ -174,7 +174,7 @@ async def list_voices() -> list[dict[str, str]]:
     """List available voices from Intello or local."""
     try:
         client = get_client()
-        resp = await client.get(f"{settings.intello_url}/api/v1/voice/voices")
+        resp = await client.get(f"{settings.heavy_url}/api/v1/voice/voices")
         if resp.status_code == 200:
             data = resp.json()
             voices = data.get("voices", [])

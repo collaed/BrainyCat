@@ -35,7 +35,17 @@ class Settings(BaseSettings):
 
     # External services
     intello_url: str = "http://intello:8000"
+    intello_heavy_url: str = ""  # For OCR/TTS/STT — falls back to intello_url
     intello_api_key: str = ""
+    intello_heavy_api_key: str = ""  # Falls back to intello_api_key
+
+    @property
+    def heavy_url(self) -> str:
+        return self.intello_heavy_url or self.intello_url
+
+    @property
+    def heavy_key(self) -> str:
+        return self.intello_heavy_api_key or self.intello_api_key
     signal_api_url: str = "http://signal-api:8080"
     smtp_host: str = "mailserver"
     smtp_port: int = 587

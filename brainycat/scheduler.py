@@ -241,7 +241,7 @@ async def _ocr_loop() -> None:
     from brainycat.db import execute, fetch_all, fetch_one
     from brainycat.http_client import get_client
 
-    intello_url = settings.intello_url.rstrip("/")
+    intello_url = settings.heavy_url.rstrip("/")
     client = get_client()
 
     # 0. Check Intello health before doing anything

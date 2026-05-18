@@ -61,7 +61,7 @@ async def ocr_pdf(book_id: str, user_id: str | None = None) -> str:
     try:
         with open(submit_path, "rb") as f:
             resp = await client.post(
-                f"{settings.intello_url}/api/v1/ocr/jobs",
+                f"{settings.heavy_url}/api/v1/ocr/jobs",
                 files={"file": ("book.pdf", f, "application/pdf")},
                 data={"language": lang, "output": "hybrid"},
                 timeout=90,
