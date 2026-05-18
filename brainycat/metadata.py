@@ -155,6 +155,14 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
             )
 
     if not results:
+        # Fallback: try sentence-based identification
+        try:
+            from brainycat.sentence_match import identify_by_sentence
+            sent_result = await identify_by_sentence(book_id)
+            if sent_result.get("ok"):
+                return {"enriched": True, "quality_score": 0, "sources": 1, "method": "sentence_match"}
+        except Exception:
+            pass
         return {"enriched": False, "reason": "no results"}
 
     # Calibre-style merge: shortest title (least cruft), longest description,
