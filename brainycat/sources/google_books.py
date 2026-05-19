@@ -21,6 +21,10 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
     if settings.google_books_api_key:
         params["key"] = settings.google_books_api_key
     resp = await client.get(API_URL, params=params)
+    if resp.status_code == 429:
+        from brainycat.rate_limit import rate_limiter
+        rate_limiter.report_failure("google")
+        return None
     if resp.status_code != 200:
         return None
     data = resp.json()

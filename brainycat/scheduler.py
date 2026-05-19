@@ -127,19 +127,23 @@ async def _fingerprint_loop() -> None:
 
 # ── Format stacking ──────────────────────────────────────────────────────
 async def _format_stack_loop() -> None:
-    from brainycat.format_stack import auto_stack_cycle
     from brainycat.series_detect import detect_series
 
-    result = await auto_stack_cycle(limit=5)
-    if result.get("stacked"):
-        await log.ainfo("format_stacked", **result)
+    try:
+        from brainycat.format_stack import auto_stack_cycle
+        result = await auto_stack_cycle(limit=5)
+        if result.get("stacked"):
+            await log.ainfo("format_stacked", **result)
+    except Exception:
+        pass  # Don't let format_stack kill the whole loop
+
     await detect_series(limit=20)
 
-    # Index content for full-text search
+    # FTS indexing (independent of format_stack success)
     from brainycat.config import settings
     if getattr(settings, 'enable_fts', False):
         from brainycat.search_index import index_batch
-        await index_batch(limit=10)
+        await index_batch(limit=20)
 
     # Email consumption
     if getattr(settings, 'enable_email_import', False):
@@ -373,6 +377,16 @@ async def _watcher_loop() -> None:
     if not os.path.isdir(incoming):
         return
 
+    # First pass: group multi-file audiobooks and import as one
+    try:
+        from brainycat.audiobook_group import find_audio_groups, import_audio_group
+        groups = find_audio_groups(incoming)
+        for title, files in list(groups.items())[:3]:  # max 3 groups per cycle
+            await import_audio_group(title, files)
+    except Exception:
+        pass
+
+    # Second pass: individual files
     for entry in os.scandir(incoming):
         if entry.is_file():
             ext = os.path.splitext(entry.name)[1].lower()
