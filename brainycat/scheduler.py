@@ -139,6 +139,15 @@ async def _format_stack_loop() -> None:
 
     await detect_series(limit=20)
 
+    # Dedup: verify and merge confirmed duplicates
+    try:
+        from brainycat.dedup_engine import auto_dedup_cycle
+        dedup = await auto_dedup_cycle(limit=5)
+        if dedup.get("merged"):
+            await log.ainfo("dedup_merged", **dedup)
+    except Exception:
+        pass
+
     # FTS indexing (independent of format_stack success)
     from brainycat.config import settings
     if getattr(settings, 'enable_fts', False):
