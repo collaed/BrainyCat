@@ -291,6 +291,7 @@ async def list_books(
         "updated_at": "b.updated_at",
         "created_at": "b.created_at",
         "quality_score": "b.quality_score",
+        "drift": "(SELECT count(*) FROM metadata_history mh WHERE mh.book_id = b.id)",
     }
     sort_col = allowed_sorts.get(sort, "b.updated_at")
     order_dir = "ASC" if order.lower() == "asc" else "DESC"

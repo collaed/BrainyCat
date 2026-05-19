@@ -130,6 +130,7 @@ main{padding:1rem 1.5rem;max-width:1600px;margin:0 auto}
       <option value="title">Title</option>
       <option value="quality_score">Quality</option>
       <option value="created_at">Added</option>
+      <option value="drift">Most changed</option>
     </select>
     <select id="order" onchange="reload()">
       <option value="desc">↓</option>
@@ -302,8 +303,21 @@ async function openBook(id){
           <button onclick="enrich('${b.id}')">✨ Enrich</button>
           <button class="secondary" onclick="deleteBook('${b.id}')">🗑</button>
         </div>
+        <details style="margin-top:1rem">
+          <summary style="cursor:pointer;font-size:.8rem;color:var(--pico-muted-color)">📋 Operations history</summary>
+          <div id="book-ops" style="margin-top:.5rem;font-size:.75rem;max-height:200px;overflow-y:auto"></div>
+        </details>
       </div>
     </div>`;
+  // Load operations
+  BC.get('/books/'+id+'/operations').then(ops=>{
+    document.getElementById('book-ops').innerHTML=ops.length?ops.map(o=>`
+      <div style="padding:.3rem 0;border-bottom:1px solid var(--pico-muted-border-color)">
+        <strong>${o.field}</strong>: <span style="color:var(--pico-del-color);text-decoration:line-through">${esc((o.old_value||'—').substring(0,40))}</span> → <span style="color:var(--pico-ins-color)">${esc((o.new_value||'—').substring(0,40))}</span>
+        <span style="float:right;color:var(--pico-muted-color)">${o.source} · ${new Date(o.created_at).toLocaleDateString()}</span>
+      </div>
+    `).join(''):'<p style="color:var(--pico-muted-color)">No operations recorded yet</p>';
+  }).catch(()=>{});
   document.getElementById('modal').classList.add('open');
 }
 
