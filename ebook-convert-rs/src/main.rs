@@ -67,23 +67,30 @@ fn main() -> Result<()> {
         lenient: cli.lenient,
     };
 
-    ebook_convert::convert(&cli.input, &cli.output, &options)?;
+    // Run in a thread with 16MB stack to handle deeply nested documents
+    let input = cli.input.clone();
+    let output = cli.output.clone();
+    let json_summary = cli.json_summary;
 
-    if cli.json_summary {
-        let out_size = std::fs::metadata(&cli.output).map(|m| m.len()).unwrap_or(0);
-        let summary = serde_json::json!({
-            "status": "ok",
-            "input": cli.input.display().to_string(),
-            "output": cli.output.display().to_string(),
-            "output_size": out_size,
-        });
-        eprintln!("{}", summary);
-    }
+    let handle = std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(move || -> Result<()> {
+            ebook_convert::convert(&input, &output, &options)?;
 
-    tracing::info!(
-        "Converted {} → {}",
-        cli.input.display(),
-        cli.output.display()
-    );
-    Ok(())
+            if json_summary {
+                let out_size = std::fs::metadata(&output).map(|m| m.len()).unwrap_or(0);
+                let summary = serde_json::json!({
+                    "status": "ok",
+                    "input": input.display().to_string(),
+                    "output": output.display().to_string(),
+                    "output_size": out_size,
+                });
+                eprintln!("{}", summary);
+            }
+
+            tracing::info!("Converted {} → {}", input.display(), output.display());
+            Ok(())
+        })?;
+
+    handle.join().map_err(|_| anyhow::anyhow!("conversion thread panicked"))?
 }
