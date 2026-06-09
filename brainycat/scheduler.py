@@ -17,11 +17,27 @@ async def start_scheduler() -> None:
     _tasks.append(asyncio.create_task(_supervised("watcher", _watcher_loop, 10)))
 
     loops = [
-        ("enrichment", _enrichment_loop, 60),
-        ("fingerprint", _fingerprint_loop, 30),
+        # API-bound (network wait, don't block each other)
+        ("enrichment", _enrichment_loop, 10),
+        ("google_books", _google_books_loop, 20),
+        ("covers", _cover_loop, 5),
         ("title_cleanup", _title_cleanup_loop, 90),
-        ("format_stack", _format_stack_loop, 300),
         ("ocr", _ocr_loop, 120),
+        # Local-only (no network, fast)
+        ("fast_local_isbn", _fast_local_isbn_loop, 2),
+        ("fast_local_title", _fast_local_title_loop, 5),
+        # ISBN extraction (dedicated worker thread — starts once, loops internally)
+        ("isbn_extract", _isbn_extract_loop, 3600),
+        ("ol_works", _ol_works_loop, 3),
+        # CPU-bound (yields between items, separate from API loops)
+        ("text_profiler", _text_profiler_loop, 10),
+        ("ocr_copyright", _ocr_copyright_loop, 15),
+        ("cover_phash", _cover_phash_loop, 30),
+        # Disk/mixed
+        ("format_stack", _format_stack_loop, 300),
+        ("validation", _validation_loop, 30),
+        ("incipit_match", _incipit_match_loop, 600),
+        ("confidence", _confidence_loop, 60),
     ]
     for name, fn, interval in loops:
         task = asyncio.create_task(_supervised(name, fn, interval))
@@ -59,11 +75,11 @@ async def _enrichment_loop() -> None:
         "ORDER BY b.quality_score ASC, COALESCE(a.cnt, 0) ASC, b.updated_at ASC "
         "LIMIT 10"
     )
-    # Step 2: Lock 3 one-by-one (FOR UPDATE SKIP LOCKED per row)
+    # Step 2: Lock 6 one-by-one (FOR UPDATE SKIP LOCKED per row)
     rows = []
     async with pool.acquire() as conn, conn.transaction():
         for c in candidates:
-            if len(rows) >= 3:
+            if len(rows) >= 6:
                 break
             locked = await conn.fetchrow("SELECT id, title FROM books WHERE id = $1 FOR UPDATE SKIP LOCKED", c["id"])
             if locked:
@@ -73,8 +89,8 @@ async def _enrichment_loop() -> None:
     # Enrich all locked books in parallel (not sequentially)
     async def _enrich_one(row):
         try:
-            async with asyncio.timeout(30):
-                result = await enrich_book(str(row["id"]))
+            async with asyncio.timeout(20):
+                result = await enrich_book(str(row["id"]), skip_postprocess=True)
                 return 1 if result.get("enriched") else 0
         except TimeoutError:
             await log.awarning("enrichment_timeout", book_id=str(row["id"]))
@@ -84,6 +100,11 @@ async def _enrichment_loop() -> None:
 
     results = await asyncio.gather(*[_enrich_one(r) for r in rows])
     enriched = sum(results)
+
+    # Post-processing (covers, writeback, organize) — fire and forget, no timeout pressure
+    for row in rows:
+        asyncio.create_task(_postprocess(str(row["id"])))
+
     # Stage 2: Deep enrich for books still below 50 after standard enrichment
     for row in rows:
         book = await get_pool()
@@ -93,7 +114,7 @@ async def _enrichment_loop() -> None:
             try:
                 from brainycat.deep_enrich import deep_enrich
 
-                async with asyncio.timeout(30):
+                async with asyncio.timeout(45):
                     await deep_enrich(str(row["id"]))
             except Exception:
                 pass
@@ -102,30 +123,170 @@ async def _enrichment_loop() -> None:
         await log.ainfo("auto_enriched", count=enriched, batch=len(rows))
 
 
+async def _postprocess(book_id: str) -> None:
+    """Deferred post-processing: cover download, writeback, organize. Non-critical."""
+    try:
+        from brainycat.metadata import postprocess_book
+        async with asyncio.timeout(90):
+            await postprocess_book(book_id)
+    except Exception:
+        pass
+
+
+# ── Google Books dedicated loop (independent of main enrichment) ──────────
+async def _google_books_loop() -> None:
+    """Fast Google Books enrichment — runs at ~1 req/s with API key, independent of other sources."""
+    from brainycat.config import settings
+
+    if not settings.google_books_api_key:
+        return  # no key, skip dedicated loop — main enrichment handles it
+
+    from brainycat.sources import google_books
+
+    # Skip if both key and proxy are exhausted (avoid wasting log entries)
+    import time
+    now = time.monotonic()
+    if now < google_books._key_exhausted_until and now < google_books._anon_exhausted_until:
+        return
+
+    from brainycat import db
+    from brainycat.relevance_guard import is_relevant
+
+    # Find books not yet hit by google_books (skip audio-only and very short titles)
+    row = await db.fetch_one(
+        "SELECT b.id, b.title, b.isbn FROM books b "
+        "JOIN book_files bf ON bf.book_id = b.id "
+        "WHERE b.quality_score < 95 AND length(b.title) > 3 "
+        "AND bf.format IN ('epub','pdf','mobi','azw3','fb2','djvu','txt') "
+        "AND NOT EXISTS (SELECT 1 FROM enrichment_log el WHERE el.book_id = b.id AND el.method = 'google_books') "
+        "ORDER BY (b.isbn IS NOT NULL) DESC, b.quality_score ASC LIMIT 1"
+    )
+    if not row:
+        return
+
+    title = row["title"]
+    if not title:
+        # Can't search without a title, mark as attempted
+        await db.execute(
+            "INSERT INTO enrichment_log (book_id, method, success) VALUES ($1, 'google_books', false)",
+            row["id"],
+        )
+        return
+    isbn = row["isbn"] if "isbn" in row.keys() else None
+    result = await google_books.search(title=title, isbn=isbn)
+
+    success = False
+    if result and is_relevant(title or "", result.get("title", "") or "", result.get("isbn", "") or "", isbn or ""):
+        # Merge fields directly on books table
+        updates = []
+        params = []
+        idx = 1
+        for field in ("description", "cover_url"):
+            val = result.get(field)
+            if val:
+                col = "cover_path" if field == "cover_url" else field
+                existing = await db.fetch_one(f"SELECT {col} FROM books WHERE id = $1", row["id"])
+                if existing and not existing[col]:
+                    idx += 1
+                    updates.append(f"{col} = ${idx}")
+                    params.append(val)
+        if result.get("pubdate") and not (await db.fetch_one("SELECT pubdate FROM books WHERE id = $1", row["id"]))["pubdate"]:
+            from datetime import datetime
+            try:
+                dt = datetime.fromisoformat(result["pubdate"].replace("Z", "+00:00")) if "T" in result["pubdate"] else datetime.strptime(result["pubdate"][:10], "%Y-%m-%d")
+                idx += 1
+                updates.append(f"pubdate = ${idx}")
+                params.append(dt)
+            except (ValueError, TypeError):
+                pass
+        if result.get("isbn") and not isbn:
+            idx += 1
+            updates.append(f"isbn = ${idx}")
+            params.append(result["isbn"])
+        if updates:
+            await db.execute(
+                f"UPDATE books SET {', '.join(updates)}, updated_at = now() WHERE id = $1",
+                row["id"], *params
+            )
+        success = True
+
+    await db.execute(
+        "INSERT INTO enrichment_log (book_id, method, success) VALUES ($1, 'google_books', $2)",
+        row["id"], success,
+    )
+
+
 # ── Fingerprints + embeddings ─────────────────────────────────────────────
-async def _fingerprint_loop() -> None:
-    from brainycat.db import fetch_all
-    from brainycat.embeddings import embed_book
+# ── Unified text profiler (fingerprint + embedding + incipit in one pass) ──
+async def _text_profiler_loop() -> None:
+    """Single-pass: read file once, compute fingerprint + embedding + incipit."""
+    from brainycat.text_profiler import process_batch
 
-    unembedded = await fetch_all("SELECT id FROM books WHERE embedding IS NULL AND description IS NOT NULL LIMIT 20")
-    for r in unembedded:
-        with contextlib.suppress(Exception):
-            await embed_book(str(r["id"]))
+    result = await process_batch(batch_size=5)
+    if result.get("processed", 0) > 0:
+        await log.ainfo("text_profiled", **result)
 
-    from brainycat.fingerprints import compute_all_fingerprints, find_duplicates_by_content
-
-    # Only fingerprint books without ISBN (ISBN is sufficient for dedup)
-    result = await compute_all_fingerprints(batch_size=10)
-    if result["computed"] > 0:
-        await log.ainfo("fingerprints", **result)
-
-    if result.get("pending", 0) == 0:
+    # Run dedup comparison periodically (when no new files to process)
+    if result.get("status") == "complete":
+        from brainycat.fingerprints import find_duplicates_by_content
         dupes = await find_duplicates_by_content(batch_size=20)
         if dupes["new_matches"] > 0:
             await log.ainfo("dupes_found", **dupes)
 
 
+
+# ── Cover fetching (fills gaps for books with ISBN but no cover) ──────────
+async def _cover_loop() -> None:
+    """Fetch covers from Apple Books / Bookcover API for books missing covers."""
+    from brainycat import db
+    from brainycat.http_client import get_client
+    from brainycat.sources.covers import apple_cover, bookcover_api
+
+    row = await db.fetch_one(
+        "SELECT id, isbn, title FROM books "
+        "WHERE (cover_path IS NULL OR cover_path = '') AND isbn IS NOT NULL AND isbn != '' "
+        "ORDER BY quality_score DESC LIMIT 1"
+    )
+    if not row:
+        return
+
+    isbn = row["isbn"]
+    cover_url = await apple_cover(isbn) or await bookcover_api(isbn)
+    if not cover_url:
+        # Try Open Library cover
+        cover_url = f"https://covers.openlibrary.org/b/isbn/{isbn}-L.jpg"
+
+    if cover_url:
+        try:
+            client = get_client()
+            resp = await client.get(cover_url, timeout=15, follow_redirects=True)
+            if resp.status_code == 200 and len(resp.content) > 1000:
+                import os
+                cover_dir = "/data/covers"
+                os.makedirs(cover_dir, exist_ok=True)
+                ext = ".jpg"
+                path = f"{cover_dir}/{row['id']}{ext}"
+                with open(path, "wb") as f:
+                    f.write(resp.content)
+                await db.execute("UPDATE books SET cover_path = $1, updated_at = now() WHERE id = $2", path, row["id"])
+                return
+        except Exception:
+            pass
+
+    # Mark as attempted so we don't retry endlessly (set empty placeholder)
+    await db.execute("UPDATE books SET cover_path = 'none', updated_at = now() WHERE id = $1", row["id"])
+
 # ── Format stacking ──────────────────────────────────────────────────────
+
+# ── Metadata validation (cross-check enrichment vs actual content) ────────
+async def _validation_loop() -> None:
+    """Validate metadata against book content. Low priority, runs on profiled books."""
+    from brainycat.metadata_validator import validate_batch
+
+    result = await validate_batch(batch_size=10)
+    if result.get("validated", 0) > 0:
+        await log.ainfo("validation_run", **result)
+
 async def _format_stack_loop() -> None:
     from brainycat.series_detect import detect_series
 
@@ -373,6 +534,201 @@ async def _ocr_loop() -> None:
                         await log.ainfo("ocr_submitted", book_id=str(candidate["id"]))
                 except TimeoutError:
                     await log.awarning("ocr_submit_timeout")
+
+
+# ── Fast local lookup (no network, bulk ISBN/title matching) ──────────────
+async def _fast_local_isbn_loop() -> None:
+    from brainycat.fast_local import fast_local_pass
+    result = await fast_local_pass(batch_size=100)
+    if result.get("enriched", 0) > 0:
+        await log.ainfo("fast_local_isbn", **result)
+
+
+async def _fast_local_title_loop() -> None:
+    from brainycat.fast_local import fast_title_pass
+    result = await fast_title_pass(batch_size=50)
+    if result.get("found", 0) > 0:
+        await log.ainfo("fast_local_title", **result)
+
+
+# ── ISBN extraction from book content (dedicated thread) ──────────────────
+_isbn_thread_started = False
+_isbn_pick_lock = None  # initialized on first use
+
+
+async def _isbn_extract_loop() -> None:
+    """Start the ISBN extraction worker threads (once). They run independently."""
+    global _isbn_thread_started, _isbn_pick_lock
+    if _isbn_thread_started:
+        return
+    _isbn_thread_started = True
+    import threading
+    _isbn_pick_lock = threading.Lock()
+    for i in range(2):
+        t = threading.Thread(target=_isbn_worker, args=(i,), daemon=True, name=f"isbn_extract_{i}")
+        t.start()
+    await log.ainfo("isbn_workers_started", threads=2)
+
+
+def _isbn_worker(worker_id: int) -> None:
+    """Dedicated thread: picks one book at a time, extracts ISBN, writes result. Loops forever."""
+    import json
+    import os
+    import time
+    import zipfile
+
+    import psycopg2
+    import psycopg2.extras
+
+    from brainycat.isbn import extract_from_filename, extract_from_opf, extract_from_pdf_metadata, extract_from_text
+
+    conn = psycopg2.connect("postgresql://brainycat:brainycat@brainycat-db:5432/brainycat")
+    conn.autocommit = True
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    while True:
+        try:
+            # Synchronized: only one thread picks at a time
+            with _isbn_pick_lock:
+                cur.execute("""
+                    SELECT b.id, b.original_filename, bf.file_path, bf.format
+                    FROM books b
+                    JOIN book_files bf ON bf.book_id = b.id
+                    WHERE (b.isbn IS NULL OR b.isbn = '')
+                      AND bf.format IN ('epub','pdf','mobi','azw3')
+                      AND NOT (b.extra_metadata ? 'isbn_extract_tried')
+                    ORDER BY random()
+                    LIMIT 1
+                """)
+                row = cur.fetchone()
+                if row:
+                    # Mark immediately so the other thread won't pick it
+                    cur.execute(
+                        "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'::jsonb), '{isbn_extract_tried}', 'true'::jsonb) WHERE id = %s",
+                        (row["id"],),
+                    )
+
+            if not row:
+                time.sleep(60)
+                continue
+
+            book_id = row["id"]
+            file_path = row["file_path"]
+            fmt = row["format"]
+            orig_filename = row["original_filename"]
+
+            isbn = None
+            extra: dict = {}
+
+            # Phase 1: OPF metadata (epub only)
+            if fmt == "epub" and os.path.isfile(file_path):
+                opf = extract_from_opf(file_path)
+                isbn = opf.get("isbn")
+                extra.update({k: v for k, v in opf.items() if k != "identifiers"})
+
+            # Phase 2: PDF metadata
+            if not isbn and fmt == "pdf" and os.path.isfile(file_path):
+                isbn = extract_from_pdf_metadata(file_path)
+
+            # Phase 3: Filename
+            if not isbn and orig_filename:
+                isbn = extract_from_filename(orig_filename)
+
+            # Phase 4: Full text scan
+            if not isbn and os.path.isfile(file_path):
+                text = ""
+                if fmt == "epub":
+                    try:
+                        with zipfile.ZipFile(file_path) as zf:
+                            htmls = sorted(n for n in zf.namelist() if n.endswith((".xhtml", ".html")))
+                            for h in htmls[:15]:
+                                text += zf.read(h).decode("utf-8", errors="ignore") + "\n"
+                    except Exception:
+                        pass
+                elif fmt == "pdf":
+                    try:
+                        import fitz
+                        doc = fitz.open(file_path)
+                        for i in range(min(20, len(doc))):
+                            text += doc[i].get_text() + "\n"
+                        doc.close()
+                    except Exception:
+                        pass
+
+                if text:
+                    text_data = extract_from_text(text)
+                    isbn = text_data.get("isbn") or text_data.get("isbn_10")
+                    extra.update(text_data)
+
+            # Write results
+            if isbn:
+                cur.execute("UPDATE books SET isbn = %s, updated_at = now() WHERE id = %s AND (isbn IS NULL OR isbn = '')", (isbn, book_id))
+                cur.execute("INSERT INTO enrichment_log (book_id, method, success) VALUES (%s, 'isbn_extract', true)", (book_id,))
+
+            # Store extracted metadata
+            meta = {k: v for k, v in extra.items() if k not in ("ok", "isbn", "isbn_10") and v}
+            if meta:
+                cur.execute(
+                    "UPDATE books SET extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || %s::jsonb WHERE id = %s",
+                    (json.dumps(meta), book_id),
+                )
+
+            time.sleep(0)  # yield to OS scheduler
+
+        except Exception:
+            time.sleep(10)
+
+
+# ── OL Works API (description+rating for local-hit books) ─────────────────
+async def _ol_works_loop() -> None:
+    from brainycat.ol_works import enrich_batch
+    result = await enrich_batch(batch_size=10)
+    if result.get("enriched", 0) > 0 or result.get("skipped"):
+        await log.ainfo("ol_works", **result)
+
+
+# ── OCR Copyright Page (extract ISBN from first pages) ────────────────────
+async def _ocr_copyright_loop() -> None:
+    from brainycat.ocr_copyright import process_batch
+    result = await process_batch(batch_size=5)
+    if result.get("isbn_found", 0) > 0:
+        await log.ainfo("ocr_copyright", **result)
+
+
+# ── Cover Perceptual Hash ─────────────────────────────────────────────────
+async def _cover_phash_loop() -> None:
+    from brainycat.cover_phash import process_batch
+    result = await process_batch(batch_size=20)
+    if result.get("computed", 0) > 0:
+        await log.ainfo("cover_phash", **result)
+
+
+# ── Incipit Matching (periodic dedup via opening text) ────────────────────
+async def _incipit_match_loop() -> None:
+    from brainycat.incipit_match import find_incipit_matches
+    result = await find_incipit_matches(batch_size=100)
+    if result.get("isbn_propagated", 0) > 0 or result.get("groups", 0) > 0:
+        await log.ainfo("incipit_match", **result)
+
+
+# ── Confidence scoring ────────────────────────────────────────────────────
+async def _confidence_loop() -> None:
+    from brainycat.confidence import compute_batch
+    result = await compute_batch(batch_size=50)
+    if result.get("computed", 0) > 0:
+        await log.ainfo("confidence_scored", **result)
+
+    # Recompute stale quality scores (books enriched locally but score not updated)
+    from brainycat.db import fetch_all
+    from brainycat.metadata import recompute_quality
+    stale = await fetch_all("""
+        SELECT id FROM books
+        WHERE (extra_metadata ? 'local_enriched' OR extra_metadata ? 'ol_works_tried')
+          AND quality_score < 30
+        LIMIT 50
+    """)
+    for row in stale:
+        await recompute_quality(str(row["id"]))
 
 
 async def _watcher_loop() -> None:

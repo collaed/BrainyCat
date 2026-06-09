@@ -51,14 +51,21 @@ def _search_variants(title: str) -> list[str]:
     return variants or [title]
 
 
-async def enrich_book(book_id: str) -> dict[str, Any]:
+async def enrich_book(book_id: str, skip_postprocess: bool = False) -> dict[str, Any]:
     """Fetch metadata from all sources and merge into the book record."""
+    from brainycat.rate_limit import rate_limiter
+
     row = await fetch_one("SELECT * FROM books WHERE id = $1", UUID(book_id))
     if not row:
         return {"error": "not found"}
 
     title = row["title"]
     isbn = row["isbn"]
+
+    # Skip entirely if all sources are backed off
+    all_backed = all(rate_limiter.is_backed_off(k) for k in ["openlibrary", "google", "gutendex", "default"])
+    if all_backed:
+        return {"skipped": "all_sources_backed_off"}
 
     # Query ALL sources in parallel (Calibre-style)
     import asyncio
@@ -77,6 +84,9 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
 
         from brainycat.config import settings
 
+        if not settings.intello_url:
+            raise ValueError("no intello")
+        await rate_limiter.wait("default")
         async with _aio.timeout(15):
             client = get_client()
             lookup_body: dict[str, Any] = {"query": query_title, "media_type": "book"}
@@ -88,6 +98,7 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
                 timeout=15,
             )
         if resp.status_code == 200:
+            rate_limiter.report_success("default")
             lookup_data = resp.json()
             for source_name, source_data in lookup_data.get("sources", {}).items():
                 for result in source_data.get("results", [])[:1]:
@@ -105,21 +116,33 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
                         "{}",
                     )
     except Exception:
-        pass
+        rate_limiter.report_failure("default")
 
     # Fallback: direct source queries (if Intello lookup returned nothing)
     if not results:
+        from brainycat.config import settings
+
         source_fns = [
-            ("loc", lambda: __import__("brainycat.sources.loc", fromlist=["search"]).search(title=query_title, isbn=isbn)),
             ("open_library", open_library.search),
-            ("google_books", google_books.search),
             ("gutendex", gutendex.search),
         ]
+        # Only include google_books in fallback if no API key (dedicated loop handles it otherwise)
+        if not settings.google_books_api_key:
+            source_fns.append(("google_books", google_books.search))
+
+        # Filter out sources that are backed off
+        source_fns = [(n, fn) for n, fn in source_fns if not rate_limiter.is_backed_off(n)]
+        if not source_fns:
+            return {"skipped": "all_fallback_sources_backed_off"}
 
         async def _fetch(name: str, fn: Any) -> tuple[str, dict[str, Any] | None]:
             from brainycat.retry import with_retry
 
+            if rate_limiter.is_backed_off(name):
+                return name, None
+
             try:
+                await rate_limiter.wait(name)
                 async with asyncio.timeout(15):  # 15s max per source
                     r = await with_retry(fn, title=title, isbn=isbn, retries=1, delay=2.0)
                     if not r and not isbn:
@@ -127,8 +150,13 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
                             r = await with_retry(fn, title=variant, isbn=isbn, retries=0, delay=0)
                             if r:
                                 break
+                if r:
+                    rate_limiter.report_success(name)
+                else:
+                    rate_limiter.report_failure(name)
                 return name, r
-            except TimeoutError:
+            except (TimeoutError, Exception):
+                rate_limiter.report_failure(name)
                 return name, None
 
         raw_results = await asyncio.gather(*[_fetch(n, fn) for n, fn in source_fns])
@@ -269,6 +297,43 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
         except Exception:
             pass
 
+    # ── Post-processing (cover, writeback, organize) — skippable for fast mode ──
+    if not skip_postprocess:
+        await postprocess_book(book_id, row=row, merged=merged, results=results)
+
+    # Update quality score
+    score = _compute_quality(book_id, row, merged)
+    await execute("UPDATE books SET quality_score = $1 WHERE id = $2", score, UUID(book_id))
+
+    # Store Open Library Work ID + edition IDs for "you already own this" detection
+    for r in results:
+        work_key = r.get("ol_work_key")
+        if work_key:
+            import json as _json
+
+            await execute(
+                "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'), '{ol_work_id}', $1::jsonb) WHERE id = $2",
+                _json.dumps(work_key),
+                UUID(book_id),
+            )
+            break  # One work ID is enough
+
+    return {"enriched": True, "quality_score": score, "sources": len(results)}
+
+
+async def postprocess_book(book_id: str, row: Any = None, merged: dict | None = None, results: list | None = None) -> None:
+    """Heavy post-processing: cover download, EPUB writeback, organize. Runs async."""
+    if row is None:
+        row = await fetch_one("SELECT * FROM books WHERE id = $1", UUID(book_id))
+        if not row:
+            return
+    if merged is None:
+        merged = {}
+    if results is None:
+        results = []
+
+    isbn = row.get("isbn") or merged.get("isbn")
+
     # Cover chain: source results → Apple Books → Bookcover API → OL → Generate
     if not row["cover_path"]:
         import os
@@ -339,32 +404,7 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
                 UUID(book_id),
             )
 
-    # Update quality score
-    score = _compute_quality(book_id, row, merged)
-    await execute("UPDATE books SET quality_score = $1 WHERE id = $2", score, UUID(book_id))
-
-    # Store Open Library Work ID + edition IDs for "you already own this" detection
-    for r in results:
-        work_key = r.get("ol_work_key")
-        if work_key:
-            import json as _json
-
-            await execute(
-                "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'), '{ol_work_id}', $1::jsonb) WHERE id = $2",
-                _json.dumps(work_key),
-                UUID(book_id),
-            )
-            break  # One work ID is enough
-
     # Post-enrichment: writeback metadata into EPUB
-    try:
-        from brainycat.writeback import writeback_metadata
-
-        await writeback_metadata(book_id)
-    except Exception:
-        pass
-
-    # Auto-writeback metadata to EPUB file
     try:
         from brainycat.writeback import writeback_metadata
 
@@ -387,8 +427,6 @@ async def enrich_book(book_id: str) -> dict[str, Any]:
         await organize_after_enrichment(book_id)
     except Exception:
         pass
-
-    return {"enriched": True, "quality_score": score, "sources": len(results)}
 
 
 def _compute_quality(book_id: str, row: Any, merged: dict[str, Any]) -> int:
@@ -439,6 +477,47 @@ def _compute_quality(book_id: str, row: Any, merged: dict[str, Any]) -> int:
     if merged.get("series"):
         score += 10
     return min(score, 100)
+
+
+async def recompute_quality(book_id: str) -> int:
+    """Recompute quality_score from current DB state (no merged dict needed)."""
+    row = await fetch_one("SELECT id, title, isbn, description, cover_path, pubdate, extra_metadata FROM books WHERE id = $1", UUID(book_id))
+    if not row:
+        return 0
+    score = 0
+    if row["title"] and str(row["title"]).lower() not in ("unknown", "untitled"):
+        score += 10
+    score += 15  # author (always awarded)
+    if row["cover_path"]:
+        score += 15
+    if row["description"] and len(str(row["description"])) > 20:
+        score += 15
+    if row["isbn"]:
+        score += 10
+    # Language (junction table)
+    lang = await fetch_one("SELECT 1 FROM books_languages WHERE book_id = $1 LIMIT 1", UUID(book_id))
+    if lang:
+        score += 5
+    # Publisher (junction table)
+    pub = await fetch_one("SELECT 1 FROM books_publishers WHERE book_id = $1 LIMIT 1", UUID(book_id))
+    extra = row["extra_metadata"] or {}
+    if isinstance(extra, str):
+        extra = json.loads(extra)
+    if pub or extra.get("publisher"):
+        score += 5
+    if row["pubdate"]:
+        score += 5
+    # Tags (junction table)
+    tags = await fetch_one("SELECT 1 FROM books_tags WHERE book_id = $1 LIMIT 1", UUID(book_id))
+    if tags:
+        score += 10
+    # Series
+    series = await fetch_one("SELECT 1 FROM books_series WHERE book_id = $1 LIMIT 1", UUID(book_id))
+    if series:
+        score += 10
+    score = min(score, 100)
+    await execute("UPDATE books SET quality_score = $1 WHERE id = $2", score, UUID(book_id))
+    return score
 
 
 async def classify_genre_via_llm(book_id: str) -> dict[str, Any]:
