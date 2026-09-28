@@ -17,6 +17,7 @@ from brainycat.db import execute, fetch_all, fetch_one
 from brainycat.http_client import get_client
 from brainycat.isbn import _clean_isbn
 from brainycat.rate_limit import rate_limiter
+from brainycat.title_parse import parse_title
 
 _ENTITY_RE = re.compile(r"&#\d+;|&#x[0-9a-fA-F]+;|&[a-zA-Z]+;")
 
@@ -37,6 +38,77 @@ async def decode_html_entities(limit: int = 50) -> dict[str, int]:
             await execute("UPDATE books SET title = $1, description = $2 WHERE id = $3", new_title, new_desc, r["id"])
             fixed += 1
     return {"fixed": fixed, "checked": len(rows)}
+
+
+async def apply_local_title_parse(limit: int = 30) -> dict[str, int]:
+    """Parse structured metadata (title/author/isbn/publisher) directly out of Anna's Archive /
+    libgen.li style filename-derived titles — no external lookup, no rate limit, and it works even
+    for titles enrichment could never search for (e.g. a bare content-hash title with no words at
+    all). See brainycat.title_parse for the actual parsing logic."""
+    rows = await fetch_all(
+        """
+        SELECT id, title FROM books
+        WHERE identity_status = 'auto'
+          AND NOT (extra_metadata ? 'title_parsed')
+          AND (title ~ '^[0-9a-f]{8} ' OR title ILIKE '%Anna%Archive%' OR title ILIKE '%libgen%' OR length(title) > 35)
+        LIMIT $1
+        """,
+        limit,
+    )
+    applied = 0
+    for r in rows:
+        parsed = parse_title(r["title"])
+        if parsed.confidence in ("high", "medium") and parsed.title and parsed.title != r["title"]:
+            sets, vals = ["title = $1"], [parsed.title]
+            idx = 2
+            if parsed.isbn:
+                sets.append(f"isbn = COALESCE(isbn, ${idx})")
+                vals.append(parsed.isbn)
+                idx += 1
+            extra: dict[str, Any] = {"title_parsed": True}
+            if parsed.publisher:
+                extra["publisher_guess"] = parsed.publisher
+            if parsed.year:
+                extra["year_guess"] = parsed.year
+            import json as _json
+
+            sets.append(f"extra_metadata = COALESCE(extra_metadata, '{{}}'::jsonb) || ${idx}::jsonb")
+            vals.append(_json.dumps(extra))
+            idx += 1
+            vals.append(r["id"])
+            await execute(f"UPDATE books SET {', '.join(sets)}, updated_at = now() WHERE id = ${idx}", *vals)
+
+            from brainycat.metadata_audit import record_change
+
+            await record_change(str(r["id"]), "title", r["title"], parsed.title, "local_filename_parse")
+            if parsed.isbn:
+                await record_change(str(r["id"]), "isbn", None, parsed.isbn, "local_filename_parse")
+
+            if parsed.author:
+                from brainycat.author_names import split_authors
+
+                has_author = await fetch_one("SELECT 1 FROM books_authors WHERE book_id = $1 LIMIT 1", r["id"])
+                if not has_author:
+                    for name in split_authors(parsed.author):
+                        await execute("INSERT INTO authors (name) VALUES ($1) ON CONFLICT (name) DO NOTHING", name)
+                        author_row = await fetch_one("SELECT id FROM authors WHERE name = $1", name)
+                        if author_row:
+                            await execute(
+                                "INSERT INTO books_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                                r["id"],
+                                author_row["id"],
+                            )
+
+            # A much cleaner title/isbn is new evidence — clear stale enrichment attempts so the
+            # next background pass retries with it instead of waiting out the old backoff.
+            await execute("DELETE FROM enrichment_log WHERE book_id = $1", r["id"])
+            applied += 1
+        else:
+            await execute(
+                "UPDATE books SET extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || '{\"title_parsed\": true}'::jsonb WHERE id = $1",
+                r["id"],
+            )
+    return {"applied": applied, "checked": len(rows)}
 
 
 async def extract_isbn_from_title(limit: int = 20) -> dict[str, int]:
@@ -231,12 +303,14 @@ async def cleanup_titles_regex(limit: int = 20) -> dict[str, int]:
 
 async def run_title_cleanup_cycle() -> dict[str, Any]:
     """One cycle of the title cleanup background process."""
+    r5 = await apply_local_title_parse(30)
     r0 = await extract_isbn_from_title(10)
     r1 = await extract_isbn_from_filename(10)
     r2 = await fix_titles_from_api(5)
     r3 = await ocr_last_pages_for_isbn(3)
     r4 = await decode_html_entities(50)
     return {
+        "local_title_parse": r5,
         "isbn_from_title": r0,
         "isbn_from_filename": r1,
         "api_title_fix": r2,
