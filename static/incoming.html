@@ -14,11 +14,79 @@ header button{padding:.4rem .8rem;border-radius:6px;border:none;background:var(-
 .item button{padding:.4rem .8rem;border-radius:6px;border:none;cursor:pointer;font-size:.85rem;color:#fff}
 .btn-confirm{background:var(--success)}.btn-reject{background:var(--danger)}
 .empty{text-align:center;padding:3rem;color:var(--muted)}
+.dropzone{border:2px dashed var(--border);border-radius:8px;padding:2rem;text-align:center;color:var(--muted);margin-bottom:1.5rem;transition:border-color .15s,color .15s}
+.dropzone.active{border-color:var(--accent);color:var(--text)}
+.dropzone input{display:none}
+.dropzone label{color:var(--accent);cursor:pointer;text-decoration:underline}
+.section-label{font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:1.5rem 0 .5rem}
+#upload-status{margin-top:1rem;text-align:left}
+.upload-row{display:flex;align-items:center;gap:.6rem;padding:.4rem .6rem;border-radius:6px;font-size:.85rem;margin-bottom:.3rem;background:#0f172a}
+.upload-row .icon{flex-shrink:0}
+.upload-row .name{font-weight:600;color:var(--text)}
+.upload-row .detail{color:var(--muted)}
+.upload-row.ok{border-left:3px solid var(--success)}
+.upload-row.warn{border-left:3px solid #eab308}
+.upload-row.err{border-left:3px solid var(--danger)}
+.upload-summary{font-size:.8rem;color:var(--muted);margin-top:.5rem}
 </style></head><body>
-<header><a href="index.html">← Library</a><h2>📥 Incoming Files</h2><button onclick="scan()">🔄 Scan Now</button><nav style="display:flex;gap:.5rem"><a href="catalog.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">📖 Catalog</a><a href="incoming.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">📥 Incoming</a><a href="intelligence.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">🧠 Intel</a><a href="stats.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">📊 Stats</a><a href="recommendations.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">💡 For You</a></nav></header>
-<div class="container" id="list"></div>
+<header><a href="index.html">← Library</a><h2>📥 Incoming Files</h2><button onclick="scan()">🔄 Scan Now</button><div id="bc-nav"></div></header>
+<script src="nav.js"></script>
+<div class="container">
+  <div class="section-label">Upload — added to your library immediately</div>
+  <div class="dropzone" id="dropzone">
+    Drop ebook/audiobook files here, or <label for="file-input">browse</label>
+    <input type="file" id="file-input" multiple accept=".epub,.pdf,.mobi,.azw3,.mp3,.m4b,.flac,.ogg,.zip" onchange="uploadFiles(this.files)">
+    <div id="upload-status"></div>
+  </div>
+  <div class="section-label">Server incoming folder — awaiting review (separate from the upload above)</div>
+  <div id="list"></div>
+</div>
 <script src="api.js"></script>
 <script>
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// Turn one /books/upload response into a flat list of {filename, status, detail} rows.
+// A .zip upload comes back as {zip:true, results:[...]} — one row per file inside it.
+function rowsFromResult(filename, r) {
+    if (r && r.zip && Array.isArray(r.results)) {
+        return r.results.map(inner => rowsFromResult(inner.filename, inner)[0]);
+    }
+    if (r && (r.error || r.detail)) return [{filename, status: 'err', detail: r.error || r.detail}];
+    if (r && r.warning === 'duplicate') return [{filename, status: 'warn', detail: `already have "${r.existing_title}"`}];
+    if (r && r.warning === 'likely_duplicate') return [{filename, status: 'warn', detail: `looks like a duplicate (${Math.round((r.similarity||0)*100)}% similar)`}];
+    return [{filename, status: 'ok', detail: r?.title || 'added'}];
+}
+
+async function uploadFiles(files) {
+    const status = document.getElementById('upload-status');
+    status.innerHTML = '';
+    const rows = [];
+    for (const f of files) {
+        const r = await BC.upload('/books/upload', f);
+        rows.push(...rowsFromResult(f.name, r));
+        renderUploadRows(rows);
+    }
+    document.getElementById('file-input').value = '';
+}
+
+function renderUploadRows(rows) {
+    const icon = {ok: '✅', warn: '⚠️', err: '❌'};
+    const status = document.getElementById('upload-status');
+    status.innerHTML = rows.map(r => `<div class="upload-row ${r.status}"><span class="icon">${icon[r.status]}</span><span class="name">${esc(r.filename)}</span><span class="detail">${esc(r.detail)}</span></div>`).join('')
+        + `<div class="upload-summary">${rows.filter(r=>r.status==='ok').length} added, ${rows.filter(r=>r.status==='warn').length} skipped, ${rows.filter(r=>r.status==='err').length} failed</div>`;
+}
+const dz = document.getElementById('dropzone');
+let dragDepth = 0;
+dz.addEventListener('dragenter', e => { if (!e.dataTransfer.types.includes('Files')) return; e.preventDefault(); dragDepth++; dz.classList.add('active'); });
+dz.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); });
+dz.addEventListener('dragleave', e => { e.preventDefault(); dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) dz.classList.remove('active'); });
+dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dragDepth = 0;
+    dz.classList.remove('active');
+    if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+});
+
 async function load() {
     const items = await BC.get('/incoming');
     const el = document.getElementById('list');

@@ -462,11 +462,13 @@ async function init() {
             const convResp = await fetch(API + '/books/' + bookId + '/convert/epub', {method:'POST', credentials:'same-origin'});
             if (convResp.ok) {
                 const convData = await convResp.json();
-                if (convData.file_id) {
-                    log('Conversion done, reloading...');
+                if (convData.ok) {
+                    log('Conversion done (' + (convData.method||'?') + '), reloading...');
                     location.reload();
                     return;
                 }
+                log('Conversion failed: ' + (convData.error || 'unknown error'));
+                return;
             }
         } catch(e) {}
         log('No EPUB available and conversion failed');

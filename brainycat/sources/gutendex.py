@@ -22,11 +22,16 @@ async def search(
     if not params.get("search") and not topic:
         return None
 
-    client = get_client()
-    resp = await client.get(API_URL, params=params)
-    if resp.status_code != 200:
+    try:
+        client = get_client()
+        resp = await client.get(API_URL, params=params, timeout=8)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+    except Exception:
+        # gutendex.com is occasionally unreachable/slow from some networks; fail fast rather than
+        # eating the caller's whole per-source time budget (was the root cause of enrichment timeouts).
         return None
-    data = resp.json()
 
     results = data.get("results", [])
     if not results:
@@ -39,17 +44,23 @@ async def browse(language: str = "en", topic: str | None = None, page: int = 1) 
     if topic:
         params["topic"] = topic
     client = get_client()
-    resp = await client.get(API_URL, params=params)
-    data = resp.json() if resp.status_code == 200 else {}
+    try:
+        resp = await client.get(API_URL, params=params, timeout=8)
+        data = resp.json() if resp.status_code == 200 else {}
+    except Exception:
+        data = {}
     return {"count": data.get("count", 0), "books": [_parse_book(b) for b in data.get("results", [])]}
 
 
 async def get_book(gutenberg_id: int) -> dict[str, Any] | None:
     client = get_client()
-    resp = await client.get(f"{API_URL}/{gutenberg_id}")
-    if resp.status_code != 200:
+    try:
+        resp = await client.get(f"{API_URL}/{gutenberg_id}", timeout=8)
+        if resp.status_code != 200:
+            return None
+        return _parse_book(resp.json())
+    except Exception:
         return None
-    return _parse_book(resp.json())
 
 
 def _parse_book(data: dict[str, Any]) -> dict[str, Any]:

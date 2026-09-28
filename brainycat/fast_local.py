@@ -21,7 +21,7 @@ async def fast_local_pass(batch_size: int = 100) -> dict[str, Any]:
     rows = await fetch_all("""
         SELECT b.id, b.isbn, b.title, b.description, b.pubdate
         FROM books b
-        WHERE b.isbn IS NOT NULL AND length(b.isbn) >= 10
+        WHERE b.isbn IS NOT NULL AND length(b.isbn) >= 10 AND b.identity_status != 'locked'
           AND NOT (b.extra_metadata ? 'local_enriched')
         ORDER BY b.quality_score ASC
         LIMIT $1

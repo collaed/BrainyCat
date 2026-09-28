@@ -57,10 +57,23 @@ async def convert(
     if src_ext == ".pdf" and dest_ext == ".epub":
         return await _pdf_to_epub(src, dest, css)
 
-    # Try ebook-convert-rs first (Rust, 10-50x faster)
+    # Primary: ebook-convert-rs (Rust, 10-50x faster). Falls back to Calibre only in the two specific
+    # conditions _ebook_convert_rs itself distinguishes: the binary isn't installed, or it ran and
+    # failed. Either way every attempt is logged loudly — this converter is young, and a silent
+    # fallback would hide exactly the failures we need to see to fix it.
     rs_result = await _ebook_convert_rs(src, dest, css)
     if rs_result.get("ok"):
         return rs_result
+
+    from brainycat.log import warning
+
+    if rs_result.get("reason") == "not_installed":
+        warning(f"conversion_rs_unavailable src={src_ext} dest={dest_ext} — falling back to Calibre")
+    else:
+        warning(
+            f"conversion_rs_failed src={src_ext} dest={dest_ext} "
+            f"returncode={rs_result.get('returncode')} stderr={rs_result.get('stderr', '')[:500]!r} — falling back to Calibre"
+        )
 
     # Fallback: Calibre ebook-convert
     if shutil.which("ebook-convert"):
@@ -70,40 +83,56 @@ async def convert(
     if dest_ext == ".pdf" and src_ext == ".epub":
         return await _weasyprint(src, dest, css)
 
-    return {"error": f"no converter for {src_ext}→{dest_ext}"}
+    return {"error": f"no converter for {src_ext}→{dest_ext}", "rs_reason": rs_result.get("reason")}
 
 
 async def _ebook_convert_rs(src: str, dest: str, css: str) -> dict[str, Any]:
-    """Rust ebook converter — fast, handles EPUB/MOBI/PDF/DOCX/HTML/TXT."""
+    """Rust ebook converter — fast, handles EPUB/MOBI/PDF/DOCX/HTML/TXT.
+
+    Returns {"ok": False, "reason": "not_installed"} when the binary is missing (the only case that
+    should be silent — that's a deployment fact, not a converter bug), or {"ok": False, "reason":
+    "failed", "returncode": ..., "stderr": ...} on an actual conversion failure, so the caller can
+    log real diagnostic detail instead of a bare pass.
+    """
+    from brainycat.log import info
+
     rs_bin = shutil.which("ebook-convert-rs")
     if not rs_bin:
-        return {}
-    cmd = [rs_bin, src, dest]
+        return {"ok": False, "reason": "not_installed"}
+
+    # --extra-css takes the CSS text itself (not a file path) — and --verbose so a failure gives
+    # real trace-level detail instead of just a bare exit code, per "log enough to diagnose it".
+    cmd = [rs_bin, src, dest, "--verbose"]
     if css:
-        css_path = tempfile.mktemp(suffix=".css")
-        with open(css_path, "w") as f:
-            f.write(css)
-        cmd.extend(["--extra-css", css_path])
-    else:
-        css_path = None
+        cmd.extend(["--extra-css", css])
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        await proc.communicate()
-        if proc.returncode == 0 and os.path.isfile(dest):
-            from brainycat.log import info
+        stdout, stderr = await proc.communicate()
+        stderr_text = stderr.decode(errors="replace")
+        stdout_text = stdout.decode(errors="replace")
 
-            info(f"conversion_success method=ebook-convert-rs src={os.path.splitext(src)[1]} dest={os.path.splitext(dest)[1]}")
+        if proc.returncode == 0 and os.path.isfile(dest):
+            info(
+                f"conversion_success method=ebook-convert-rs src={os.path.splitext(src)[1]} "
+                f"dest={os.path.splitext(dest)[1]} size={os.path.getsize(dest)}"
+            )
             return {"ok": True, "method": "ebook-convert-rs", "path": dest}
-    except Exception:
-        pass
-    finally:
-        if css_path and os.path.isfile(css_path):
-            os.unlink(css_path)
-    return {}
+
+        return {
+            "ok": False,
+            "reason": "failed",
+            "returncode": proc.returncode,
+            "stderr": stderr_text,
+            "stdout": stdout_text[:500],
+            "missing_output": not os.path.isfile(dest),
+        }
+    except Exception as e:
+        return {"ok": False, "reason": "failed", "returncode": None, "stderr": f"{type(e).__name__}: {e}"}
 
 
 async def _ebook_convert(src: str, dest: str, css: str) -> dict[str, Any]:

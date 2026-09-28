@@ -39,6 +39,18 @@ async def get_history(book_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+async def get_recent(limit: int = 100) -> list[dict[str, Any]]:
+    """Most recent metadata changes across all books, regardless of status — the audit trail for
+    'what did enrichment just do' (Settings > Enrichment History)."""
+    rows = await db.fetch_all(
+        "SELECT h.id, h.book_id, b.title, h.field, h.old_value, h.new_value, h.source, h.status, h.created_at "
+        "FROM metadata_history h JOIN books b ON b.id = h.book_id "
+        "ORDER BY h.created_at DESC LIMIT $1",
+        limit,
+    )
+    return [dict(r) for r in rows]
+
+
 async def get_pending(limit: int = 200, book_id: str | None = None) -> list[dict[str, Any]]:
     """Get pending (unvalidated) operations."""
     if book_id:

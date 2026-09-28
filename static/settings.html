@@ -1,0 +1,166 @@
+<!DOCTYPE html><html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrainyCat — Settings</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<script src="api.js"></script>
+<style>
+body{margin:0}
+.topbar{position:sticky;top:0;z-index:50;background:var(--pico-background-color);border-bottom:1px solid var(--pico-muted-border-color);padding:.5rem 1.5rem;display:flex;align-items:center;gap:1rem}
+.topbar h1{font-size:1.1rem;margin:0;white-space:nowrap}
+#bc-nav{margin-left:auto}
+main{padding:1.5rem;max-width:800px;margin:0 auto}
+section{background:var(--pico-card-background-color);border:1px solid var(--pico-muted-border-color);border-radius:10px;padding:1.2rem;margin-bottom:1.2rem}
+section h3{margin-top:0}
+.note{font-size:.8rem;color:var(--pico-muted-color)}
+table{font-size:.85rem}
+.row{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+.pill{font-size:.7rem;padding:.15rem .5rem;border-radius:10px;background:var(--pico-muted-border-color)}
+.pill.warn{background:#7a1f1f;color:#fff}
+</style>
+</head>
+<body>
+<div class="topbar"><h1>🐱 BrainyCat</h1><div id="bc-nav"></div></div>
+<script src="nav.js"></script>
+<main>
+  <h2>Settings</h2>
+
+  <section>
+    <h3>Backup &amp; Restore</h3>
+    <p class="note">Backs up all library metadata (not the book files themselves) to a gzipped SQL dump on disk.
+      <strong>Restore is not implemented yet</strong> — a backup file exists but there is currently no way to load
+      one back in through this app; ask an admin to do it manually if it's ever needed.</p>
+    <div class="row">
+      <button onclick="createBackup()" id="backup-btn">Create backup now</button>
+      <span id="backup-msg" class="note"></span>
+    </div>
+    <table id="backups-table"><thead><tr><th>File</th><th>Size</th><th>Created</th></tr></thead><tbody></tbody></table>
+    <p class="note" id="disk-usage"></p>
+  </section>
+
+  <section>
+    <h3>Automation Rules</h3>
+    <p class="note">Automatically tag, set a publisher, or skip files based on filename patterns when they're imported.</p>
+    <a href="rules.html" role="button" class="secondary">Open Automation Rules →</a>
+  </section>
+
+  <section>
+    <h3>Send to Kindle</h3>
+    <p class="note">Books are emailed as an attachment to this address. Amazon only accepts mail from
+      senders you've approved — add BrainyCat's sending address to your Amazon account's
+      <strong>Approved Personal Document E-mail List</strong> or the email will be silently dropped.</p>
+    <div class="row">
+      <input type="email" id="kindle-email" placeholder="you@kindle.com" style="flex:1">
+      <button onclick="saveKindleEmail()" id="kindle-btn">Save</button>
+      <span id="kindle-msg" class="note"></span>
+    </div>
+  </section>
+
+  <section>
+    <h3>Appearance</h3>
+    <label>Theme
+      <select id="theme-select" onchange="setTheme(this.value)">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+        <option value="auto">Match system</option>
+      </select>
+    </label>
+  </section>
+
+  <section>
+    <h3>Security</h3>
+    <p class="note">Turning this off means anyone on your network can open BrainyCat with no login —
+      only do this if you're sure the network it's on is trusted (e.g. a home LAN with no port forwarded
+      to it). Explicit logins and API keys still work exactly as before either way.</p>
+    <label>
+      <input type="checkbox" id="auth-required-toggle" role="switch" onchange="toggleAuthRequired(this.checked)">
+      Require login to use BrainyCat
+    </label>
+    <p class="note" id="auth-required-msg"></p>
+
+    <h4>Change password</h4>
+    <div class="row">
+      <input type="password" id="pw-current" placeholder="Current password">
+      <input type="password" id="pw-new" placeholder="New password">
+    </div>
+    <div class="row">
+      <button onclick="changePassword()" id="pw-btn">Change password</button>
+      <span id="pw-msg" class="note"></span>
+    </div>
+  </section>
+
+  <section>
+    <h3>System Status</h3>
+    <p class="note">Background jobs and source rate limits — useful when enrichment seems stuck.</p>
+    <div id="jobs-summary" class="note"></div>
+    <table id="rate-limits-table"><thead><tr><th>Source</th><th>Status</th></tr></thead><tbody></tbody></table>
+  </section>
+</main>
+<script>
+async function createBackup() {
+  const btn = document.getElementById('backup-btn'), msg = document.getElementById('backup-msg');
+  btn.disabled = true; msg.textContent = 'Backing up…';
+  const r = await BC.post('/backup');
+  msg.textContent = r.error ? ('Failed: ' + r.error) : 'Backup created.';
+  btn.disabled = false;
+  loadBackups();
+}
+async function loadBackups() {
+  const list = await BC.get('/backups').catch(() => []);
+  document.querySelector('#backups-table tbody').innerHTML = (list || []).map(b =>
+    `<tr><td>${b.filename}</td><td>${b.size_mb} MB</td><td>${b.created}</td></tr>`).join('') ||
+    '<tr><td colspan="3" class="note">No backups yet.</td></tr>';
+  const du = await BC.get('/disk-usage').catch(() => null);
+  if (du) document.getElementById('disk-usage').textContent =
+    'Disk usage — ' + Object.entries(du).filter(([k]) => typeof du[k] === 'string').map(([k, v]) => `${k}: ${v}`).join(' · ');
+}
+async function loadKindleEmail() {
+  const s = await BC.get('/settings').catch(() => ({}));
+  document.getElementById('kindle-email').value = s.kindle_email || '';
+}
+async function saveKindleEmail() {
+  const btn = document.getElementById('kindle-btn'), msg = document.getElementById('kindle-msg');
+  const email = document.getElementById('kindle-email').value.trim();
+  btn.disabled = true;
+  const r = await BC.patch('/settings', { kindle_email: email || null });
+  btn.disabled = false;
+  msg.textContent = r.error ? ('Failed: ' + r.error) : 'Saved.';
+}
+async function setTheme(theme) { await BC.put('/user/theme', { theme }); document.documentElement.setAttribute('data-theme', theme === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme); }
+async function loadTheme() { const t = await BC.get('/user/theme').catch(() => ({ theme: 'dark' })); document.getElementById('theme-select').value = t.theme || 'dark'; }
+
+async function loadSecurity() {
+  const s = await BC.get('/settings/security').catch(() => ({ auth_required: true }));
+  document.getElementById('auth-required-toggle').checked = !!s.auth_required;
+}
+async function toggleAuthRequired(checked) {
+  const msg = document.getElementById('auth-required-msg');
+  const r = await BC.put('/settings/security', { auth_required: checked });
+  if (r && r.error) { msg.textContent = 'Failed: ' + r.error; document.getElementById('auth-required-toggle').checked = !checked; return; }
+  msg.textContent = checked ? 'Login is required.' : 'Login is off — anyone on this network can open BrainyCat.';
+}
+async function changePassword() {
+  const btn = document.getElementById('pw-btn'), msg = document.getElementById('pw-msg');
+  const current = document.getElementById('pw-current').value, next = document.getElementById('pw-new').value;
+  if (!current || next.length < 4) { msg.textContent = 'Enter your current password and a new one (4+ chars).'; return; }
+  btn.disabled = true;
+  const r = await BC.post('/user/password', { current_password: current, new_password: next });
+  btn.disabled = false;
+  msg.textContent = r.error ? ('Failed: ' + r.error) : 'Password changed.';
+  if (r.ok) { document.getElementById('pw-current').value = ''; document.getElementById('pw-new').value = ''; }
+}
+async function loadStatus() {
+  const raw = await BC.get('/jobs').catch(() => []);
+  const jobs = Array.isArray(raw) ? raw : [];
+  document.getElementById('jobs-summary').textContent = Array.isArray(raw)
+    ? `${jobs.length} background job(s) tracked, ${jobs.filter(j => j.status === 'running' || j.status === 'pending').length} in progress.`
+    : 'Background job tracking is unavailable right now.';
+  const rlRaw = await BC.get('/stats/rate-limits').catch(() => ({}));
+  const rl = (rlRaw && typeof rlRaw === 'object' && !Array.isArray(rlRaw) && !rlRaw.error) ? rlRaw : {};
+  document.querySelector('#rate-limits-table tbody').innerHTML = Object.entries(rl).map(([source, s]) =>
+    `<tr><td>${source}</td><td>${s.backed_off ? `<span class="pill warn">backed off ${s.backoff_remaining_sec}s</span>` : '<span class="pill">ok</span>'}</td></tr>`
+  ).join('') || '<tr><td colspan="2" class="note">No data.</td></tr>';
+}
+loadBackups(); loadTheme(); loadStatus(); loadSecurity(); loadKindleEmail();
+</script>
+</body></html>

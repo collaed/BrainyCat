@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import asyncpg
@@ -10,6 +11,26 @@ from brainycat.config import settings
 from brainycat.logging import log
 
 _pool: asyncpg.Pool | None = None  # type: ignore[type-arg]
+
+
+def _encode_json(value: Any) -> str:
+    # 42+ call sites across 30 files already do `json.dumps(...)` themselves before binding a jsonb
+    # parameter (the established, only-option workaround for this codec never having existed). An
+    # unconditional encoder here would double-encode every one of them. Passing an already-serialized
+    # string through unchanged preserves all of that existing behavior exactly, while still letting any
+    # *new* code bind a raw dict/list directly.
+    return value if isinstance(value, str) else json.dumps(value)
+
+
+async def _init_connection(conn: asyncpg.Connection) -> None:  # type: ignore[type-arg]
+    """Without this, asyncpg returns json/jsonb columns as raw strings, not dicts/lists — every
+    column read (users.preferences, books.extra_metadata, etc.) silently needed a manual json.loads(),
+    and most call sites didn't do it. Found via users.preferences after adding it in migration 008:
+    routes/auth.py's language-prefs read crashed outright (`'str' object has no attribute 'get'`), while
+    social.py's public-feed read had an isinstance(..., dict) guard that silently treated the string as
+    empty instead of crashing — same root cause, two different symptoms."""
+    await conn.set_type_codec("json", encoder=_encode_json, decoder=json.loads, schema="pg_catalog")
+    await conn.set_type_codec("jsonb", encoder=_encode_json, decoder=json.loads, schema="pg_catalog")
 
 
 async def get_pool() -> asyncpg.Pool:  # type: ignore[type-arg]
@@ -22,6 +43,7 @@ async def get_pool() -> asyncpg.Pool:  # type: ignore[type-arg]
             max_size=20,
             command_timeout=60,
             server_settings={"statement_timeout": "30000"},  # 30s max query
+            init=_init_connection,
         )
         await log.ainfo("db_pool_created")
     return _pool

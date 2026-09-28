@@ -91,6 +91,16 @@ class RateLimiter:
                 delay = 21600
             self._backoff_until[key] = time.monotonic() + delay
 
+    def is_backed_off(self, domain: str) -> bool:
+        """Non-blocking check: is this domain currently serving a failure backoff?
+
+        For a caller on a shared per-item time budget (e.g. enrich_book's 30s-per-book scheduler
+        deadline), `wait()` sleeping through the remainder of a multi-minute backoff is worse than
+        just skipping the source for this pass — the item will be retried on a later scheduler tick
+        anyway. Background loops with their own independent pacing can still use `wait()` as before.
+        """
+        return self._backoff_until.get(self._key(domain), 0) > time.monotonic()
+
     def get_status(self) -> dict[str, dict]:
         """Get current status of all domains."""
         now = time.monotonic()

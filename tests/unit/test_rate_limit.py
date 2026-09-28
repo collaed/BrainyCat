@@ -31,3 +31,33 @@ async def test_rate_limiter_domain_specific() -> None:
     elapsed = time.monotonic() - start
 
     assert elapsed >= 0.09  # Should use google rate, not default
+
+
+def test_is_backed_off_false_when_clear() -> None:
+    rl = RateLimiter()
+    assert rl.is_backed_off("google") is False
+
+
+def test_is_backed_off_true_during_backoff() -> None:
+    rl = RateLimiter()
+    for _ in range(3):
+        rl.report_failure("google")  # 3 consecutive failures -> 30s backoff
+    assert rl.is_backed_off("google") is True
+
+
+def test_is_backed_off_clears_on_success() -> None:
+    rl = RateLimiter()
+    for _ in range(3):
+        rl.report_failure("google")
+    rl.report_success("google")
+    assert rl.is_backed_off("google") is False
+
+
+def test_is_backed_off_does_not_sleep() -> None:
+    """Unlike wait(), is_backed_off() must be a plain, instant, non-blocking check."""
+    rl = RateLimiter()
+    for _ in range(20):
+        rl.report_failure("google")  # escalate to a long (1800s+) backoff
+    start = time.monotonic()
+    assert rl.is_backed_off("google") is True
+    assert time.monotonic() - start < 0.05

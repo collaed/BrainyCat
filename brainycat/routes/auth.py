@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from brainycat import db
+from brainycat import auth, db
 from brainycat.auth import get_current_user
 
 router = APIRouter(prefix="/api/v1", tags=["auth"])
@@ -88,6 +88,40 @@ async def update_settings(body: dict[str, Any], user: Any = Depends(get_current_
     return {"ok": True, **updates}
 
 
+# ── Security: optional login, change password ───────────────────────────────
+# "Optional login" is meant for a trusted home network with no reverse proxy in front — see
+# brainycat.auth.get_current_user for exactly what it does and doesn't affect.
+
+
+@router.get("/settings/security")
+async def get_security_settings(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return {"auth_required": await auth.is_auth_required()}
+
+
+@router.put("/settings/security")
+async def update_security_settings(body: auth.AuthRequiredUpdate, _admin: Any = Depends(auth.require_admin)) -> dict[str, Any]:
+    await db.execute(
+        """INSERT INTO app_settings (key, value, updated_at) VALUES ('auth_required', $1::jsonb, now())
+           ON CONFLICT (key) DO UPDATE SET value = $1::jsonb, updated_at = now()""",
+        "true" if body.auth_required else "false",
+    )
+    return {"auth_required": body.auth_required}
+
+
+@router.post("/user/password")
+async def change_password(body: auth.PasswordChange, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    import bcrypt
+
+    row = await db.fetch_one("SELECT password_hash FROM users WHERE id = $1", user["id"])
+    if not row or not row["password_hash"] or not bcrypt.checkpw(body.current_password.encode(), row["password_hash"].encode()):
+        return {"error": "Current password is incorrect"}
+    if len(body.new_password) < 4:
+        return {"error": "New password must be at least 4 characters"}
+    new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
+    await db.execute("UPDATE users SET password_hash = $1 WHERE id = $2", new_hash, user["id"])
+    return {"ok": True}
+
+
 # ── Clippings ─────────────────────────────────────────────────────────────
 
 
@@ -113,14 +147,18 @@ async def regenerate_api_key(user: Any = Depends(get_current_user)) -> dict[str,
 
 
 # ── Theme Preference ──────────────────────────────────────────────────────
+# Note: these used to write/read a `users.preferences` JSONB column that has never existed in any
+# migration (users has no such column — user_preferences is its own table, with a real `theme` column).
+# Every call 500'd with UndefinedColumnError; the theme setting has never worked on a migrated DB.
 @router.put("/user/theme")
 async def set_theme(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Set UI theme preference (dark/light/auto)."""
     theme = body.get("theme", "dark")
     await db.execute(
-        "UPDATE users SET preferences = jsonb_set(COALESCE(preferences, '{}'), '{theme}', $1::jsonb) WHERE id = $2",
-        f'"{theme}"',
+        """INSERT INTO user_preferences (user_id, theme) VALUES ($1, $2)
+           ON CONFLICT (user_id) DO UPDATE SET theme = $2, updated_at = now()""",
         user["id"],
+        theme,
     )
     return {"theme": theme}
 
@@ -128,5 +166,5 @@ async def set_theme(body: dict[str, Any], user: Any = Depends(get_current_user))
 @router.get("/user/theme")
 async def get_theme(user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Get UI theme preference."""
-    row = await db.fetch_one("SELECT preferences->>'theme' as theme FROM users WHERE id = $1", user["id"])
+    row = await db.fetch_one("SELECT theme FROM user_preferences WHERE user_id = $1", user["id"])
     return {"theme": row["theme"] if row and row["theme"] else "dark"}

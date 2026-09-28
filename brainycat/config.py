@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     signal_api_url: str = "http://signal-api:8080"
     smtp_host: str = "mailserver"
     smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""  # defaults to smtp_user, then brainycat@{smtp_host}, if unset
+    resend_api_key: str = ""  # if set, Kindle/device delivery uses the Resend HTTP API instead of SMTP
 
     # Google Books
     google_books_api_key: str = ""

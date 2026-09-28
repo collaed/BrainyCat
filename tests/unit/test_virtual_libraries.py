@@ -12,6 +12,7 @@ def test_module_functions_exist() -> None:
 def test_create_signature() -> None:
     """create_virtual_library should accept user_id, name, query, filters."""
     import inspect
+
     sig = inspect.signature(create_virtual_library)
     params = list(sig.parameters.keys())
     assert "user_id" in params

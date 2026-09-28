@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from brainycat.config import settings
 from brainycat.http_client import get_client
 
 
@@ -51,7 +52,10 @@ async def aggregate_reviews(title: str, isbn: str = "", author: str = "") -> dic
 async def _google_books_rating(query: str) -> dict[str, Any]:
     try:
         c = get_client()
-        r = await c.get(f"https://www.googleapis.com/books/v1/volumes?q={query}&maxResults=1")
+        gb_params = {"q": query, "maxResults": 1}
+        if settings.google_books_api_key:
+            gb_params["key"] = settings.google_books_api_key
+        r = await c.get("https://www.googleapis.com/books/v1/volumes", params=gb_params)
         if r.status_code == 200:
             items = r.json().get("items", [])
             if items:

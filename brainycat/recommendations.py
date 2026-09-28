@@ -36,7 +36,7 @@ async def recommend_for_user(user_id: str, limit: int = 20) -> list[dict[str, An
             SELECT DISTINCT bt.tag_id, count(*) as weight
             FROM reading_progress rp
             JOIN books_tags bt ON bt.book_id = rp.book_id
-            WHERE rp.user_id = $1 AND rp.status IN ('finished', 'reading')
+            WHERE rp.user_id = $1 AND (rp.is_finished OR rp.percentage > 0)
             GROUP BY bt.tag_id
         ),
         read_books AS (

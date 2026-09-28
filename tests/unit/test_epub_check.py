@@ -10,6 +10,7 @@ def test_detect_nonexistent() -> None:
 
 def test_detect_empty_dir() -> None:
     import tempfile
+
     d = tempfile.mkdtemp()
     assert detect_calibre_library(d) is False
 

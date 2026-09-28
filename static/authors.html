@@ -25,7 +25,8 @@ nav a{color:var(--pico-muted-color);margin-right:1rem;text-decoration:none;font-
 </style>
 </head>
 <body>
-<nav><a href="/static/index.html">← Library</a></nav>
+<nav><a href="/static/index.html">← Library</a><div id="bc-nav"></div></nav>
+<script src="/static/nav.js"></script>
 <h1>✍️ Authors</h1>
 <div class="search-bar"><input type="search" id="filter" placeholder="Filter authors…" oninput="filterAuthors()"></div>
 <div class="authors-grid" id="grid"></div>

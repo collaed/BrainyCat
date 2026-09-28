@@ -18,8 +18,10 @@ def test_readability_easy_text() -> None:
 
 
 def test_readability_hard_text() -> None:
-    text = ("The epistemological ramifications of phenomenological hermeneutics "
-            "necessitate a comprehensive reevaluation of ontological presuppositions. " * 10)
+    text = (
+        "The epistemological ramifications of phenomenological hermeneutics "
+        "necessitate a comprehensive reevaluation of ontological presuppositions. " * 10
+    )
     r = compute_readability(text)
     assert r["level"] in ("difficult", "very_difficult", "moderate")
     assert r["fk_grade"] > 10

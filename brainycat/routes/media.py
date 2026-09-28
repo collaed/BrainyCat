@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 
 from brainycat import db, translation, tts
 from brainycat.auth import get_current_user, require_admin
-
-if TYPE_CHECKING:
-    from brainycat.routes.models import MergeBody
+from brainycat.routes.models import MergeBody
 
 router = APIRouter(prefix="/api/v1", tags=["media"])
 

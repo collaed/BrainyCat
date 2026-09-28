@@ -95,7 +95,11 @@ def _extract_mobi(path: str) -> dict[str, Any]:
                     elif rec_type == 103:
                         result["description"] = rec_data
                     elif rec_type == 104:
-                        result["isbn"] = rec_data
+                        from brainycat.isbn import _clean_isbn
+
+                        cleaned = _clean_isbn(rec_data)
+                        if cleaned:
+                            result["isbn"] = cleaned
                     elif rec_type == 105:
                         result["genre"] = rec_data
                     elif rec_type == 503:
@@ -112,12 +116,21 @@ def _extract_epub(path: str) -> dict[str, Any]:
         import ebooklib
         from ebooklib import epub
 
+        from brainycat.isbn import _clean_isbn
+
         book = epub.read_epub(path, options={"ignore_ncx": True})
         title = book.get_metadata("DC", "title")
         author = book.get_metadata("DC", "creator")
         lang = book.get_metadata("DC", "language")
         desc = book.get_metadata("DC", "description")
-        isbn_meta = book.get_metadata("DC", "identifier")
+        # A book can carry several dc:identifier values (UUID, ASIN, Calibre id, ISBN, ...) with no
+        # scheme to tell them apart — take the first one that actually validates as an ISBN-10/13.
+        isbn = None
+        for ident in book.get_metadata("DC", "identifier") or []:
+            cleaned = _clean_isbn(ident[0])
+            if cleaned:
+                isbn = cleaned
+                break
 
         cover_data = None
         for item in book.get_items_of_type(ebooklib.ITEM_COVER):
@@ -135,7 +148,7 @@ def _extract_epub(path: str) -> dict[str, Any]:
             "author": author[0][0] if author else None,
             "language": _norm_lang(lang[0][0]) if lang else None,
             "description": desc[0][0] if desc else None,
-            "isbn": isbn_meta[0][0] if isbn_meta else None,
+            "isbn": isbn,
             "cover_data": cover_data,
         }
     except Exception:

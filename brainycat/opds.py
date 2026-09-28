@@ -91,7 +91,7 @@ def _entry(b: Any) -> str:
     mime_map = {"epub": "application/epub+zip", "pdf": "application/pdf", "mobi": "application/x-mobipocket-ebook"}
     for fmt in formats:
         mime = mime_map.get(fmt, "application/octet-stream")
-        acq_links += f'<link rel="http://opds-spec.org/acquisition" href="/api/v1/books/{b["id"]}/file/{fmt}" type="{mime}"/>\n'
+        acq_links += f'<link rel="http://opds-spec.org/acquisition" href="/api/v1/books/{b["id"]}/file/by-format/{fmt}" type="{mime}"/>\n'
 
     return f"""<entry>
   <id>urn:brainycat:book:{b["id"]}</id>

@@ -80,9 +80,7 @@ def test_score_rating_boost() -> None:
 
 
 def test_score_theme_matching() -> None:
-    book = {"tags": [], "authors": [], "series": [],
-            "description": "A thrilling adventure through mysterious lands"}
-    profile = {"tags": {}, "authors": {}, "series": {},
-               "themes": {"thrilling": 1.0, "adventure": 1.0, "mysterious": 0.5}}
+    book = {"tags": [], "authors": [], "series": [], "description": "A thrilling adventure through mysterious lands"}
+    profile = {"tags": {}, "authors": {}, "series": {}, "themes": {"thrilling": 1.0, "adventure": 1.0, "mysterious": 0.5}}
     score = score_book(book, profile)
     assert score > 0

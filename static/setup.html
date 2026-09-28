@@ -30,9 +30,9 @@ async function setup() {
     const msg = document.getElementById('msg');
     if (!user || pass.length < 4) { msg.className='msg err'; msg.textContent='Username and password (4+ chars) required'; return; }
     try {
-        const r = await fetch('/brainycat/api/v1/setup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:user,password:pass})});
+        const r = await fetch('/api/v1/setup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:user,password:pass})});
         const d = await r.json();
-        if (d.ok) { msg.className='msg ok'; msg.textContent='✓ '+d.message; setTimeout(()=>location='/brainycat/',1500); }
+        if (d.ok) { msg.className='msg ok'; msg.textContent='✓ '+d.message; setTimeout(()=>location='/',1500); }
         else { msg.className='msg err'; msg.textContent=d.error||'Setup failed'; }
     } catch(e) { msg.className='msg err'; msg.textContent='Connection error'; }
 }

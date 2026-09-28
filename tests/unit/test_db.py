@@ -106,3 +106,23 @@ async def test_health_check_failure() -> None:
     assert result["connected"] is False
     assert "refused" in result["error"]
     db._pool = None
+
+
+def test_encode_json_passes_through_already_serialized_strings() -> None:
+    """Regression: 42+ call sites across the codebase already do json.dumps(...) themselves before
+    binding a jsonb parameter (the only workaround available before the codec existed). The encoder
+    must not re-encode that, or every one of those writes double-encodes (a JSON string containing
+    escaped JSON text, instead of the intended object) — found live via settings/languages roundtripping
+    to '["en", "de"]' (a string) instead of ["en", "de"] (a list) before this fix."""
+    import json
+
+    already_serialized = json.dumps(["en", "de"])
+    assert db._encode_json(already_serialized) == already_serialized
+
+
+def test_encode_json_encodes_raw_python_values() -> None:
+    """New code that binds a raw dict/list directly (not pre-serialized) still gets encoded."""
+    import json
+
+    assert db._encode_json({"a": 1}) == json.dumps({"a": 1})
+    assert db._encode_json(["en", "de"]) == json.dumps(["en", "de"])

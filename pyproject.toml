@@ -19,7 +19,11 @@ select = [
     "A",             # flake8-builtins
     "C4",            # flake8-comprehensions
     "SIM",           # flake8-simplify
-    "TCH",           # flake8-type-checking
+    # NOTE: "TCH" (flake8-type-checking) is deliberately NOT enabled. Its auto-fix moves
+    # Pydantic-model imports into `if TYPE_CHECKING:` blocks, which FastAPI route handlers need
+    # at runtime to resolve `body: SomeModel` parameters — with that block wrongly applied, the
+    # param silently degrades to an unresolvable query parameter instead of a JSON request body.
+    # This exact bug hit /progress, bookmarks, annotations, and several batch-action endpoints.
     "RUF",           # ruff-specific
     "PT",            # flake8-pytest-style
     "RET",           # flake8-return

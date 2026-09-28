@@ -1,51 +1,54 @@
-"""eKitaab-style file renaming: rename book files to include title+author+ISBN.
+"""eKitaab-style file renaming: rename book files to 'Author - Title [ISBN].ext'.
 
-Makes the /data/books/ folder human-browsable without the app.
-Only runs when BRAINYCAT_EXP_FILE_RENAME=1.
-
-Config: BRAINYCAT_EXP_FILE_RENAME=1
+Runs automatically after enrichment updates a book's metadata (brainycat.metadata.enrich_book) —
+makes the /data/books/ folder human-browsable and gives downloads a clean, standardized filename
+even without this (brainycat.filenames.build_filename computes it fresh at download time too).
 """
 
 from __future__ import annotations
 
 import os
-import re
 
+from brainycat.filenames import build_filename, safe_filename
 
-def safe_filename(s: str, max_len: int = 60) -> str:
-    """Sanitize string for use in filename."""
-    s = re.sub(r'[<>:"/\\|?*]', "", s)
-    s = s.strip(". ")
-    return s[:max_len]
+__all__ = ["safe_filename", "rename_book_file"]
 
 
 async def rename_book_file(book_id: str) -> dict | None:
-    """Rename a book's file to 'Author - Title [ISBN].ext' format."""
-    from brainycat.db import execute, fetch_one
+    """Rename every file of a book to the standardized pattern. Skips (does not overwrite) if the
+    target name is already taken by a different book's file."""
+    from brainycat.db import execute, fetch_all, fetch_one
+    from brainycat.filename_history import record_rename
 
     book = await fetch_one(
-        "SELECT b.title, b.author, b.isbn, bf.file_path, bf.id as file_id "
-        "FROM books b JOIN book_files bf ON bf.book_id = b.id "
-        "WHERE b.id = $1 LIMIT 1",
+        """SELECT b.title, b.isbn, array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
+           FROM books b
+           LEFT JOIN books_authors ba ON ba.book_id = b.id
+           LEFT JOIN authors a ON a.id = ba.author_id
+           WHERE b.id = $1 GROUP BY b.id""",
         book_id,
     )
-    if not book or not book["file_path"] or not os.path.isfile(book["file_path"]):
+    if not book:
         return None
 
-    title = safe_filename(book["title"] or "Unknown")
-    author = safe_filename(book["author"] or "Unknown")
-    isbn = book["isbn"] or ""
-    ext = os.path.splitext(book["file_path"])[1]
+    files = await fetch_all("SELECT id, file_path, file_name FROM book_files WHERE book_id = $1", book_id)
+    renamed = []
+    for f in files:
+        if not f["file_path"] or not os.path.isfile(f["file_path"]):
+            continue
+        ext = os.path.splitext(f["file_path"])[1]
+        new_name = build_filename(book["title"], book["authors"], book["isbn"], ext)
+        new_path = os.path.join(os.path.dirname(f["file_path"]), new_name)
 
-    new_name = f"{author} - {title}"
-    if isbn:
-        new_name += f" [{isbn}]"
-    new_name += ext
+        if new_path == f["file_path"]:
+            continue
+        if os.path.exists(new_path):
+            continue  # name collision — leave this file alone rather than risk overwriting another book's file
 
-    new_path = os.path.join(os.path.dirname(book["file_path"]), new_name)
-    if new_path == book["file_path"]:
-        return None
+        old_name = f["file_name"]
+        os.rename(f["file_path"], new_path)
+        await execute("UPDATE book_files SET file_path = $1, file_name = $2 WHERE id = $3", new_path, new_name, f["id"])
+        await record_rename(book_id, "auto_standardize", old_name, new_name)
+        renamed.append({"old": old_name, "new": new_name})
 
-    os.rename(book["file_path"], new_path)
-    await execute("UPDATE book_files SET file_path = $1 WHERE id = $2", new_path, book["file_id"])
-    return {"old": book["file_path"], "new": new_path}
+    return {"renamed": renamed} if renamed else None

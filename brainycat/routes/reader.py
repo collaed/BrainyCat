@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 
 from brainycat import db, opds, recommendations, scanner, sync
 from brainycat.auth import get_current_user
-
-if TYPE_CHECKING:
-    from brainycat.routes.models import AnnotationCreate, BookmarkCreate, ProgressUpdate
+from brainycat.routes.models import AnnotationCreate, BookmarkCreate, ProgressUpdate
 
 router = APIRouter(prefix="/api/v1", tags=["reader"])
 
@@ -146,7 +144,14 @@ async def reco_profile(user: Any = Depends(get_current_user)) -> dict[str, Any]:
 
 @router.get("/recommendations/{category}")
 async def reco_category(category: str, user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
-    return await recommendations.get_recommendations(str(user["id"]), category)
+    """Called by recommendations.html with category names (authors_you_love, all, complete_series, ...)
+    expecting per-category results, but `recommendations.get_recommendations` — which would have done
+    that dispatch — doesn't exist in that module (recommend_similar/recommend_for_user/recommend_external
+    are what's there). True category-specific results (matching README's DNA/Author/Community/Series
+    taste-engine categories) aren't implemented; this returns the same general recommendation list for
+    every category rather than 500ing on every load. See docs/ui-redesign/proposal.md."""
+    _ = category
+    return await recommendations.recommend_for_user(str(user["id"]))
 
 
 # ── AI Companion ─────────────────────────────────────────────────────────
@@ -179,11 +184,15 @@ async def toggle_share(annotation_id: str, _u: Any = Depends(get_current_user)) 
 # ── Activity feed ────────────────────────────────────────────────────────
 
 
-@router.get("/recommendations/{user_id}")
+@router.get("/recommendations/by-user/{user_id}")
 async def taste_recommendations(user_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
-    from brainycat.taste import get_5cat_recommendations
+    # Was "/recommendations/{user_id}" — an exact path-shape collision with reco_category's
+    # "/recommendations/{category}" above, registered first, so this handler was permanently shadowed
+    # and every call (including the real one from mcp_server.py's taste_recommendations tool) silently
+    # got reco_category's response instead, ignoring user_id entirely. Renamed to disambiguate.
+    from brainycat.taste import get_7cat_recommendations  # was get_5cat_recommendations — never existed
 
-    return await get_5cat_recommendations(user_id)
+    return await get_7cat_recommendations(user_id)
 
 
 @router.get("/taste-profile/{user_id}")
@@ -196,9 +205,15 @@ async def taste_profile(user_id: str, _u: Any = Depends(get_current_user)) -> di
 # ── Multi-source aggregation ─────────────────────────────────────────────
 
 
-@router.get("/recommendations/from-library")
+@router.get("/recommendations/library/for-you")
 async def recommend_from_library(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
-    """Recommend unread books from the user's own library, sorted by taste match."""
+    """Recommend unread books from the user's own library, sorted by taste match.
+
+    Was "/recommendations/from-library" — shadowed by reco_category's "/recommendations/{category}"
+    (registered earlier, same path shape), so "from-library" matched as a category name and this
+    handler was unreachable. Only caller was static/app.html, itself a superseded prototype of
+    index.html (like index.old.html) with no inbound links — not updated to match; renamed here for
+    correctness regardless, since a real caller could reasonably be added back."""
     from brainycat.taste import build_taste_profile, score_book
 
     profile = await build_taste_profile(str(user["id"]))
@@ -947,7 +962,7 @@ async def opds_recommendations(book_id: str) -> Any:
         entries += f"""<entry>
   <id>urn:brainycat:book:{r["id"]}</id>
   <title>{r["title"].replace("&", "&amp;").replace("<", "&lt;")}</title>
-  <link rel="http://opds-spec.org/acquisition" href="/api/v1/books/{r["id"]}/file/epub" type="application/epub+zip"/>
+  <link rel="http://opds-spec.org/acquisition" href="/api/v1/books/{r["id"]}/file/by-format/epub" type="application/epub+zip"/>
   <link rel="http://opds-spec.org/image/thumbnail" href="/api/v1/books/{r["id"]}/cover" type="image/jpeg"/>
 </entry>\n"""
 

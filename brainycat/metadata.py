@@ -228,15 +228,47 @@ async def enrich_book(book_id: str, skip_postprocess: bool = False) -> dict[str,
     # Update book
     sets, vals = [], []
     idx = 1
+    changed_fields: list[tuple[str, Any]] = []
     for field in ["description", "isbn"]:
         if merged.get(field) and not row[field]:
             sets.append(f"{field} = ${idx}")
             vals.append(merged[field])
+            changed_fields.append((field, row[field]))
             idx += 1
 
     if sets:
         vals.append(UUID(book_id))
         await execute(f"UPDATE books SET {', '.join(sets)}, updated_at = now() WHERE id = ${idx}", *vals)
+
+        from brainycat.metadata_audit import record_change
+
+        for field, old_value in changed_fields:
+            await record_change(book_id, field, old_value, merged[field], "enrichment")
+
+    # Fill in author if the book has none yet (e.g. a manual title-only override) — never touch it
+    # otherwise, and never touch a locked book at all.
+    if merged.get("authors") and row["identity_status"] != "locked":
+        has_author = await fetch_one("SELECT 1 FROM books_authors WHERE book_id = $1 LIMIT 1", UUID(book_id))
+        if not has_author:
+            from brainycat.author_names import split_authors
+            from brainycat.metadata_audit import record_change
+
+            author_names = []
+            for a in merged["authors"]:
+                if a:
+                    author_names.extend(split_authors(a))
+            author_names = author_names[:5]
+            for name in author_names:
+                await execute("INSERT INTO authors (name) VALUES ($1) ON CONFLICT (name) DO NOTHING", name)
+                author_row = await fetch_one("SELECT id FROM authors WHERE name = $1", name)
+                if author_row:
+                    await execute(
+                        "INSERT INTO books_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                        UUID(book_id),
+                        author_row["id"],
+                    )
+            if author_names:
+                await record_change(book_id, "author", None, ", ".join(author_names), "enrichment")
 
     # Apply genres as tags
     if merged.get("genres"):
@@ -282,18 +314,15 @@ async def enrich_book(book_id: str, skip_postprocess: bool = False) -> dict[str,
             )
 
     # Store pubdate from enrichment
-    # Record changes in audit trail
-    from brainycat.metadata_audit import record_change
-
-    if merged.get("description") and not row.get("description"):
-        await record_change(book_id, "description", None, merged["description"][:200], "enrichment")
-
     if merged.get("pubdate") and not row.get("pubdate"):
         try:
             from dateutil.parser import parse as _parse_date
 
+            from brainycat.metadata_audit import record_change
+
             pd = _parse_date(str(merged["pubdate"]))
             await execute("UPDATE books SET pubdate = $1 WHERE id = $2", pd, UUID(book_id))
+            await record_change(book_id, "pubdate", row.get("pubdate"), pd.date().isoformat(), "enrichment")
         except Exception:
             pass
 
@@ -404,7 +433,9 @@ async def postprocess_book(book_id: str, row: Any = None, merged: dict | None = 
                 UUID(book_id),
             )
 
-    # Post-enrichment: writeback metadata into EPUB
+    # Post-enrichment: writeback metadata into the book file itself (EPUB OPF / PDF info dict).
+    # (quality_score + ol_work_id are already handled earlier in enrich_book(), before
+    # postprocess_book() is called — not repeated here.)
     try:
         from brainycat.writeback import writeback_metadata
 

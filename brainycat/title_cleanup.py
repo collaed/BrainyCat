@@ -8,13 +8,35 @@ Runs as part of the scheduler. Three strategies:
 
 from __future__ import annotations
 
+import html
 import re
 from typing import Any
 
+from brainycat.config import settings
 from brainycat.db import execute, fetch_all, fetch_one
 from brainycat.http_client import get_client
 from brainycat.isbn import _clean_isbn
 from brainycat.rate_limit import rate_limiter
+
+_ENTITY_RE = re.compile(r"&#\d+;|&#x[0-9a-fA-F]+;|&[a-zA-Z]+;")
+
+
+async def decode_html_entities(limit: int = 50) -> dict[str, int]:
+    """Fix titles/descriptions that still contain raw HTML entities (e.g. 'Dummies&#174;' instead
+    of 'Dummies®') — leaks from a source that returned HTML-escaped text that never got decoded."""
+    rows = await fetch_all(
+        "SELECT id, title, description FROM books WHERE title ~ $1 OR description ~ $1 LIMIT $2",
+        _ENTITY_RE.pattern,
+        limit,
+    )
+    fixed = 0
+    for r in rows:
+        new_title = html.unescape(r["title"]) if r["title"] else r["title"]
+        new_desc = html.unescape(r["description"]) if r["description"] else r["description"]
+        if new_title != r["title"] or new_desc != r["description"]:
+            await execute("UPDATE books SET title = $1, description = $2 WHERE id = $3", new_title, new_desc, r["id"])
+            fixed += 1
+    return {"fixed": fixed, "checked": len(rows)}
 
 
 async def extract_isbn_from_title(limit: int = 20) -> dict[str, int]:
@@ -75,13 +97,14 @@ async def extract_isbn_from_filename(limit: int = 20) -> dict[str, int]:
 
 async def fix_titles_from_api(limit: int = 10) -> dict[str, int]:
     """Fetch canonical titles from Google Books for books with ISBNs and messy titles."""
+    # No "does this look messy" heuristic — any book with a real ISBN has an authoritative title
+    # available, and `title_fixed` (only set after an actual successful API check) is what stops
+    # this from re-checking the same book forever. A title that "looks clean" can still be a
+    # publisher subtitle fragment or missing spaces, which no pattern list reliably catches.
     rows = await fetch_all(
         """
         SELECT id, isbn, title FROM books
-        WHERE isbn IS NOT NULL AND length(isbn) >= 10
-          AND (title LIKE '%,%' AND title LIKE '% - %'
-               OR title LIKE '%(20%' OR title LIKE '%(19%'
-               OR title LIKE '%libgen%' OR title LIKE '%[%]%')
+        WHERE isbn IS NOT NULL AND length(isbn) >= 10 AND identity_status = 'auto'
           AND extra_metadata IS DISTINCT FROM extra_metadata || '{"title_fixed": true}'::jsonb
         LIMIT $1
     """,
@@ -93,7 +116,10 @@ async def fix_titles_from_api(limit: int = 10) -> dict[str, int]:
     for r in rows:
         await rate_limiter.wait("google")
         try:
-            resp = await client.get(f"https://www.googleapis.com/books/v1/volumes?q=isbn:{r['isbn']}&maxResults=1")
+            gb_params = {"q": f"isbn:{r['isbn']}", "maxResults": 1}
+            if settings.google_books_api_key:
+                gb_params["key"] = settings.google_books_api_key
+            resp = await client.get("https://www.googleapis.com/books/v1/volumes", params=gb_params)
             if resp.status_code == 200:
                 items = resp.json().get("items", [])
                 if items:
@@ -129,11 +155,16 @@ async def fix_titles_from_api(limit: int = 10) -> dict[str, int]:
                                     tag["id"],
                                 )
 
-            # Mark as checked so we don't retry
-            await execute(
-                "UPDATE books SET extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || '{\"title_fixed\": true}'::jsonb WHERE id = $1",
-                r["id"],
-            )
+                # Mark as checked so we don't retry — only on a real response. A failed call (rate
+                # limit, timeout, etc.) must NOT set this, or the book is silently skipped forever
+                # even though it was never actually checked.
+                await execute(
+                    "UPDATE books SET extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || '{\"title_fixed\": true}'::jsonb WHERE id = $1",
+                    r["id"],
+                )
+            elif resp.status_code == 429:
+                await rate_limiter.record_failure("google")
+                break  # stop hammering an exhausted quota; leave remaining candidates unflagged
         except Exception:
             pass
     return {"fixed": fixed, "checked": len(rows)}
@@ -185,6 +216,7 @@ async def cleanup_titles_regex(limit: int = 20) -> dict[str, int]:
             E'\\s*-\\s*libgen\\.li.*$', '', 'i'),
           E'^\\[.*?\\]\\s*', ''))
         WHERE (title ILIKE '%libgen%' OR title ILIKE '%anna%archive%' OR title ~ '[0-9a-f]{20,}')
+          AND identity_status = 'auto'
           AND length(trim(regexp_replace(
             regexp_replace(
               regexp_replace(
@@ -203,7 +235,14 @@ async def run_title_cleanup_cycle() -> dict[str, Any]:
     r1 = await extract_isbn_from_filename(10)
     r2 = await fix_titles_from_api(5)
     r3 = await ocr_last_pages_for_isbn(3)
-    return {"isbn_from_title": r0, "isbn_from_filename": r1, "api_title_fix": r2, "isbn_from_ocr": r3}
+    r4 = await decode_html_entities(50)
+    return {
+        "isbn_from_title": r0,
+        "isbn_from_filename": r1,
+        "api_title_fix": r2,
+        "isbn_from_ocr": r3,
+        "html_entities": r4,
+    }
 
 
 async def ocr_last_pages_for_isbn(limit: int = 3) -> dict[str, int]:

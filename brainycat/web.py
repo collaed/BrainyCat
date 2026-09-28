@@ -39,8 +39,8 @@ app = FastAPI(title="BrainyCat", version="0.1.0", lifespan=lifespan)
 
 @app.get("/")
 async def root() -> RedirectResponse:
-    """Redirect to setup if no users, otherwise to library."""
-    count = await db.fetch_one("SELECT count(*) as c FROM users")
+    """Redirect to setup if no account has a password set yet, otherwise to library."""
+    count = await db.fetch_one("SELECT count(*) as c FROM users WHERE password_hash IS NOT NULL")
     if count["c"] == 0:
         return RedirectResponse(url="./static/setup.html")
     return RedirectResponse(url="./static/index.html")
@@ -63,7 +63,6 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.on_event("startup")
 async def startup() -> None:
-
     get_client()  # Initialize shared client
     from brainycat.rate_limit import seed_from_db
 
@@ -164,21 +163,30 @@ async def list_authors(_u: Any = Depends(get_current_user)) -> list[dict[str, An
 # ── Author update
 @app.get("/api/v1/setup/status")
 async def setup_status() -> dict[str, Any]:
-    count = await db.fetch_one("SELECT count(*) as c FROM users")
+    """needs_setup is about a *usable* (password-set) account, not raw row count — seed_users()
+    creates a passwordless 'admin' placeholder at every startup (for the X-Auth-User header path),
+    which would otherwise make this always report false on every fresh install."""
+    count = await db.fetch_one("SELECT count(*) as c FROM users WHERE password_hash IS NOT NULL")
     return {"needs_setup": count["c"] == 0}
 
 
 @app.post("/api/v1/setup")
 async def first_run_setup(body: dict[str, Any]) -> dict[str, Any]:
-    """Create the first admin user. Only works when no users exist."""
-    count = await db.fetch_one("SELECT count(*) as c FROM users")
+    """Create (or complete) the first admin account. Only works while no account has a password set."""
+    count = await db.fetch_one("SELECT count(*) as c FROM users WHERE password_hash IS NOT NULL")
     if count["c"] > 0:
         return {"error": "Setup already completed"}
     username = body.get("username", "").strip()
     password = body.get("password", "")
     if not username or len(password) < 4:
         return {"error": "Username and password (4+ chars) required"}
-    from brainycat.auth import _upsert_user
+    import bcrypt
 
-    await _upsert_user(username, password=password, role="admin")
+    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    await db.execute(
+        """INSERT INTO users (username, password_hash, role) VALUES ($1, $2, 'admin')
+           ON CONFLICT (username) DO UPDATE SET password_hash = $2, role = 'admin'""",
+        username,
+        password_hash,
+    )
     return {"ok": True, "message": f"Admin user '{username}' created. You can now log in."}

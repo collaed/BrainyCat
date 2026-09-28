@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from contextlib import suppress
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 
@@ -537,7 +538,7 @@ async def stats_dashboard(_u: Any = Depends(get_current_user)) -> dict[str, Any]
             count(*) FILTER (WHERE quality_score > 50) as good_quality,
             count(*) FILTER (WHERE word_count IS NOT NULL) as has_wordcount,
             count(*) FILTER (WHERE rating IS NOT NULL AND rating > 0) as has_rating,
-            count(*) FILTER (WHERE language IS NOT NULL AND language != '') as has_language,
+            count(*) FILTER (WHERE EXISTS (SELECT 1 FROM books_languages bl WHERE bl.book_id = b.id)) as has_language,
             count(*) FILTER (WHERE EXISTS (SELECT 1 FROM books_tags bt WHERE bt.book_id = b.id)) as has_tags,
             avg(quality_score) FILTER (WHERE quality_score > 0) as avg_quality
         FROM books b
@@ -1279,6 +1280,14 @@ async def batch_consistency_check(limit: int = Query(10)) -> dict[str, Any]:
 
 
 # ── Metadata Audit & Drift Detection ─────────────────────────────────────
+@router.get("/enrichment-history")
+async def recent_enrichment_history(limit: int = Query(100, le=500)) -> list[dict[str, Any]]:
+    """Last N metadata changes across the whole library — what changed, when, from which source."""
+    from brainycat.metadata_audit import get_recent
+
+    return await get_recent(limit)
+
+
 @router.get("/books/{book_id}/history")
 async def book_metadata_history(book_id: str) -> list[dict[str, Any]]:
     """Full change history for a book — what changed, when, by which source."""
@@ -1338,7 +1347,6 @@ async def enrichment_cooldown() -> list[dict[str, Any]]:
 @router.post("/books/{book_id}/retry-now")
 async def retry_enrichment_now(book_id: str) -> dict[str, Any]:
     """Force immediate re-enrichment (bypass cooldown). Use after manual edits."""
-    from uuid import UUID
     from brainycat.metadata import enrich_book
 
     # Clear the last attempt timestamp so cooldown doesn't block it

@@ -9,7 +9,9 @@ import zipfile
 from typing import Any
 from uuid import UUID
 
+from brainycat.config import settings
 from brainycat.db import execute, fetch_all, fetch_one
+from brainycat.identify import decide, filename_isbn
 
 ISBN13_RE = re.compile(r"(?:ISBN[-:\s]*)?97[89][\d\s-]{10,17}")
 ISBN10_RE = re.compile(r"(?:ISBN[-:\s]*)?\d[-\s]?\d{2}[-\s]?\d{4,6}[-\s]?\d[-\s]?[\dXx]")
@@ -94,6 +96,14 @@ def _verify_isbn10(isbn: str) -> bool:
         return check == last
     except (ValueError, IndexError):
         return False
+
+
+async def _set_isbn_and_reset_enrichment(book_id: str, isbn: str) -> None:
+    """Write a freshly-discovered ISBN and clear prior enrichment attempts — a new ISBN is new
+    evidence that changes what enrichment should search for, so the 7-day per-book backoff
+    (based on attempt count/last-try) must not block an immediate, now-more-likely-to-succeed retry."""
+    await execute("UPDATE books SET isbn = $1, updated_at = now() WHERE id = $2", isbn, UUID(book_id))
+    await execute("DELETE FROM enrichment_log WHERE book_id = $1", UUID(book_id))
 
 
 def extract_from_opf(epub_path: str) -> dict[str, Any]:
@@ -294,7 +304,7 @@ async def ocr_last_page_for_isbn(book_id: str) -> dict[str, Any]:
                     if isbn:
                         current = await fetch_one("SELECT isbn FROM books WHERE id = $1", UUID(book_id))
                         if not current or not current["isbn"]:
-                            await execute("UPDATE books SET isbn = $1, updated_at = now() WHERE id = $2", isbn, UUID(book_id))
+                            await _set_isbn_and_reset_enrichment(book_id, isbn)
                         return {"ok": True, "isbn": isbn, "source": "epub_content"}
         except Exception:
             pass
@@ -328,7 +338,7 @@ async def ocr_last_page_for_isbn(book_id: str) -> dict[str, Any]:
             if isbn:
                 current = await fetch_one("SELECT isbn FROM books WHERE id = $1", UUID(book_id))
                 if not current or not current["isbn"]:
-                    await execute("UPDATE books SET isbn = $1, updated_at = now() WHERE id = $2", isbn, UUID(book_id))
+                    await _set_isbn_and_reset_enrichment(book_id, isbn)
                     return {"ok": True, "isbn": isbn, "source": "last_page_text"}
 
         # No text on last pages — try OCR via Intello on just the last page
@@ -361,7 +371,7 @@ async def ocr_last_page_for_isbn(book_id: str) -> dict[str, Any]:
                 data = barcode.data.decode("utf-8", errors="ignore")
                 isbn = _clean_isbn(data)
                 if isbn:
-                    await execute("UPDATE books SET isbn = $1, updated_at = now() WHERE id = $2", isbn, UUID(book_id))
+                    await _set_isbn_and_reset_enrichment(book_id, isbn)
                     os.unlink(tmp)
                     return {"ok": True, "isbn": isbn, "source": "barcode_scan"}
         except ImportError:
@@ -384,7 +394,7 @@ async def ocr_last_page_for_isbn(book_id: str) -> dict[str, Any]:
                 isbn_result = extract_from_text(ocr_text)
                 isbn = isbn_result.get("isbn") or isbn_result.get("isbn_10")
                 if isbn:
-                    await execute("UPDATE books SET isbn = $1, updated_at = now() WHERE id = $2", isbn, UUID(book_id))
+                    await _set_isbn_and_reset_enrichment(book_id, isbn)
                     os.unlink(tmp)
                     return {"ok": True, "isbn": isbn, "source": "last_page_ocr"}
         except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -463,27 +473,32 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
     if not row or not os.path.isfile(row["file_path"]):
         return {"ok": False}
 
-    isbn = None
     extra: dict[str, Any] = {}
 
-    # Phase 1: OPF metadata
+    # Cheap evidence first (no full-file parse): OPF, PDF metadata, filename.
+    cheap: dict[str, str] = {}
     if row["format"] == "epub":
         opf_data = extract_from_opf(row["file_path"])
-        isbn = opf_data.get("isbn")
+        if opf_data.get("isbn"):
+            cheap["opf"] = opf_data["isbn"]
         extra.update({k: v for k, v in opf_data.items() if k != "identifiers"})
 
-    # Phase 1.5a: PDF metadata (Subject, Keywords, Comments fields)
-    if not isbn and row["format"] == "pdf":
-        isbn = extract_from_pdf_metadata(row["file_path"])
+    if row["format"] == "pdf":
+        pdf_isbn = extract_from_pdf_metadata(row["file_path"])
+        if pdf_isbn:
+            cheap["pdf_meta"] = pdf_isbn
 
-    # Phase 1.5b: Filename ISBN (fast, no file parsing needed)
-    if not isbn:
-        book_row = await fetch_one("SELECT original_filename FROM books WHERE id = $1", UUID(book_id))
-        if book_row and book_row.get("original_filename"):
-            isbn = extract_from_filename(book_row["original_filename"])
+    book_row = await fetch_one("SELECT original_filename FROM books WHERE id = $1", UUID(book_id))
+    if book_row and book_row.get("original_filename"):
+        fn_isbn = filename_isbn(book_row["original_filename"])
+        if fn_isbn:
+            cheap["filename"] = fn_isbn
 
-    # Phase 2: Text content with multilingual anchors
-    if not isbn:
+    decision = decide(cheap)
+
+    # Phase 2: full-text scan — only when cheap evidence wasn't enough to auto-apply (R3: strongest
+    # evidence first; a full-text scan, or an ebook-convert subprocess for MOBI/AZW3, is expensive).
+    if decision.isbn is None or decision.confidence == "possible":
         from brainycat.fingerprints import _extract_full_text
 
         text = ""
@@ -513,11 +528,13 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
 
         if text:
             text_data = extract_from_text(text)
-            isbn = text_data.get("isbn") or text_data.get("isbn_10")
             extra.update(text_data)
+            text_isbn = text_data.get("isbn") or text_data.get("isbn_10")
+            if text_isbn:
+                decision = decide(cheap, expensive={"text": text_isbn})
 
-    # If no ISBN found, check if any extracted value is an ASIN
-    if not isbn and extra.get("isbn_10"):
+    # If still nothing, check if any extracted value is an ASIN
+    if decision.isbn is None and extra.get("isbn_10"):
         asin = _extract_asin(extra["isbn_10"])
         if asin:
             await execute(
@@ -531,18 +548,36 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
 
                 amazon_data = await search(isbn=asin)
                 if amazon_data and amazon_data.get("isbn"):
-                    isbn = amazon_data["isbn"]  # Got real ISBN from Amazon via ASIN
+                    decision = decide({"amazon": amazon_data["isbn"]})
             except Exception:
                 pass
 
-    if isbn:
+    isbn = decision.isbn if decision.write else None
+
+    if decision.write and decision.isbn:
         current = await fetch_one("SELECT isbn FROM books WHERE id = $1", UUID(book_id))
         if not current or not current["isbn"] or current["isbn"] in ("", "null"):
-            await execute("UPDATE books SET isbn = $1, updated_at = now() WHERE id = $2", isbn, UUID(book_id))
+            await _set_isbn_and_reset_enrichment(book_id, decision.isbn)
             await execute(
-                "INSERT INTO enrichment_log (book_id, method, success) VALUES ($1, 'isbn_extract', true)",
+                "INSERT INTO enrichment_log (book_id, method, success) VALUES ($1, $2, true)",
                 UUID(book_id),
+                f"isbn_extract:{decision.method}",
             )
+    elif decision.isbn:
+        # R4: contested/single-weak-source ISBNs are queued for review, not written. Interim storage
+        # (extra_metadata JSONB, no schema change) until T6 gives this a dedicated review-queue table.
+        import json as _json
+
+        await execute(
+            "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'), '{isbn_candidate}', $1::jsonb) WHERE id = $2",
+            _json.dumps({"isbn": decision.isbn, "method": decision.method, "confidence": decision.confidence}),
+            UUID(book_id),
+        )
+        await execute(
+            "INSERT INTO enrichment_log (book_id, method, success) VALUES ($1, $2, false)",
+            UUID(book_id),
+            f"isbn_extract:queued:{decision.method}",
+        )
 
     # Store extracted metadata (publisher, edition, translator, printer)
     import json
@@ -768,10 +803,11 @@ async def isbn_from_cover_search(book_id: str) -> str | None:
     Extracts cover, searches Google Books by title (from OCR of cover if needed),
     then confirms match by comparing cover images.
     """
-    import os
     from uuid import UUID
-    from brainycat.db import fetch_one
+
     import httpx
+
+    from brainycat.db import fetch_one
 
     book = await fetch_one(
         "SELECT b.title, b.cover_path, b.isbn FROM books b WHERE b.id = $1",
@@ -783,10 +819,13 @@ async def isbn_from_cover_search(book_id: str) -> str | None:
     # If we have a title, search Google Books and grab ISBN from result
     if book.get("title") and len(book["title"]) > 5:
         try:
+            gb_params = {"q": book["title"], "maxResults": 3}
+            if settings.google_books_api_key:
+                gb_params["key"] = settings.google_books_api_key
             async with httpx.AsyncClient(timeout=10) as client:
                 r = await client.get(
                     "https://www.googleapis.com/books/v1/volumes",
-                    params={"q": book["title"], "maxResults": 3},
+                    params=gb_params,
                 )
                 if r.status_code == 200:
                     for item in r.json().get("items", []):
