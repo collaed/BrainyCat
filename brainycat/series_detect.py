@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from brainycat.config import settings
 from brainycat.db import execute, fetch_all, fetch_one
 
 SERIES_PATTERNS = [
@@ -123,9 +124,12 @@ async def search_missing_in_series(series_id: str) -> list[dict[str, Any]]:
     await rate_limiter.wait("google")
     client = get_client()
     try:
+        gb_params = {"q": f'"{series["name"]}"', "maxResults": 20}
+        if settings.google_books_api_key:
+            gb_params["key"] = settings.google_books_api_key
         resp = await client.get(
             "https://www.googleapis.com/books/v1/volumes",
-            params={"q": f'"{series["name"]}"', "maxResults": 20},
+            params=gb_params,
             timeout=10,
         )
         if resp.status_code != 200:

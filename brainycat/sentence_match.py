@@ -21,15 +21,43 @@ from brainycat.rate_limit import rate_limiter
 
 def _extract_sentences(text: str) -> list[str]:
     """Split text into sentences, return those with 8+ words."""
-    raw = re.split(r'(?<=[.!?])\s+', text.strip())
+    raw = re.split(r"(?<=[.!?])\s+", text.strip())
     return [s.strip() for s in raw if len(s.split()) >= 8 and len(s) < 300]
 
 
 def _pick_unusual(sentences: list[str]) -> str | None:
     """Pick the most unusual sentence (fewest common words)."""
-    common = {"the", "and", "was", "that", "with", "for", "his", "her", "had", "not",
-              "but", "have", "from", "they", "been", "this", "which", "were", "are",
-              "les", "des", "une", "que", "dans", "pour", "qui", "avec", "est", "pas"}
+    common = {
+        "the",
+        "and",
+        "was",
+        "that",
+        "with",
+        "for",
+        "his",
+        "her",
+        "had",
+        "not",
+        "but",
+        "have",
+        "from",
+        "they",
+        "been",
+        "this",
+        "which",
+        "were",
+        "are",
+        "les",
+        "des",
+        "une",
+        "que",
+        "dans",
+        "pour",
+        "qui",
+        "avec",
+        "est",
+        "pas",
+    }
     best, best_score = None, 1.0
     for s in sentences:
         words = s.lower().split()
@@ -43,14 +71,26 @@ def _pick_unusual(sentences: list[str]) -> str | None:
 
 
 async def _google_sentence(sentence: str) -> dict[str, Any] | None:
-    """Search Google Books for a quoted sentence. Returns book info or None."""
+    """Search Google Books for a quoted sentence. Returns book info or None.
+
+    This is a last-resort fallback called from inside enrich_book's shared per-book time budget
+    (scheduler.py: asyncio.timeout(30)). If "google" is already serving a failure backoff (which can
+    run to minutes/hours — see rate_limit.py), blocking here to wait it out starves that whole budget
+    for one book and guarantees an enrichment_timeout. Skip immediately instead; the book is picked
+    up again on a later scheduler pass once the backoff clears.
+    """
+    if rate_limiter.is_backed_off("google"):
+        return None
     await rate_limiter.wait("google")
     client = get_client()
     query = f'"{sentence}"'
     try:
+        gb_params = {"q": query, "maxResults": 3}
+        if settings.google_books_api_key:
+            gb_params["key"] = settings.google_books_api_key
         resp = await client.get(
             "https://www.googleapis.com/books/v1/volumes",
-            params={"q": query, "maxResults": 3},
+            params=gb_params,
             timeout=10,
         )
         if resp.status_code != 200:
@@ -84,6 +124,7 @@ async def identify_by_sentence(book_id: str) -> dict[str, Any]:
         return {"ok": False, "reason": "no file"}
 
     import os
+
     if not os.path.isfile(file_row["file_path"]):
         return {"ok": False, "reason": "file missing"}
 
@@ -115,7 +156,7 @@ async def identify_by_sentence(book_id: str) -> dict[str, Any]:
         return {"ok": True, **result}
 
     # Strategy 2: too many hits on opening → pick unusual sentence from later
-    later_text = samples[1] if len(samples) > 1 else (samples[0][len(samples[0])//2:] if samples else "")
+    later_text = samples[1] if len(samples) > 1 else (samples[0][len(samples[0]) // 2 :] if samples else "")
     later_sentences = _extract_sentences(later_text)
     unusual = _pick_unusual(later_sentences)
 
@@ -134,22 +175,23 @@ async def _apply_match(book_id: str, match: dict[str, Any]) -> None:
     """Apply a sentence-match result to the book record."""
     from brainycat.metadata_audit import record_change
 
-    book = await fetch_one("SELECT title, isbn FROM books WHERE id = $1", UUID(book_id))
+    book = await fetch_one("SELECT title, isbn, identity_status FROM books WHERE id = $1", UUID(book_id))
     if not book:
         return
 
-    if match.get("title") and match["title"] != book["title"]:
+    if match.get("title") and match["title"] != book["title"] and book["identity_status"] == "auto":
         await record_change(book_id, "title", book["title"], match["title"], "sentence_match")
         await execute("UPDATE books SET title = $1 WHERE id = $2", match["title"], UUID(book_id))
 
-    if match.get("isbn") and not book["isbn"]:
+    if match.get("isbn") and not book["isbn"] and book["identity_status"] != "locked":
         await record_change(book_id, "isbn", None, match["isbn"], "sentence_match")
         await execute("UPDATE books SET isbn = $1 WHERE id = $2", match["isbn"], UUID(book_id))
 
-    if match.get("authors"):
+    if match.get("authors") and book["identity_status"] != "locked":
         for name in match["authors"]:
             await execute("INSERT INTO authors (name) VALUES ($1) ON CONFLICT DO NOTHING", name)
             row = await fetch_one("SELECT id FROM authors WHERE name = $1", name)
             if row:
-                await execute("INSERT INTO books_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                              UUID(book_id), row["id"])
+                await execute(
+                    "INSERT INTO books_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", UUID(book_id), row["id"]
+                )

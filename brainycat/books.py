@@ -15,7 +15,8 @@ from brainycat.auth import get_current_user, require_admin
 from brainycat.db import execute, fetch_all, fetch_one
 from brainycat.extract import extract_metadata
 
-ALLOWED_FORMATS = {".epub", ".pdf", ".mobi", ".mp3", ".m4b", ".m4a", ".opus", ".flac", ".ogg"}
+ALLOWED_FORMATS = {".epub", ".pdf", ".mobi", ".azw3", ".mp3", ".m4b", ".m4a", ".opus", ".flac", ".ogg"}
+ZIP_FORMATS = ALLOWED_FORMATS | {".zip"}
 
 
 # ---------------------------------------------------------------------------
@@ -27,11 +28,11 @@ async def upload_book(
     file: UploadFile,
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """POST /api/v1/books/upload — upload a book file."""
+    """POST /api/v1/books/upload — upload a book file, or a .zip of several."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename")
     ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in ALLOWED_FORMATS:
+    if ext not in ZIP_FORMATS:
         raise HTTPException(status_code=400, detail=f"Unsupported format: {ext}")
 
     # Stream to disk (not into memory) to handle large audiobooks
@@ -44,32 +45,54 @@ async def upload_book(
             out.write(chunk)
             size += len(chunk)
 
-    # If zip, extract and process each file inside
     if ext == ".zip":
-        import zipfile
+        return await _ingest_zip(book_id, file_path)
 
-        results = []
-        with zipfile.ZipFile(file_path) as zf:
-            for name in zf.namelist():
-                inner_ext = os.path.splitext(name)[1].lower()
-                if inner_ext in ALLOWED_FORMATS and inner_ext != ".zip":
-                    inner_path = os.path.join(storage.book_dir(book_id), os.path.basename(name))
+    try:
+        return await _ingest_one_file(book_id, file_path, file.filename, size)
+    except Exception as e:
+        return {"error": f"upload failed: {e}"}
+
+
+async def _ingest_zip(zip_book_id: str, zip_path: str) -> dict[str, Any]:
+    """Extract every supported file from a .zip and ingest each as its own book —
+    a zip is a batch, not a single book, so one bad entry must not sink the rest."""
+    import shutil
+    import zipfile
+
+    results: list[dict[str, Any]] = []
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            names = [n for n in zf.namelist() if os.path.splitext(n)[1].lower() in ALLOWED_FORMATS]
+            for name in names:
+                inner_filename = os.path.basename(name)
+                inner_id = str(uuid4())
+                inner_path = os.path.join(storage.book_dir(inner_id), inner_filename)
+                try:
                     with zf.open(name) as src, open(inner_path, "wb") as dst:
-                        import shutil
-
                         shutil.copyfileobj(src, dst)
-                    results.append(os.path.basename(name))
-            if not results:
-                return {"error": "No supported files in zip"}
-            # Use the first extracted file as the main book
-            file_path = os.path.join(storage.book_dir(book_id), results[0])
-            ext = os.path.splitext(results[0])[1].lower()
-        os.unlink(os.path.join(storage.book_dir(book_id), os.path.basename(file.filename)))
+                    inner_size = os.path.getsize(inner_path)
+                    result = await _ingest_one_file(inner_id, inner_path, inner_filename, inner_size)
+                except Exception as e:
+                    result = {"error": str(e)}
+                results.append({"filename": inner_filename, **result})
+    finally:
+        os.unlink(zip_path)
+        shutil.rmtree(storage.book_dir(zip_book_id), ignore_errors=True)
 
-    # Save original filename
-    _ = file.filename  # preserved in DB via original_filename column
+    if not results:
+        return {"error": "No supported files in zip"}
+    return {"zip": True, "results": results}
 
-    # Check file health
+
+async def _ingest_one_file(book_id: str, file_path: str, original_filename: str, size: int) -> dict[str, Any]:
+    """Ingest one already-on-disk book file: health check, dedup, metadata extraction, DB rows."""
+    ext = os.path.splitext(file_path)[1].lower()
+
+    # Note: original filename is not currently persisted on `books` — `books.original_filename`
+    # doesn't exist in the schema (isbn.py/metadata_audit.py read it from a `book_originals` table
+    # that was also never migrated), so filename-derived ISBN/title-drift checks silently no-op.
+
     health = _check_file_health(file_path)
     if not health["healthy"]:
         os.unlink(file_path)
@@ -85,20 +108,20 @@ async def upload_book(
     except Exception:
         pass
 
-    # Compute KOReader-compatible hash for sync
-    from brainycat.koreader_hash import compute_koreader_hash
-
-    kr_hash = compute_koreader_hash(file_path)
-
     # Auto-fix EPUB issues
     if ext == ".epub":
-        from brainycat.epub_fix import fix_epub
+        try:
+            from brainycat.epub_fix import fix_epub
 
-        fix_epub(file_path)
+            fix_epub(file_path)
+        except Exception:
+            pass
 
-    # Extract metadata
-    meta = extract_metadata(file_path)
-    title = meta.get("title") or os.path.splitext(file.filename)[0]
+    try:
+        meta = extract_metadata(file_path)
+    except Exception as e:
+        return {"error": f"could not read file metadata: {e}"}
+    title = meta.get("title") or os.path.splitext(original_filename)[0]
     author_name = meta.get("author")
 
     # Save cover if present
@@ -137,75 +160,82 @@ async def upload_book(
             "book_id": book_id,
         }
 
-    # Insert book
-    await execute(
-        """INSERT INTO books (id, title, original_filename, isbn, description, cover_path, pubdate)
-           VALUES ($1, $2, $3, $3, $4, $5, $6)""",
-        UUID(book_id),
-        title,
-        meta.get("isbn"),
-        meta.get("description"),
-        cover_path,
-        None,
-    )
-
-    # Insert book file
-    mime = mimetypes.guess_type(file.filename)[0]
-    await execute(
-        """INSERT INTO book_files (id, book_id, format, file_path, file_name, file_size, mime_type, bitrate, duration_seconds, has_chapters)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
-        uuid4(),
-        UUID(book_id),
-        meta.get("format", ext.lstrip(".")),
-        file_path,
-        file.filename,
-        size,
-        mime,
-        meta.get("bitrate"),
-        meta.get("duration_seconds"),
-        meta.get("has_chapters", False),
-    )
-
-    # Clean author name — filter garbage
-    if author_name:
-        garbage = {"libgen.li", "libgen", "z-lib", "unknown", "n/a", "user", "admin", "calibre", "anonymous"}
-        if author_name.lower().strip() in garbage or "/" in author_name or len(author_name) > 100:
-            author_name = None
-
-    # Insert author if present
-    if author_name:
-        await execute("INSERT INTO authors (name) VALUES ($1) ON CONFLICT (name) DO NOTHING", author_name)
-        author_row = await fetch_one("SELECT id FROM authors WHERE name = $1", author_name)
-        if author_row:
-            await execute(
-                "INSERT INTO books_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                UUID(book_id),
-                author_row["id"],
-            )
-
-    # Insert language if present
-    lang = meta.get("language")
-    if lang:
-        await execute("INSERT INTO languages (code) VALUES ($1) ON CONFLICT (code) DO NOTHING", lang)
-        lang_row = await fetch_one("SELECT id FROM languages WHERE code = $1", lang)
-        if lang_row:
-            await execute(
-                "INSERT INTO books_languages (book_id, language_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                UUID(book_id),
-                lang_row["id"],
-            )
-
-    # Insert audio chapters
-    for ch in meta.get("chapters", []):
+    try:
+        # Insert book
         await execute(
-            """INSERT INTO audio_chapters (file_id, chapter_index, title, start_time, end_time)
-               VALUES ((SELECT id FROM book_files WHERE book_id = $1 LIMIT 1), $2, $3, $4, $5)""",
+            """INSERT INTO books (id, title, isbn, description, cover_path, pubdate)
+               VALUES ($1, $2, $3, $4, $5, $6)""",
             UUID(book_id),
-            ch["index"],
-            ch.get("title"),
-            ch.get("start", 0),
-            ch.get("start", 0),  # end_time updated later
+            title,
+            meta.get("isbn"),
+            meta.get("description"),
+            cover_path,
+            None,
         )
+
+        # Insert book file
+        mime = mimetypes.guess_type(original_filename)[0]
+        await execute(
+            """INSERT INTO book_files (id, book_id, format, file_path, file_name, file_size, mime_type, bitrate, duration_seconds, has_chapters)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
+            uuid4(),
+            UUID(book_id),
+            meta.get("format", ext.lstrip(".")),
+            file_path,
+            original_filename,
+            size,
+            mime,
+            meta.get("bitrate"),
+            meta.get("duration_seconds"),
+            meta.get("has_chapters", False),
+        )
+
+        # Clean author name — filter garbage
+        if author_name:
+            garbage = {"libgen.li", "libgen", "z-lib", "unknown", "n/a", "user", "admin", "calibre", "anonymous"}
+            if author_name.lower().strip() in garbage or "/" in author_name or len(author_name) > 100:
+                author_name = None
+
+        # Insert author(s) if present — a file's author field is often a compound string
+        # ("A, B, C" / "A & B" / "Last, First") that needs splitting into individual authors.
+        if author_name:
+            from brainycat.author_names import split_authors
+
+            for single_name in split_authors(author_name):
+                await execute("INSERT INTO authors (name) VALUES ($1) ON CONFLICT (name) DO NOTHING", single_name)
+                author_row = await fetch_one("SELECT id FROM authors WHERE name = $1", single_name)
+                if author_row:
+                    await execute(
+                        "INSERT INTO books_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                        UUID(book_id),
+                        author_row["id"],
+                    )
+
+        # Insert language if present
+        lang = meta.get("language")
+        if lang:
+            await execute("INSERT INTO languages (code) VALUES ($1) ON CONFLICT (code) DO NOTHING", lang)
+            lang_row = await fetch_one("SELECT id FROM languages WHERE code = $1", lang)
+            if lang_row:
+                await execute(
+                    "INSERT INTO books_languages (book_id, language_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    UUID(book_id),
+                    lang_row["id"],
+                )
+
+        # Insert audio chapters
+        for ch in meta.get("chapters", []):
+            await execute(
+                """INSERT INTO audio_chapters (file_id, chapter_index, title, start_time, end_time)
+                   VALUES ((SELECT id FROM book_files WHERE book_id = $1 LIMIT 1), $2, $3, $4, $5)""",
+                UUID(book_id),
+                ch["index"],
+                ch.get("title"),
+                ch.get("start", 0),
+                ch.get("start", 0),  # end_time updated later
+            )
+    except Exception as e:
+        return {"error": f"failed to save book record: {e}"}
 
     return {"book_id": book_id, "title": title, "author": author_name, "format": meta.get("format")}
 
@@ -222,6 +252,7 @@ async def list_books(
     tag: str | None = Query(None),
     author: str | None = Query(None),
     missing: str | None = Query(None),
+    identity_status: str | None = Query(None),
     sort: str = Query("updated_at"),
     order: str = Query("desc"),
     limit: int = Query(50, le=2000),
@@ -258,6 +289,11 @@ async def list_books(
             conditions.append("NOT EXISTS (SELECT 1 FROM books_tags bt WHERE bt.book_id = b.id)")
         elif missing == "low_quality":
             conditions.append("(b.quality_score IS NULL OR b.quality_score < 30)")
+
+    if identity_status in ("protected", "locked", "auto"):
+        conditions.append(f"b.identity_status = ${idx}")
+        params.append(identity_status)
+        idx += 1
 
     if book_format:
         conditions.append(f"EXISTS (SELECT 1 FROM book_files bf WHERE bf.book_id = b.id AND bf.format = ${idx})")
@@ -410,7 +446,20 @@ async def serve_file(book_id: str, file_id: str) -> FileResponse:
     if not row or not os.path.isfile(row["file_path"]):
         raise HTTPException(status_code=404, detail="File not found")
     mime = row["mime_type"] or MIME_MAP.get(row["format"], "") or mimetypes.guess_type(row["file_name"])[0] or "application/octet-stream"
-    return FileResponse(row["file_path"], media_type=mime, filename=row["file_name"])
+
+    from brainycat.filenames import build_filename
+
+    book = await fetch_one(
+        """SELECT b.title, b.isbn, array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
+           FROM books b
+           LEFT JOIN books_authors ba ON ba.book_id = b.id
+           LEFT JOIN authors a ON a.id = ba.author_id
+           WHERE b.id = $1 GROUP BY b.id""",
+        UUID(book_id),
+    )
+    ext = os.path.splitext(row["file_name"])[1]
+    download_name = build_filename(book["title"], book["authors"], book["isbn"], ext) if book else row["file_name"]
+    return FileResponse(row["file_path"], media_type=mime, filename=download_name)
 
 
 # ---------------------------------------------------------------------------

@@ -84,7 +84,7 @@ async def get_public_feed(username: str) -> dict[str, Any]:
         JOIN books b ON b.id = rp.book_id
         LEFT JOIN books_authors ba ON ba.book_id = b.id LEFT JOIN authors a ON a.id = ba.author_id
         WHERE rp.user_id = $1 AND rp.is_finished = false AND rp.percentage > 0
-        GROUP BY b.id, rp.percentage ORDER BY rp.updated_at DESC LIMIT 5
+        GROUP BY b.id, rp.percentage, rp.updated_at ORDER BY rp.updated_at DESC LIMIT 5
     """,
         uid,
     )

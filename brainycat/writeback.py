@@ -11,14 +11,16 @@ from brainycat.db import execute, fetch_all, fetch_one
 
 
 async def writeback_metadata(book_id: str) -> dict[str, Any]:
-    """Write enriched metadata back into the EPUB file's OPF."""
+    """Write enriched metadata back into the book file itself — EPUB's OPF, or a PDF's info dict."""
     book = await fetch_one("SELECT * FROM books WHERE id = $1", UUID(book_id))
     if not book:
         return {"ok": False, "error": "not found"}
 
-    file_row = await fetch_one("SELECT * FROM book_files WHERE book_id = $1 AND format = 'epub' LIMIT 1", UUID(book_id))
+    file_row = await fetch_one(
+        "SELECT * FROM book_files WHERE book_id = $1 AND format IN ('epub', 'pdf') ORDER BY format LIMIT 1", UUID(book_id)
+    )
     if not file_row or not os.path.isfile(file_row["file_path"]):
-        return {"ok": False, "error": "no epub file"}
+        return {"ok": False, "error": "no epub/pdf file"}
 
     # Get authors
     authors = await fetch_all(
@@ -36,21 +38,41 @@ async def writeback_metadata(book_id: str) -> dict[str, Any]:
 
     try:
         path = file_row["file_path"]
-        _update_epub_opf(
-            path,
-            title=book["title"],
-            authors=author_names,
-            isbn=book["isbn"],
-            description=book["description"],
-            languages=lang_codes,
-        )
+        if file_row["format"] == "pdf":
+            _update_pdf_info(path, title=book["title"], authors=author_names)
+            fields = ["title", "authors"]
+        else:
+            _update_epub_opf(
+                path,
+                title=book["title"],
+                authors=author_names,
+                isbn=book["isbn"],
+                description=book["description"],
+                languages=lang_codes,
+            )
+            fields = ["title", "authors", "isbn", "description", "languages"]
         await execute(
             "INSERT INTO enrichment_log (book_id, method, success) VALUES ($1, 'writeback', true)",
             UUID(book_id),
         )
-        return {"ok": True, "fields_written": ["title", "authors", "isbn", "description", "languages"]}
+        return {"ok": True, "fields_written": fields}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
+
+
+def _update_pdf_info(pdf_path: str, title: str | None = None, authors: list[str] | None = None) -> None:
+    """Update the PDF info dict (Title/Author) in place via PyMuPDF."""
+    import fitz
+
+    doc = fitz.open(pdf_path)
+    meta = dict(doc.metadata or {})
+    if title:
+        meta["title"] = title
+    if authors:
+        meta["author"] = ", ".join(authors)
+    doc.set_metadata(meta)
+    doc.saveIncr()
+    doc.close()
 
 
 def _update_epub_opf(

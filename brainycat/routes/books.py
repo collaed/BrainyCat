@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from brainycat import collections, convert, db, metadata, podcast, restoration, stats, stt, translation, tts
 from brainycat.auth import get_current_user, require_admin
 from brainycat.concurrency import heavy
 from brainycat.http_client import get_client
-
-if TYPE_CHECKING:
-    from brainycat.routes.models import AuthorUpdate, BatchDeleteBody, BatchEnrichBody, BatchTagBody, BulkEnrichBody, BulkTagBody, NoteBody
+from brainycat.routes.models import AuthorUpdate, BatchDeleteBody, BatchEnrichBody, BatchTagBody, BulkEnrichBody, BulkTagBody, IdentityOverride, NoteBody
 
 router = APIRouter(prefix="/api/v1", tags=["books"])
 
@@ -119,6 +117,12 @@ async def device(book_id: str, email: str = Query(...), _u: Any = Depends(get_cu
     return await convert.send_to_device(book_id, email)
 
 
+@router.get("/send-status/{message_id}")
+async def send_status(message_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Delivery status for a Resend-sent email (Kindle/device) — bounced/delivered/etc."""
+    return await convert.check_send_status(message_id)
+
+
 # ── Catalog (Gutenberg + LibriVox) ───────────────────────────────────────
 
 
@@ -154,6 +158,52 @@ async def ocr_book(book_id: str, user: Any = Depends(get_current_user)) -> dict[
 
     job_id = await ocr_pdf(book_id, str(user["id"]))
     return {"job_id": job_id}
+
+
+@router.post("/books/{book_id}/find-translations")
+async def find_translations_route(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Look up this book's original/sibling translations via Wikidata — see brainycat.translations."""
+    from brainycat.translations import link_translations
+
+    return await link_translations(book_id)
+
+
+@router.get("/books/{book_id}/translations")
+async def get_translations_route(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.translations import get_translation_info
+
+    return await get_translation_info(book_id)
+
+
+@router.post("/books/{book_id}/ocr-cover")
+async def ocr_cover_route(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """OCR the book's cover to help fix a misidentified book — see brainycat.cover_ocr."""
+    from brainycat.cover_ocr import ocr_cover
+
+    return await ocr_cover(book_id)
+
+
+@router.post("/books/{book_id}/override")
+async def override_identity(book_id: str, body: IdentityOverride, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Manually correct a misidentified book — wipes enrichment-derived data and protects the
+    corrected fields from automated overwrite. See brainycat.manual_override."""
+    from brainycat.manual_override import apply_override
+
+    return await apply_override(book_id, body.title, body.author, body.isbn, body.description)
+
+
+@router.post("/books/{book_id}/lock")
+async def lock_identity(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.manual_override import lock_book
+
+    return await lock_book(book_id)
+
+
+@router.post("/books/{book_id}/unlock")
+async def unlock_identity(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.manual_override import unlock_book
+
+    return await unlock_book(book_id)
 
 
 # ── Metadata download (Calibre-style) ───────────────────────────────────
@@ -864,41 +914,37 @@ async def book_reviews_aggregated(book_id: str, _u: Any = Depends(get_current_us
 
 @router.get("/books/{book_id}/file/by-format/{fmt}")
 async def serve_file_by_format(book_id: str, fmt: str, _u: Any = Depends(get_current_user)) -> Any:
-    """Serve a book file by format (epub, pdf, mobi, etc.)."""
+    """Serve a book file by format (epub, pdf, mobi, etc.) — used for downloads and OPDS acquisition."""
     import os
+    from uuid import UUID as _UUID
+
+    from brainycat.filenames import build_filename
 
     row = await db.fetch_one(
-        "SELECT file_path FROM book_files WHERE book_id = $1 AND format = $2 LIMIT 1",
-        __import__("uuid").UUID(book_id),
+        "SELECT file_path, file_name FROM book_files WHERE book_id = $1 AND format = $2 LIMIT 1",
+        _UUID(book_id),
         fmt,
     )
     if not row or not os.path.isfile(row["file_path"]):
-        return {"detail": "file not found"}
+        raise HTTPException(status_code=404, detail="file not found")
     mime = {"epub": "application/epub+zip", "pdf": "application/pdf", "mobi": "application/x-mobipocket-ebook"}.get(
         fmt, "application/octet-stream"
     )
-    return FileResponse(row["file_path"], media_type=mime)
+
+    book = await db.fetch_one(
+        """SELECT b.title, b.isbn, array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors
+           FROM books b
+           LEFT JOIN books_authors ba ON ba.book_id = b.id
+           LEFT JOIN authors a ON a.id = ba.author_id
+           WHERE b.id = $1 GROUP BY b.id""",
+        _UUID(book_id),
+    )
+    ext = os.path.splitext(row["file_name"])[1]
+    download_name = build_filename(book["title"], book["authors"], book["isbn"], ext) if book else row["file_name"]
+    return FileResponse(row["file_path"], media_type=mime, filename=download_name)
 
 
 # ── Batch genre classification ────────────────────────────────────────────
-
-
-@router.get("/series")
-async def list_series(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
-    rows = await db.fetch_all("""
-        SELECT s.id, s.name, count(bs.book_id) as book_count,
-               array_agg(b.series_index ORDER BY b.series_index) FILTER (WHERE b.series_index IS NOT NULL) as indices
-        FROM series s
-        LEFT JOIN books_series bs ON bs.series_id = s.id
-        LEFT JOIN books b ON b.id = bs.book_id
-        GROUP BY s.id ORDER BY s.name
-    """)
-    result = []
-    for r in rows:
-        indices = sorted([i for i in (r["indices"] or []) if i])
-        gaps = [i for i in range(1, int(max(indices, default=0)) + 1) if i not in indices] if indices else []
-        result.append({"id": str(r["id"]), "name": r["name"], "book_count": r["book_count"], "indices": indices, "gaps": gaps})
-    return result
 
 
 @router.post("/series/{series_id}/reorder")

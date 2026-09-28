@@ -29,11 +29,14 @@ nav a:hover{color:var(--pico-color)}
 </style>
 </head>
 <body>
-<nav><a href="/static/index.html">← Library</a><a href="/static/filename-history.html">Filename History</a><a href="#" onclick="showBugs()">🐛 Bugs</a></nav>
+<nav><a href="/static/index.html">← Library</a><a href="#" onclick="showBugs()">🐛 Bugs</a><div id="bc-nav"></div></nav>
+<script src="/static/nav.js"></script>
 <h1>📋 Metadata Operations</h1>
 <p style="font-size:.8rem;color:var(--pico-muted-color);margin-bottom:1rem">Review changes made by enrichment, title cleanup, and imports. Validate to clear, or flag suspicious ones.</p>
 
 <div class="controls">
+  <button id="view-pending" class="active" onclick="setView('pending')">Pending review</button>
+  <button id="view-recent" class="outline" onclick="setView('recent')">Recent (last 100)</button>
   <label><input type="checkbox" class="cb" id="select-all" onchange="toggleAll()"> All</label>
   <button onclick="validateSelected()" class="outline">✓ Validate selected</button>
   <button onclick="openFlagModal()" class="outline secondary">⚠ Flag selected</button>
@@ -58,10 +61,18 @@ nav a:hover{color:var(--pico-color)}
 
 <script>
 let ops=[];
+let view='pending';
+
+function setView(v){
+  view=v;
+  document.getElementById('view-pending').className=v==='pending'?'active':'outline';
+  document.getElementById('view-recent').className=v==='recent'?'active':'outline';
+  load();
+}
 
 async function load(){
-  ops=await BC.get('/metadata-ops?limit=500');
-  document.getElementById('stats').textContent=ops.length+' pending operations';
+  ops=view==='recent'?await BC.get('/enrichment-history?limit=100'):await BC.get('/metadata-ops?limit=500');
+  document.getElementById('stats').textContent=ops.length+(view==='recent'?' recent changes (all statuses)':' pending operations');
   render();
 }
 
@@ -72,7 +83,7 @@ function render(){
     <td><span class="field">${o.field}</span></td>
     <td class="old" title="${esc(o.old_value||'')}">${esc(o.old_value||'—')}</td>
     <td class="new" title="${esc(o.new_value||'')}">${esc(o.new_value||'—')}</td>
-    <td><span class="source">${o.source}</span></td>
+    <td><span class="source">${o.source}</span>${o.status&&o.status!=='pending'?` <span class="source" style="opacity:.7">${o.status}</span>`:''}</td>
     <td style="white-space:nowrap;font-size:.75rem">${new Date(o.created_at).toLocaleDateString()}</td>
     <td><button style="font-size:.7rem;padding:.2rem .4rem" onclick="validateOne('${o.id}')">✓</button></td>
   </tr>`).join('');

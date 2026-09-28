@@ -7,6 +7,13 @@ from typing import Any
 from pydantic import BaseModel
 
 
+class IdentityOverride(BaseModel):
+    title: str | None = None
+    author: str | None = None
+    isbn: str | None = None
+    description: str | None = None
+
+
 class AuthorUpdate(BaseModel):
     author: str
 

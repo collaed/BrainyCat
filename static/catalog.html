@@ -25,8 +25,9 @@ nav{display:flex;gap:.5rem}nav a{padding:.3rem .6rem;font-size:.8rem;color:var(-
 #status{font-size:.8rem;color:var(--muted);margin-bottom:.5rem}
 </style></head><body>
 <header><a href="index.html">← Library</a><h2>📖 Public Domain Catalog</h2>
-<nav><a href="catalog.html">📖 Catalog</a><a href="incoming.html">📥 Incoming</a><a href="intelligence.html">🧠 Intel</a><a href="stats.html">📊 Stats</a><a href="recommendations.html">💡 For You</a></nav>
+<div id="bc-nav"></div>
 </header>
+<script src="nav.js"></script>
 <div class="container">
 <div class="tabs">
 <button class="active" onclick="setTab('all',this)">🔍 All Sources</button>

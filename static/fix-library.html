@@ -1,0 +1,106 @@
+<!DOCTYPE html><html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrainyCat — Fix Library</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<script src="api.js"></script>
+<style>
+body{margin:0}
+.topbar{position:sticky;top:0;z-index:50;background:var(--pico-background-color);border-bottom:1px solid var(--pico-muted-border-color);padding:.5rem 1.5rem;display:flex;align-items:center;gap:1rem}
+.topbar h1{font-size:1.1rem;margin:0;white-space:nowrap}
+#bc-nav{margin-left:auto}
+main{padding:1.2rem 1.5rem;max-width:1200px;margin:0 auto}
+.tabs{display:flex;gap:.3rem;flex-wrap:wrap;border-bottom:1px solid var(--pico-muted-border-color);margin-bottom:1rem}
+.tabs button{background:none;border:none;border-bottom:2px solid transparent;padding:.6rem .9rem;font-size:.85rem;color:var(--pico-muted-color);cursor:pointer}
+.tabs button:hover{color:var(--pico-color)}
+.tabs button.active{color:var(--pico-color);border-bottom-color:var(--pico-primary);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem}
+.card{background:var(--pico-card-background-color);border:1px solid var(--pico-muted-border-color);border-radius:10px;padding:1.2rem;text-decoration:none;color:inherit;display:block}
+.card:hover{border-color:var(--pico-primary)}
+.card h3{margin:0 0 .3rem;font-size:1rem}
+.card p{margin:0;font-size:.82rem;color:var(--pico-muted-color)}
+.card .count{font-size:1.6rem;font-weight:700;color:var(--pico-primary);margin:.4rem 0}
+p.lead{color:var(--pico-muted-color);margin-top:.3rem}
+iframe{width:100%;height:calc(100vh - 160px);border:none;border-radius:8px;background:var(--pico-background-color)}
+.frame-note{font-size:.75rem;color:var(--pico-muted-color);margin-bottom:.5rem}
+</style>
+</head>
+<body>
+<div class="topbar"><h1>🐱 BrainyCat</h1><div id="bc-nav"></div></div>
+<script src="nav.js"></script>
+<main>
+  <h2>Fix Library</h2>
+  <p class="lead">Everything about whether your library is clean and correct, in one place.</p>
+
+  <div class="tabs" id="tabs">
+    <button class="active" data-tab="overview">Overview</button>
+    <button data-tab="quality">Quality</button>
+    <button data-tab="dupes-isbn">Duplicates (ISBN)</button>
+    <button data-tab="dupes-content">Duplicates (Content)</button>
+    <button data-tab="series">Series</button>
+    <button data-tab="authors">Authors</button>
+    <button data-tab="metadata">Metadata Changes</button>
+  </div>
+
+  <div id="tab-overview">
+    <div class="grid" id="grid">
+      <a class="card" href="#" onclick="selectTab('quality');return false"><h3>Quality</h3><div class="count" id="c-quality">–</div><p>Low quality-score books</p></a>
+      <a class="card" href="#" onclick="selectTab('dupes-isbn');return false"><h3>Duplicates (ISBN)</h3><div class="count" id="c-dupes">–</div><p>Same ISBN, likely the same book</p></a>
+      <a class="card" href="#" onclick="selectTab('dupes-content');return false"><h3>Duplicates (content)</h3><div class="count" id="c-content-dupes">–</div><p>Same text, different files/formats</p></a>
+      <a class="card" href="#" onclick="selectTab('series');return false"><h3>Series</h3><div class="count" id="c-series">–</div><p>Gaps and out-of-order volumes</p></a>
+      <a class="card" href="#" onclick="selectTab('authors');return false"><h3>Authors</h3><div class="count" id="c-authors">–</div><p>Likely duplicate author names to merge</p></a>
+      <a class="card" href="#" onclick="selectTab('metadata');return false"><h3>Metadata Changes</h3><p>Review, validate or roll back enrichment edits</p></a>
+    </div>
+  </div>
+
+  <div id="tab-frame" style="display:none">
+    <p class="frame-note" id="frame-note"></p>
+    <iframe id="frame" title="Fix Library detail"></iframe>
+  </div>
+</main>
+<script>
+const FRAMES = {
+  quality: {src: 'intel-quality.html', note: ''},
+  'dupes-isbn': {src: 'intel-dupes.html', note: ''},
+  'dupes-content': {src: 'intel-content-dupes.html', note: ''},
+  series: {src: 'intel-series.html', note: ''},
+  authors: {src: 'intel-authors.html', note: ''},
+  metadata: {src: 'metadata-ops.html', note: 'Looking for file rename history specifically? See '
+    + '<a href="filename-history.html">Renames</a>.'},
+};
+
+function selectTab(tab) {
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  if (tab === 'overview') {
+    document.getElementById('tab-overview').style.display = '';
+    document.getElementById('tab-frame').style.display = 'none';
+    return;
+  }
+  document.getElementById('tab-overview').style.display = 'none';
+  document.getElementById('tab-frame').style.display = '';
+  const f = FRAMES[tab];
+  document.getElementById('frame-note').innerHTML = f.note;
+  document.getElementById('frame').src = f.src;
+  history.replaceState(null, '', '#' + tab);
+}
+
+document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => selectTab(b.dataset.tab)));
+
+async function loadCounts() {
+  const q = await BC.get('/intelligence/quality').catch(() => null);
+  const d = await BC.get('/intelligence/duplicates').catch(() => null);
+  const cd = await BC.get('/intelligence/content-duplicates').catch(() => null);
+  const sg = await BC.get('/intelligence/series-gaps').catch(() => null);
+  const as = await BC.get('/intelligence/author-suggestions').catch(() => null);
+  if (q) document.getElementById('c-quality').textContent = (q.low_quality_count ?? q.length ?? '–');
+  if (d) document.getElementById('c-dupes').textContent = (d.length ?? d.count ?? '–');
+  if (cd) document.getElementById('c-content-dupes').textContent = (cd.length ?? cd.count ?? '–');
+  if (sg) document.getElementById('c-series').textContent = (sg.length ?? sg.count ?? '–');
+  if (as) document.getElementById('c-authors').textContent = (as.length ?? as.count ?? '–');
+}
+loadCounts();
+
+const initial = location.hash.replace('#', '');
+if (initial && FRAMES[initial]) selectTab(initial);
+</script>
+</body></html>

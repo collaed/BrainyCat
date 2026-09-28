@@ -25,6 +25,7 @@ async def enrich_batch(batch_size: int = 10) -> dict[str, Any]:
           AND (b.description IS NULL OR b.description = '')
           AND NOT (b.extra_metadata ? 'ol_works_tried')
           AND b.isbn IS NOT NULL
+          AND b.identity_status != 'locked'
         ORDER BY b.quality_score ASC
         LIMIT $1
     """, batch_size)

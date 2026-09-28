@@ -20,10 +20,12 @@ header button{padding:.4rem .8rem;border-radius:6px;border:none;cursor:pointer;f
 .empty{color:var(--muted);font-style:italic;padding:2rem;text-align:center}
 </style></head><body>
 <header>
-<a href="intelligence.html">← Intelligence</a><h2>📝 Content Duplicates</h2>
+<a href="fix-library.html">← Fix Library</a><h2>📝 Content Duplicates</h2>
 <button style="background:var(--warn)" onclick="compute(this)">🔍 Compute Fingerprints</button>
 <button style="background:var(--accent)" onclick="findDupes(this)">🔎 Find Duplicates</button>
+<div id="bc-nav"></div>
 </header>
+<script src="nav.js"></script>
 <div class="container">
 <div class="status" id="status">Loading...</div>
 <div id="matches"></div>

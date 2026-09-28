@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
 from brainycat import db, intelligence
 from brainycat.auth import get_current_user, require_admin
 from brainycat.http_client import get_client
-
-if TYPE_CHECKING:
-    from brainycat.routes.models import BatchActionsBody, CreateSeriesBody, LinkDuplicateBody, MergeAuthorsBody
+from brainycat.routes.models import BatchActionsBody, CreateSeriesBody, LinkDuplicateBody, MergeAuthorsBody
 
 router = APIRouter(prefix="/api/v1", tags=["enrichment"])
 
@@ -46,6 +44,21 @@ async def intel_merge(body: MergeAuthorsBody, _u: Any = Depends(get_current_user
     return await intelligence.apply_merge_authors(body.keep_id, body.merge_id)
 
 
+@router.get("/intelligence/compound-authors")
+async def intel_compound_authors(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Authors table rows that look like a compound multi-author string or 'Last, First' order."""
+    from brainycat.author_names import find_compound_authors
+
+    return await find_compound_authors()
+
+
+@router.post("/intelligence/compound-authors/{author_id}/split")
+async def intel_split_author(author_id: str, body: dict[str, Any], _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from brainycat.author_names import apply_compound_cleanup
+
+    return await apply_compound_cleanup(author_id, body["split_into"])
+
+
 @router.post("/intelligence/link-duplicate")
 async def intel_link_dup(body: LinkDuplicateBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
     return await intelligence.apply_link_duplicate(body.book_a_id, body.book_b_id, body.link_type)
@@ -61,9 +74,12 @@ async def intel_batch(body: BatchActionsBody, _u: Any = Depends(get_current_user
 
 @router.get("/intelligence/content-duplicates")
 async def content_dupes(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
-    from brainycat.duplicates import find_content_duplicates
+    """`brainycat.duplicates` (the module this used to import from) doesn't exist anywhere in the repo —
+    the real content-fingerprint duplicate matches live in fingerprints.get_duplicate_matches(), the
+    same function intel-content-dupes.html already uses directly."""
+    from brainycat.fingerprints import get_duplicate_matches
 
-    return await find_content_duplicates()
+    return await get_duplicate_matches()
 
 
 # ── Batch PDF cover extraction ───────────────────────────────────────────

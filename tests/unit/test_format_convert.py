@@ -16,6 +16,7 @@ def test_returns_list() -> None:
 
 def test_list_converters_structure() -> None:
     import asyncio
+
     result = asyncio.get_event_loop().run_until_complete(list_converters())
     assert "weasyprint" in result
     assert "supported_conversions" in result

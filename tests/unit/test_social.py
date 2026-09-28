@@ -26,11 +26,13 @@ def test_decode_invalid_hash() -> None:
 
 def test_decode_wrong_prefix() -> None:
     import base64
+
     bad = base64.urlsafe_b64encode(b"http://wrong|user|key").decode()
     assert decode_profile_hash(bad) is None
 
 
 def test_decode_missing_parts() -> None:
     import base64
+
     bad = base64.urlsafe_b64encode(b"bc://server|user").decode()
     assert decode_profile_hash(bad) is None

@@ -21,11 +21,16 @@ async def deep_enrich(book_id: str) -> dict[str, Any]:
     from uuid import UUID
 
     book = await fetch_one(
-        "SELECT title, isbn, description, language, extra_metadata FROM books WHERE id = $1",
+        """SELECT b.title, b.isbn, b.description, b.extra_metadata, b.identity_status,
+                  (SELECT l.code FROM languages l JOIN books_languages bl ON bl.language_id = l.id
+                   WHERE bl.book_id = b.id LIMIT 1) as language
+           FROM books b WHERE b.id = $1""",
         UUID(book_id),
     )
     if not book:
         return {"error": "not found"}
+    if book["identity_status"] == "locked":
+        return {"error": "book is locked against automated changes"}
 
     title = book["title"] or ""
     isbn = book["isbn"]
@@ -36,7 +41,7 @@ async def deep_enrich(book_id: str) -> dict[str, Any]:
         identified = await _llm_identify(title, book.get("language") or "eng")
         result["stages"].append({"stage": "llm_identify", **identified})
 
-        if identified.get("clean_title"):
+        if identified.get("clean_title") and book["identity_status"] == "auto":
             from brainycat.metadata_audit import record_change
 
             await record_change(book_id, "title", title, identified["clean_title"], "deep_enrich_llm")
@@ -172,9 +177,12 @@ async def _search_google_books(client: Any, title: str) -> dict[str, Any]:
     try:
         await rate_limiter.wait("google")
         async with asyncio.timeout(10):
+            gb_params = {"q": title, "maxResults": 3}
+            if settings.google_books_api_key:
+                gb_params["key"] = settings.google_books_api_key
             resp = await client.get(
                 "https://www.googleapis.com/books/v1/volumes",
-                params={"q": title, "maxResults": 3},
+                params=gb_params,
             )
         if resp.status_code == 200:
             items = resp.json().get("items", [])

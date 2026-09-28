@@ -39,6 +39,18 @@ async def get_history(book_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+async def get_recent(limit: int = 100) -> list[dict[str, Any]]:
+    """Most recent metadata changes across all books, regardless of status — the audit trail for
+    'what did enrichment just do' (Settings > Enrichment History)."""
+    rows = await db.fetch_all(
+        "SELECT h.id, h.book_id, b.title, h.field, h.old_value, h.new_value, h.source, h.status, h.created_at "
+        "FROM metadata_history h JOIN books b ON b.id = h.book_id "
+        "ORDER BY h.created_at DESC LIMIT $1",
+        limit,
+    )
+    return [dict(r) for r in rows]
+
+
 async def get_pending(limit: int = 200, book_id: str | None = None) -> list[dict[str, Any]]:
     """Get pending (unvalidated) operations."""
     if book_id:
@@ -122,8 +134,14 @@ async def check_drift(book_id: str) -> dict[str, Any]:
     Compares current title against original_filename/original_title.
     If no common words remain, flags for user review.
     """
+    # `book_originals` doesn't exist (see docs/known-issues.md) — file_name is the real filename
+    # source, and the earliest recorded title change (metadata_history, now populated for real — see
+    # brainycat.metadata's enrichment writes) is the best available proxy for "the original title".
     book = await db.fetch_one(
-        "SELECT b.title, b.isbn, bo.original_title, bo.original_filename FROM books b LEFT JOIN book_originals bo ON bo.book_id = b.id WHERE b.id = $1",
+        """SELECT b.title, b.isbn,
+                  (SELECT old_value FROM metadata_history WHERE book_id = b.id AND field = 'title' ORDER BY created_at ASC LIMIT 1) AS original_title,
+                  (SELECT file_name FROM book_files WHERE book_id = b.id ORDER BY created_at ASC LIMIT 1) AS original_filename
+           FROM books b WHERE b.id = $1""",
         UUID(book_id),
     )
     if not book:
@@ -167,9 +185,9 @@ async def check_drift(book_id: str) -> dict[str, Any]:
 async def find_drifted_books(limit: int = 20) -> list[dict[str, Any]]:
     """Find all books where metadata has drifted significantly from original."""
     books = await db.fetch_all(
-        """SELECT b.id, b.title, bo.original_title, bo.original_filename
-           FROM books b JOIN book_originals bo ON bo.book_id = b.id
-           WHERE bo.original_title IS NOT NULL AND b.title != bo.original_title
+        """SELECT DISTINCT b.id, b.title, h.old_value as original_title
+           FROM books b JOIN metadata_history h ON h.book_id = b.id AND h.field = 'title'
+           WHERE h.old_value IS NOT NULL AND b.title != h.old_value
            LIMIT $1""",
         limit * 3,  # Fetch more, filter in Python
     )

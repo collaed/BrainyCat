@@ -42,6 +42,35 @@ class PreferencesUpdate(BaseModel):
     preferred_format: str | None = None
 
 
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class AuthRequiredUpdate(BaseModel):
+    auth_required: bool
+
+
+# ---------------------------------------------------------------------------
+# Global settings (app_settings table — not per-user)
+# ---------------------------------------------------------------------------
+
+
+async def is_auth_required() -> bool:
+    """Checked on every request via get_current_user — a live DB read, not cached, so toggling in
+    Settings takes effect immediately with no redeploy. One extra indexed-PK lookup per request is
+    cheap enough here; this app already does several such lookups per route without caching."""
+    row = await fetch_one("SELECT value FROM app_settings WHERE key = 'auth_required'")
+    return bool(row["value"]) if row else True  # fail secure if the row is somehow missing
+
+
+async def _default_user_when_auth_disabled() -> asyncpg.Record | None:
+    """When auth is off, every request resolves to this one account (the first admin) rather than to
+    no one, so user_id-scoped code (uploads, preferences, ownership) keeps behaving coherently."""
+    user = await fetch_one("SELECT * FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1")
+    return user or await fetch_one("SELECT * FROM users ORDER BY created_at LIMIT 1")
+
+
 # ---------------------------------------------------------------------------
 # User lookup / creation
 # ---------------------------------------------------------------------------
@@ -70,7 +99,15 @@ async def _get_user_by_id(user_id: str) -> asyncpg.Record | None:
 
 
 async def get_current_user(request: Request) -> asyncpg.Record:
-    """Dependency: resolve user from X-Auth-User header, ECB auth cookie, or session cookie."""
+    """Dependency: resolve user from X-Auth-User header, ECB auth cookie, or session cookie.
+
+    If "auth_required" is off (Settings > Security — meant for a trusted home network with no reverse
+    proxy in front), a request presenting *no* credentials at all resolves to the default account
+    instead of 401ing. Explicit credentials — a real Bearer API key, or an actual session cookie from
+    having logged in — are checked first and still resolve to their real owning user regardless of this
+    setting, so MCP/API-key integrations and anyone who does choose to log in are unaffected; the toggle
+    only removes the *requirement* to present something.
+    """
     # 1) Trusted header from Caddy forward_auth
     header_user = request.headers.get("X-Auth-User")
     if header_user:
@@ -116,6 +153,12 @@ async def get_current_user(request: Request) -> asyncpg.Record:
                 return user
         except BadSignature:
             pass
+
+    # 5) No credentials presented at all — fall back to the default account if auth isn't required
+    if not await is_auth_required():
+        user = await _default_user_when_auth_disabled()
+        if user:
+            return user
 
     raise HTTPException(status_code=401, detail="Not authenticated")
 

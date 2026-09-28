@@ -42,6 +42,7 @@ def _json(body: str) -> dict:
 
 # ── Health & Auth ────────────────────────────────────────────────────────
 
+
 class TestHealth:
     def test_health(self) -> None:
         code, body = _curl("GET", "/api/v1/health")
@@ -59,6 +60,7 @@ class TestHealth:
 
 
 # ── Books CRUD ───────────────────────────────────────────────────────────
+
 
 class TestBooks:
     def test_list_books(self) -> None:
@@ -89,6 +91,7 @@ class TestBooks:
 
 # ── Enrichment & Intelligence ────────────────────────────────────────────
 
+
 class TestIntelligence:
     def test_source_coverage(self) -> None:
         code, body = _curl("GET", "/api/v1/sources/coverage")
@@ -112,6 +115,7 @@ class TestIntelligence:
 
 # ── OPDS ─────────────────────────────────────────────────────────────────
 
+
 class TestOPDS:
     def test_opds_catalog(self) -> None:
         code, body = _curl("GET", "/api/v1/opds/catalog.xml")
@@ -130,6 +134,7 @@ class TestOPDS:
 
 
 # ── Social ───────────────────────────────────────────────────────────────
+
 
 class TestSocial:
     def test_public_feed_no_auth(self) -> None:
@@ -150,6 +155,7 @@ class TestSocial:
 
 
 # ── Features ─────────────────────────────────────────────────────────────
+
 
 class TestFeatures:
     def test_custom_columns(self) -> None:
@@ -177,12 +183,21 @@ class TestFeatures:
 
 # ── API Key Auth ─────────────────────────────────────────────────────────
 
+
 class TestAPIKey:
     def test_bearer_auth(self) -> None:
         """Test that Bearer token auth works through Caddy."""
-        cmd = ["curl", "-s", "-w", "\n%{http_code}", "--max-time", "10",
-               "-H", "Authorization: Bearer bc_3l0TR5Sbk1k7FDsR_acgSyB_DL2FKeiadZ8S69Z6y7A",
-               f"{BASE}/api/v1/me"]
+        cmd = [
+            "curl",
+            "-s",
+            "-w",
+            "\n%{http_code}",
+            "--max-time",
+            "10",
+            "-H",
+            "Authorization: Bearer bc_3l0TR5Sbk1k7FDsR_acgSyB_DL2FKeiadZ8S69Z6y7A",
+            f"{BASE}/api/v1/me",
+        ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         lines = result.stdout.strip().rsplit("\n", 1)
         code = int(lines[-1]) if lines[-1].isdigit() else 0

@@ -9,9 +9,12 @@ Stores compact fingerprints in DB for fast comparison via MinHash/LSH.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import os
 import re
+import zlib
 from typing import Any
 from uuid import UUID
 
@@ -90,10 +93,15 @@ def _structural_fingerprint(text: str) -> dict[str, Any]:
 
 
 def _kgram_hashes(text: str, k: int = K) -> list[int]:
-    """Generate rolling hashes for k-grams."""
+    """Generate rolling hashes for k-grams.
+
+    Uses zlib.crc32, not the builtin hash(): Python randomizes str hashing per process
+    (PYTHONHASHSEED) unless disabled, so fingerprints computed before/after a restart would
+    otherwise live in different, incomparable hash spaces and silently never match again.
+    """
     if len(text) < k:
         return []
-    return [hash(text[i : i + k]) for i in range(len(text) - k + 1)]
+    return [zlib.crc32(text[i : i + k].encode()) for i in range(len(text) - k + 1)]
 
 
 def _winnow(hashes: list[int], w: int = W) -> list[int]:
@@ -155,11 +163,35 @@ def _edition_info(text: str) -> dict[str, Any]:
 # ── MinHash for fast comparison ──────────────────────────────────────────
 
 
+_MINHASH_MAX_INPUT = 50_000  # see _minhash docstring
+
+
 def _minhash(fingerprint: list[int], num_hashes: int = 128) -> list[int]:
-    """Compute MinHash signature for LSH comparison."""
+    """Compute MinHash signature for LSH comparison.
+
+    Correctness/performance bug: this used to run `num_hashes` full passes over the *entire* winnowed
+    fingerprint set with no size bound. For a real ~3.5M-character book that set has 1M+ elements —
+    measured 53s of pure synchronous CPU time for one book's minhash alone (138M `hash((i, v))` calls,
+    each allocating a tuple), inside an `async def` with no yield point, blocking the single-process
+    event loop for the *entire* app for that whole duration. This is almost certainly the actual cause
+    of the concurrent-load stalls seen throughout this project's test runs (see
+    docs/ui-redesign/proposal.md, iterations 3-6).
+
+    Fix is a bottom-k sketch, not an arbitrary truncation: dedupe, then keep the k smallest values by
+    hash *value*. An earlier version of this fix sampled every Nth element by *position* in the input
+    list instead — which silently broke actual cross-format duplicate detection (caught by
+    test_cross_format_match_on_real_files): the same book extracted via two different pipelines
+    produces two winnowed lists of different lengths with no shared positional indexing, so
+    position-based sampling from each independently picks essentially unrelated subsets. A value-based
+    bottom-k sketch doesn't have this problem — shared k-grams hash to the same values regardless of
+    which pipeline produced them or where they land in either list, so the two books' bottom-k sets
+    still overlap correctly, which is the entire property MinHash/Jaccard estimation depends on.
+    """
     if not fingerprint:
         return []
     fp_set = set(fingerprint)
+    if len(fp_set) > _MINHASH_MAX_INPUT:
+        fp_set = set(sorted(fp_set)[:_MINHASH_MAX_INPUT])
     signature = []
     for i in range(num_hashes):
         min_h = min((hash((i, v)) for v in fp_set), default=0)
@@ -178,6 +210,20 @@ def _jaccard_minhash(sig_a: list[int], sig_b: list[int]) -> float:
 # ── Compute & store ─────────────────────────────────────────────────────
 
 
+def _compute_sync(file_path: str, fmt: str) -> dict[str, Any] | None:
+    """The actual CPU-bound work (text extraction, winnowing, minhash), run off the event loop via
+    asyncio.to_thread by the caller. Even with _minhash's own size cap, extraction+winnowing alone
+    measured ~5s of sync CPU on a large real book — still enough to matter under concurrent load."""
+    text = _extract_full_text(file_path, fmt)
+    if len(text) < 1000:
+        return None
+    struct = _structural_fingerprint(text)
+    winnowed = _text_fingerprint(text)
+    minhash = _minhash(winnowed)
+    edition = _edition_info(text)
+    return {"struct": struct, "winnowed": winnowed, "minhash": minhash, "edition": edition, "text_len": len(text)}
+
+
 async def compute_fingerprint(book_id: str) -> dict[str, Any]:
     """Compute and store all fingerprints for a book."""
     row = await fetch_one(
@@ -187,16 +233,15 @@ async def compute_fingerprint(book_id: str) -> dict[str, Any]:
     if not row or not os.path.isfile(row["file_path"]):
         return {"ok": False, "reason": "no file"}
 
-    text = _extract_full_text(row["file_path"], row["format"])
-    if len(text) < 1000:
+    result = await asyncio.to_thread(_compute_sync, row["file_path"], row["format"])
+    if result is None:
         return {"ok": False, "reason": "too short"}
 
-    struct = _structural_fingerprint(text)
-    winnowed = _text_fingerprint(text)
-    minhash = _minhash(winnowed)
-    edition = _edition_info(text)
-
-    import json
+    struct = result["struct"]
+    winnowed = result["winnowed"]
+    minhash = result["minhash"]
+    edition = result["edition"]
+    text_len = result["text_len"]
 
     await execute(
         """INSERT INTO book_fingerprints (book_id, samples, sample_count, total_chars, computed_at)
@@ -211,9 +256,35 @@ async def compute_fingerprint(book_id: str) -> dict[str, Any]:
             json.dumps(edition),
         ],
         len(minhash),
-        len(text),
+        text_len,
     )
     return {"ok": True, "chapters": struct["chapter_count"], "fingerprint_size": len(winnowed), "edition": edition}
+
+
+async def compare_fingerprints(book_id_a: str, book_id_b: str) -> float | None:
+    """Jaccard similarity between two books' stored fingerprints (0..1), or None if either is missing.
+
+    format_stack.verify_and_stack() has imported this name since it was written; it never existed,
+    so every cross-format stacking attempt raised ImportError, silently swallowed by the scheduler's
+    bare `except: pass`. Same skeleton hash (identical chapter boundaries) is treated as a strong
+    match and floors the score at 0.8, mirroring find_duplicates_by_content's own rule.
+    """
+    rows = await fetch_all(
+        "SELECT book_id, samples FROM book_fingerprints WHERE book_id = ANY($1)",
+        [UUID(book_id_a), UUID(book_id_b)],
+    )
+    by_id = {str(r["book_id"]): r["samples"] for r in rows}
+    sa, sb = by_id.get(book_id_a), by_id.get(book_id_b)
+    if not sa or not sb or len(sa) < 2 or len(sb) < 2:
+        return None
+    try:
+        minhash_a, minhash_b = json.loads(sa[1]), json.loads(sb[1])
+    except (json.JSONDecodeError, IndexError):
+        return None
+    sim = _jaccard_minhash(minhash_a, minhash_b)
+    if sa[0] and sa[0] == sb[0]:
+        sim = max(sim, 0.8)
+    return sim
 
 
 async def compute_all_fingerprints(batch_size: int = 20) -> dict[str, Any]:

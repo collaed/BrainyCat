@@ -18,11 +18,13 @@ def has_fixture(name: str) -> bool:
 
 # ── EPUB Tests ───────────────────────────────────────────────────────────
 
+
 @pytest.mark.skipif(not has_fixture("pride_prejudice.epub"), reason="fixture missing")
 class TestEPUB:
     def test_extract_metadata(self) -> None:
         pytest.importorskip("ebooklib")
         from brainycat.extract import extract_metadata
+
         m = extract_metadata(os.path.join(FIXTURES, "pride_prejudice.epub"))
         assert m["format"] == "epub"
         assert "Pride" in m.get("title", "") or "Prejudice" in m.get("title", "")
@@ -31,8 +33,10 @@ class TestEPUB:
         """EPUB quality check on a real file."""
         from brainycat.epub_check import check_epub
         import asyncio
+
         # check_epub needs a book_id — test the internal logic instead
         import zipfile
+
         path = os.path.join(FIXTURES, "pride_prejudice.epub")
         with zipfile.ZipFile(path) as zf:
             names = zf.namelist()
@@ -45,6 +49,7 @@ class TestEPUB:
         ebooklib = pytest.importorskip("ebooklib")
         from bs4 import BeautifulSoup
         from ebooklib import epub
+
         path = os.path.join(FIXTURES, "pride_prejudice.epub")
         book = epub.read_epub(path, options={"ignore_ncx": True})
         words = 0
@@ -55,6 +60,7 @@ class TestEPUB:
 
     def test_isbn_extraction(self) -> None:
         from brainycat.isbn import extract_from_opf
+
         result = extract_from_opf(os.path.join(FIXTURES, "pride_prejudice.epub"))
         # Gutenberg EPUBs may not have ISBN but should parse without error
         assert isinstance(result, dict)
@@ -64,31 +70,37 @@ class TestEPUB:
 class TestEPUB3:
     def test_epub3_parses(self) -> None:
         from brainycat.extract import extract_metadata
+
         m = extract_metadata(os.path.join(FIXTURES, "accessible_epub3.epub"))
         assert m["format"] == "epub"
 
 
 # ── MOBI Tests ───────────────────────────────────────────────────────────
 
+
 @pytest.mark.skipif(not has_fixture("pride_prejudice.mobi"), reason="fixture missing")
 class TestMOBI:
     def test_extract_metadata(self) -> None:
         from brainycat.extract import extract_metadata
+
         m = extract_metadata(os.path.join(FIXTURES, "pride_prejudice.mobi"))
         assert m["format"] == "mobi"
 
     def test_mobi_has_title(self) -> None:
         from brainycat.extract import _extract_mobi
+
         m = _extract_mobi(os.path.join(FIXTURES, "pride_prejudice.mobi"))
         assert m.get("title") or m.get("format") == "mobi"
 
 
 # ── PDF Tests ────────────────────────────────────────────────────────────
 
+
 @pytest.mark.skipif(not has_fixture("art_of_war.pdf"), reason="fixture missing")
 class TestPDF:
     def test_extract_metadata(self) -> None:
         from brainycat.extract import extract_metadata
+
         m = extract_metadata(os.path.join(FIXTURES, "art_of_war.pdf"))
         assert m["format"] == "pdf"
 
@@ -110,10 +122,12 @@ class TestPDF:
 
 # ── TXT Tests ────────────────────────────────────────────────────────────
 
+
 @pytest.mark.skipif(not has_fixture("pride_prejudice.txt"), reason="fixture missing")
 class TestTXT:
     def test_readability(self) -> None:
         from brainycat.readability import compute_readability
+
         with open(os.path.join(FIXTURES, "pride_prejudice.txt")) as f:
             text = f.read()[:50000]
         r = compute_readability(text)
@@ -124,6 +138,7 @@ class TestTXT:
 
     def test_isbn_from_text(self) -> None:
         from brainycat.isbn import extract_from_text
+
         with open(os.path.join(FIXTURES, "pride_prejudice.txt")) as f:
             text = f.read()
         result = extract_from_text(text)
@@ -132,10 +147,12 @@ class TestTXT:
 
 # ── Cross-Format Tests ───────────────────────────────────────────────────
 
+
 @pytest.mark.skipif(not has_fixture("pride_prejudice.epub"), reason="fixture missing")
 class TestFingerprint:
     def test_fingerprint_epub(self) -> None:
         from brainycat.fingerprints import _extract_full_text, _normalize, _kgram_hashes, _winnow
+
         pytest.importorskip("ebooklib")
         text = _extract_full_text(os.path.join(FIXTURES, "pride_prejudice.epub"), "epub")
         if not text:
@@ -148,10 +165,12 @@ class TestFingerprint:
 
     def test_embedding(self) -> None:
         from brainycat.embeddings import _text_to_vector
+
         with open(os.path.join(FIXTURES, "pride_prejudice.txt")) as f:
             text = f.read()[:2000]
         vec = _text_to_vector(text)
         assert len(vec) == 384
         import math
-        mag = math.sqrt(sum(x*x for x in vec))
+
+        mag = math.sqrt(sum(x * x for x in vec))
         assert abs(mag - 1.0) < 0.01  # Normalized

@@ -70,7 +70,7 @@ async def _enrichment_loop() -> None:
         "SELECT b.id, b.title FROM books b "
         "LEFT JOIN (SELECT book_id, count(*) as cnt FROM enrichment_log GROUP BY book_id) a ON a.book_id = b.id "
         "LEFT JOIN (SELECT book_id, max(created_at) as last_try FROM enrichment_log GROUP BY book_id) lt ON lt.book_id = b.id "
-        "WHERE b.quality_score < 95 "
+        "WHERE b.quality_score < 95 AND b.identity_status != 'locked' "
         "AND (lt.last_try IS NULL OR lt.last_try < now() - interval '7 days' * (COALESCE(a.cnt, 0) / 10.0 + 1)) "
         "ORDER BY b.quality_score ASC, COALESCE(a.cnt, 0) ASC, b.updated_at ASC "
         "LIMIT 10"
@@ -590,8 +590,10 @@ def _isbn_worker(worker_id: int) -> None:
         try:
             # Synchronized: only one thread picks at a time
             with _isbn_pick_lock:
+                # books.original_filename doesn't exist — book_files.file_name is the real source
+                # (see docs/known-issues.md).
                 cur.execute("""
-                    SELECT b.id, b.original_filename, bf.file_path, bf.format
+                    SELECT b.id, bf.file_name AS original_filename, bf.file_path, bf.format
                     FROM books b
                     JOIN book_files bf ON bf.book_id = b.id
                     WHERE (b.isbn IS NULL OR b.isbn = '')

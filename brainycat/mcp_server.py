@@ -242,7 +242,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         r = await c.delete(f"/books/{arguments['book_id']}")
         result = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
     elif name == "taste_recommendations":
-        result = await _api("GET", f"/recommendations/{arguments['user_id']}")
+        result = await _api("GET", f"/recommendations/by-user/{arguments['user_id']}")
     elif name == "book_sources":
         result = await _api("GET", f"/books/{arguments['book_id']}/sources")
     elif name == "epub_check":

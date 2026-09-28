@@ -61,7 +61,8 @@ async def build_taste_profile(user_id: str) -> dict[str, dict[str, float]]:
     """Build weighted taste profile from user's reading history + ratings."""
     rows = await fetch_all(
         """
-        SELECT b.id, b.title, b.rating, b.description, b.language,
+        SELECT b.id, b.title, b.rating, b.description,
+               (SELECT l.code FROM books_languages bl JOIN languages l ON l.id = bl.language_id WHERE bl.book_id = b.id LIMIT 1) as language,
                array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors,
                array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) as tags,
                array_agg(DISTINCT s.name) FILTER (WHERE s.name IS NOT NULL) as series,
@@ -166,7 +167,8 @@ async def get_7cat_recommendations(
 
     candidates = await fetch_all(
         """
-        SELECT b.id, b.title, b.rating, b.quality_score, b.description, b.language,
+        SELECT b.id, b.title, b.rating, b.quality_score, b.description,
+               (SELECT l.code FROM books_languages bl JOIN languages l ON l.id = bl.language_id WHERE bl.book_id = b.id LIMIT 1) as language,
                array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors,
                array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) as tags,
                array_agg(DISTINCT s.name) FILTER (WHERE s.name IS NOT NULL) as series

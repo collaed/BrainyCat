@@ -19,7 +19,9 @@ def _create_calibre_db(path: str, version: int = 26) -> str:
     conn.execute(f"PRAGMA user_version = {version}")
 
     # Core tables (all versions)
-    conn.execute("CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, sort TEXT, path TEXT, pubdate TEXT, timestamp TEXT, last_modified TEXT, series_index REAL DEFAULT 1, uuid TEXT, author_sort TEXT)")
+    conn.execute(
+        "CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, sort TEXT, path TEXT, pubdate TEXT, timestamp TEXT, last_modified TEXT, series_index REAL DEFAULT 1, uuid TEXT, author_sort TEXT)"
+    )
     conn.execute("CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT, sort TEXT)")
     conn.execute("CREATE TABLE books_authors_link (id INTEGER PRIMARY KEY, book INTEGER, author INTEGER)")
     conn.execute("CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT)")
@@ -42,14 +44,20 @@ def _create_calibre_db(path: str, version: int = 26) -> str:
 
     # v22+ tables
     if version >= 22:
-        conn.execute("CREATE TABLE last_read_positions (id INTEGER PRIMARY KEY, book INTEGER, format TEXT, user TEXT, device TEXT, cfi TEXT, epoch REAL, pos_frac REAL)")
+        conn.execute(
+            "CREATE TABLE last_read_positions (id INTEGER PRIMARY KEY, book INTEGER, format TEXT, user TEXT, device TEXT, cfi TEXT, epoch REAL, pos_frac REAL)"
+        )
 
     # v23+ tables
     if version >= 23:
-        conn.execute("CREATE TABLE annotations (id INTEGER PRIMARY KEY, book INTEGER, format TEXT, annotation_type TEXT, annotation_data TEXT)")
+        conn.execute(
+            "CREATE TABLE annotations (id INTEGER PRIMARY KEY, book INTEGER, format TEXT, annotation_type TEXT, annotation_data TEXT)"
+        )
 
     # Insert test data
-    conn.execute("INSERT INTO books (id, title, sort, path, series_index, uuid) VALUES (1, 'Test Book', 'Test Book', 'Author/Test Book (1)', 2.0, 'test-uuid-123')")
+    conn.execute(
+        "INSERT INTO books (id, title, sort, path, series_index, uuid) VALUES (1, 'Test Book', 'Test Book', 'Author/Test Book (1)', 2.0, 'test-uuid-123')"
+    )
     conn.execute("INSERT INTO authors (id, name, sort) VALUES (1, 'Test Author', 'Author, Test')")
     conn.execute("INSERT INTO books_authors_link (book, author) VALUES (1, 1)")
     conn.execute("INSERT INTO tags (id, name) VALUES (1, 'fiction')")

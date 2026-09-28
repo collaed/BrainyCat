@@ -16,7 +16,8 @@ header a{color:var(--muted);text-decoration:none}header h2{flex:1}
 </style></head><body>
 <header><a href="index.html">← Library</a><h2>💡 Recommendations</h2>
 <button onclick="rebuild()" style="padding:.4rem .8rem;border-radius:6px;border:none;background:var(--accent);color:#fff;cursor:pointer">🔄 Rebuild Profile</button>
-<nav style="display:flex;gap:.5rem"><a href="catalog.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">📖 Catalog</a><a href="incoming.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">📥 Incoming</a><a href="intelligence.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">🧠 Intel</a><a href="stats.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">📊 Stats</a><a href="recommendations.html" style="color:var(--muted);text-decoration:none;padding:.3rem .6rem;font-size:.8rem">💡 For You</a></nav></header>
+<div id="bc-nav"></div></header>
+<script src="nav.js"></script>
 <div class="container">
 <div class="section"><h3><span>🧬</span> DNA Match</h3><div class="books" id="dna"></div></div>
 <div class="section"><h3><span>✍️</span> Authors You Love</h3><div class="books" id="authors"></div></div>

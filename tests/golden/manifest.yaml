@@ -1,0 +1,11 @@
+# Golden set: files with known-correct identification. See docs/specs/book-identification (R15).
+# root: directory the `file` paths are relative to (override with GOLDEN_ROOT for a private corpus).
+# expect: fields to check; `isbn13: null` means "no ISBN is knowable — returning one is a wrong answer".
+root: ../fixtures
+entries:
+  - file: pride_prejudice.epub
+    expect: {isbn13: null, title: Pride and Prejudice, authors: [Jane Austen], language: eng}
+  - file: accessible_epub3.epub
+    expect: {isbn13: null, title: The Art of War, authors: [Sun Tzu], language: eng}
+  - file: art_of_war.pdf
+    expect: {isbn13: null}
