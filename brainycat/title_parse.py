@@ -119,13 +119,17 @@ def parse_title(raw: str) -> ParsedTitle:
             return ParsedTitle(title=title.strip(), author=author.strip(), isbn=isbn_from_prefix, publisher=publisher, year=year, confidence="high")
         return ParsedTitle(title=s2, isbn=isbn_from_prefix, publisher=publisher, year=year, confidence="high")
 
-    # Folder-path leakage: "Category/Author//Title - Author"
-    if "/" in s:
-        last = [p for p in s.split("/") if p.strip()][-1].strip()
-        if " - " in last:
-            maybe_title, maybe_author = last.rsplit(" - ", 1)
-            return ParsedTitle(title=maybe_title.strip(), author=maybe_author.strip(), isbn=isbn_from_prefix, confidence="medium")
-        return ParsedTitle(title=last, isbn=isbn_from_prefix, confidence="medium")
+    # Folder-path leakage: "Category/Author/.../Title - Author" (e.g. Calibre-style export paths).
+    # A single "/" is common in perfectly real titles ("TCP/IP Illustrated", "Work/Life Balance",
+    # a date) — only treat this as a path leak when there are 3+ segments AND the last segment's
+    # " - X" tail duplicates an earlier segment, confirming it's really a repeated author, not
+    # coincidental punctuation.
+    slash_parts = [p.strip() for p in s.split("/") if p.strip()]
+    if len(slash_parts) >= 3 and " - " in slash_parts[-1]:
+        maybe_title, maybe_author = slash_parts[-1].rsplit(" - ", 1)
+        maybe_author = maybe_author.strip()
+        if any(p.lower() == maybe_author.lower() for p in slash_parts[:-1]):
+            return ParsedTitle(title=maybe_title.strip(), author=maybe_author, isbn=isbn_from_prefix, confidence="medium")
 
     # Leaked print-production file extension ("Burn-after-writing BAT.indd")
     s = _LEAKED_EXT_RE.sub("", s).strip()

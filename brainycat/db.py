@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import asyncpg
@@ -74,6 +76,15 @@ async def execute(query: str, *args: Any) -> str:
     """Execute a query and return the status."""
     pool = await get_pool()
     return await pool.execute(query, *args)
+
+
+@contextlib.asynccontextmanager
+async def transaction() -> AsyncIterator[asyncpg.Connection]:  # type: ignore[type-arg]
+    """A connection with an open transaction, for a multi-statement write that must not leave
+    partial state on a crash mid-sequence (e.g. delete-then-reinsert author links)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn, conn.transaction():
+        yield conn
 
 
 async def health_check() -> dict[str, Any]:

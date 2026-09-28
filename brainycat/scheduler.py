@@ -590,8 +590,10 @@ def _isbn_worker(worker_id: int) -> None:
         try:
             # Synchronized: only one thread picks at a time
             with _isbn_pick_lock:
+                # books.original_filename doesn't exist — book_files.file_name is the real source
+                # (see docs/known-issues.md).
                 cur.execute("""
-                    SELECT b.id, b.original_filename, bf.file_path, bf.format
+                    SELECT b.id, bf.file_name AS original_filename, bf.file_path, bf.format
                     FROM books b
                     JOIN book_files bf ON bf.book_id = b.id
                     WHERE (b.isbn IS NULL OR b.isbn = '')

@@ -446,7 +446,8 @@ class TestOptionalAuth:
 
     def test_change_password_roundtrip(self, authed_page: Page) -> None:
         wrong = authed_page.request.post(BASE + "api/v1/user/password", data={"current_password": "not-the-real-one", "new_password": "irrelevant123"})
-        assert wrong.json().get("error")
+        assert wrong.status == 400
+        assert wrong.json().get("detail")
 
         change = authed_page.request.post(BASE + "api/v1/user/password", data={"current_password": PASSWORD, "new_password": "e2e-temp-password-123"})
         assert change.json().get("ok") is True

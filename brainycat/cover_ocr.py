@@ -42,6 +42,7 @@ async def _cover_or_first_page_image(book_id: str, cover_path: str | None) -> st
     if not pdf_row or not os.path.isfile(pdf_row["file_path"]):
         return None
 
+    import os as _os
     import tempfile
 
     import fitz
@@ -51,7 +52,8 @@ async def _cover_or_first_page_image(book_id: str, cover_path: str | None) -> st
         doc.close()
         return None
     pix = doc[0].get_pixmap(dpi=300)
-    tmp = tempfile.mktemp(suffix=".png")
+    fd, tmp = tempfile.mkstemp(suffix=".png")
+    _os.close(fd)  # pix.save() reopens the path itself; we only needed mkstemp for a race-free name
     pix.save(tmp)
     doc.close()
     return tmp

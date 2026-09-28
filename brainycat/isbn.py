@@ -467,7 +467,7 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
     """Extract ISBN + metadata from a book's files and update the DB."""
     # Try EPUB/PDF first, then any format via ebook-convert
     row = await fetch_one(
-        "SELECT bf.file_path, bf.format FROM book_files bf WHERE bf.book_id = $1 ORDER BY CASE bf.format WHEN 'epub' THEN 1 WHEN 'pdf' THEN 2 ELSE 3 END LIMIT 1",
+        "SELECT bf.file_path, bf.file_name, bf.format FROM book_files bf WHERE bf.book_id = $1 ORDER BY CASE bf.format WHEN 'epub' THEN 1 WHEN 'pdf' THEN 2 ELSE 3 END LIMIT 1",
         UUID(book_id),
     )
     if not row or not os.path.isfile(row["file_path"]):
@@ -488,9 +488,10 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
         if pdf_isbn:
             cheap["pdf_meta"] = pdf_isbn
 
-    book_row = await fetch_one("SELECT original_filename FROM books WHERE id = $1", UUID(book_id))
-    if book_row and book_row.get("original_filename"):
-        fn_isbn = filename_isbn(book_row["original_filename"])
+    # `books.original_filename` doesn't exist (see docs/known-issues.md) — book_files.file_name from
+    # the row we already fetched above is the real original-filename source.
+    if row.get("file_name"):
+        fn_isbn = filename_isbn(row["file_name"])
         if fn_isbn:
             cheap["filename"] = fn_isbn
 

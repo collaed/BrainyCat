@@ -125,22 +125,24 @@ async def find_compound_authors() -> list[dict[str, Any]]:
 
 async def apply_compound_cleanup(author_id: str, split_into: list[str]) -> dict[str, Any]:
     """Replace one compound/misordered author with the given individual names, relinking every book
-    that referenced it, then remove the old author row."""
+    that referenced it, then remove the old author row — one transaction, so a crash partway through
+    can't leave a book with its old author link gone and the new one not yet in place."""
     from uuid import UUID
 
-    from brainycat.db import execute, fetch_all, fetch_one
+    from brainycat.db import fetch_all, transaction
 
     books = await fetch_all("SELECT book_id FROM books_authors WHERE author_id = $1", UUID(author_id))
-    for name in split_into:
-        await execute("INSERT INTO authors (name) VALUES ($1) ON CONFLICT (name) DO NOTHING", name)
-        new_row = await fetch_one("SELECT id FROM authors WHERE name = $1", name)
-        if new_row:
-            for b in books:
-                await execute(
-                    "INSERT INTO books_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                    b["book_id"],
-                    new_row["id"],
-                )
-    await execute("DELETE FROM books_authors WHERE author_id = $1", UUID(author_id))
-    await execute("DELETE FROM authors WHERE id = $1", UUID(author_id))
+    async with transaction() as conn:
+        for name in split_into:
+            await conn.execute("INSERT INTO authors (name) VALUES ($1) ON CONFLICT (name) DO NOTHING", name)
+            new_row = await conn.fetchrow("SELECT id FROM authors WHERE name = $1", name)
+            if new_row:
+                for b in books:
+                    await conn.execute(
+                        "INSERT INTO books_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                        b["book_id"],
+                        new_row["id"],
+                    )
+        await conn.execute("DELETE FROM books_authors WHERE author_id = $1", UUID(author_id))
+        await conn.execute("DELETE FROM authors WHERE id = $1", UUID(author_id))
     return {"ok": True, "book_count": len(books), "split_into": split_into}

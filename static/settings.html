@@ -142,11 +142,11 @@ async function toggleAuthRequired(checked) {
 async function changePassword() {
   const btn = document.getElementById('pw-btn'), msg = document.getElementById('pw-msg');
   const current = document.getElementById('pw-current').value, next = document.getElementById('pw-new').value;
-  if (!current || next.length < 4) { msg.textContent = 'Enter your current password and a new one (4+ chars).'; return; }
+  if (!current || next.length < 8) { msg.textContent = 'Enter your current password and a new one (8+ chars).'; return; }
   btn.disabled = true;
   const r = await BC.post('/user/password', { current_password: current, new_password: next });
   btn.disabled = false;
-  msg.textContent = r.error ? ('Failed: ' + r.error) : 'Password changed.';
+  msg.textContent = (r.error || r.detail) ? ('Failed: ' + (r.error || r.detail)) : 'Password changed.';
   if (r.ok) { document.getElementById('pw-current').value = ''; document.getElementById('pw-new').value = ''; }
 }
 async function loadStatus() {

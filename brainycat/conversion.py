@@ -137,8 +137,8 @@ async def _ebook_convert_rs(src: str, dest: str, css: str) -> dict[str, Any]:
 
 async def _ebook_convert(src: str, dest: str, css: str) -> dict[str, Any]:
     """Calibre ebook-convert with proper styling flags."""
-    css_path = tempfile.mktemp(suffix=".css")
-    with open(css_path, "w") as css_file:
+    fd, css_path = tempfile.mkstemp(suffix=".css")
+    with os.fdopen(fd, "w") as css_file:
         css_file.write(css)
 
     cmd = [

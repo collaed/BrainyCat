@@ -81,6 +81,27 @@ def test_plain_hex_prefix_with_plus() -> None:
     assert r.title == "AI Agents 75+ Use Cases Transforming Enterprises"
 
 
+def test_single_slash_in_real_title_not_mangled() -> None:
+    # Real titles with one "/" must not be treated as a folder-path leak.
+    for title in [
+        "My Memoir Into Submission: An Erotic Dominant / Submissive Romance",
+        "SDI/TDI Divemaster Manual",
+        "La science-fiction soviétique / anthologie",
+        "Modèle epub 15/12/2013",
+    ]:
+        r = parse_title(title)
+        assert r.title == title
+        assert r.confidence == "low"
+
+
+def test_three_segment_slash_leak_with_repeated_author() -> None:
+    r = parse_title(
+        "Erotique/James,E. L./Fifty Shades/Fifty Shades - 03 - Cinquante nuances plus claires - James,E. L."
+    )
+    assert r.title == "Fifty Shades - 03 - Cinquante nuances plus claires"
+    assert r.author == "James,E. L."
+
+
 def test_folder_path_leak_with_duplicate_author() -> None:
     r = parse_title("Philosophie/Onfray,Michel//Antimanuel De Philosophie - Onfray,Michel")
     assert r.title == "Antimanuel De Philosophie"

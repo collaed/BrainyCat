@@ -26,7 +26,7 @@ async def decode_html_entities(limit: int = 50) -> dict[str, int]:
     """Fix titles/descriptions that still contain raw HTML entities (e.g. 'Dummies&#174;' instead
     of 'Dummies®') — leaks from a source that returned HTML-escaped text that never got decoded."""
     rows = await fetch_all(
-        "SELECT id, title, description FROM books WHERE title ~ $1 OR description ~ $1 LIMIT $2",
+        "SELECT id, title, description FROM books WHERE identity_status != 'locked' AND (title ~ $1 OR description ~ $1) LIMIT $2",
         _ENTITY_RE.pattern,
         limit,
     )
@@ -45,12 +45,15 @@ async def apply_local_title_parse(limit: int = 30) -> dict[str, int]:
     libgen.li style filename-derived titles — no external lookup, no rate limit, and it works even
     for titles enrichment could never search for (e.g. a bare content-hash title with no words at
     all). See brainycat.title_parse for the actual parsing logic."""
+    # No length/pattern prefilter — safe to run on every title regardless of how short or plain it
+    # looks. parse_title() only ever returns confidence "high"/"medium" (the only levels applied
+    # below) when a specific structural marker actually matched; anything else comes back as
+    # confidence "low" and is left untouched. The prefilter this used to have (hex-prefix/Anna's
+    # Archive/libgen/length>35) wasn't adding safety, just skipping books unnecessarily.
     rows = await fetch_all(
         """
         SELECT id, title FROM books
-        WHERE identity_status = 'auto'
-          AND NOT (extra_metadata ? 'title_parsed')
-          AND (title ~ '^[0-9a-f]{8} ' OR title ILIKE '%Anna%Archive%' OR title ILIKE '%libgen%' OR length(title) > 35)
+        WHERE identity_status = 'auto' AND NOT (extra_metadata ? 'title_parsed')
         LIMIT $1
         """,
         limit,

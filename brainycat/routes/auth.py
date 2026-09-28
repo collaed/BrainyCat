@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from brainycat import auth, db
 from brainycat.auth import get_current_user
@@ -114,9 +114,9 @@ async def change_password(body: auth.PasswordChange, user: Any = Depends(get_cur
 
     row = await db.fetch_one("SELECT password_hash FROM users WHERE id = $1", user["id"])
     if not row or not row["password_hash"] or not bcrypt.checkpw(body.current_password.encode(), row["password_hash"].encode()):
-        return {"error": "Current password is incorrect"}
-    if len(body.new_password) < 4:
-        return {"error": "New password must be at least 4 characters"}
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
     new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
     await db.execute("UPDATE users SET password_hash = $1 WHERE id = $2", new_hash, user["id"])
     return {"ok": True}
