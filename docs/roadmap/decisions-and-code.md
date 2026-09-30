@@ -91,6 +91,19 @@ async def fail(book_id: str, pipeline: str, err: str) -> None:
 enrichment ok, fingerprint pending" and reproduces the "retry forever" bug per-book instead of
 per-pipeline.
 
+> **⚠️ ROUND-2 corrections:**
+> - **Seed / claim missing rows.** `claim()` above finds nothing for a new book (no row exists yet).
+>   Claim from `eligible_books LEFT JOIN book_pipeline_state` treating a missing row as `pending`
+>   (`INSERT … ON CONFLICT DO NOTHING` on claim), or seed a `pending` row at ingest.
+> - **Lease `processing` rows.** Add `claimed_at TIMESTAMPTZ`; on startup (and periodically) reset
+>   rows stuck `processing` past a lease (`UPDATE … SET status='pending' WHERE status='processing'
+>   AND claimed_at < now() - interval '1 hour'`). A crash/restart mid-run is frequent on fides.
+> - **Idempotent CHECK.** Postgres has no `ADD CONSTRAINT IF NOT EXISTS`; wrap in
+>   `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='extra_metadata_is_object')
+>   THEN ALTER TABLE books ADD CONSTRAINT … ; END IF; END $$;`. fides has 0 non-object rows now, so
+>   `VALIDATE` can run immediately there.
+> - Keep the backoff schedule in **one** place (the SQL array), not duplicated in Python.
+
 ---
 
 <a name="m2"></a>
@@ -100,27 +113,31 @@ per-pipeline.
 migrated. Ship the migration using the table name the code already uses (`reading_log`, singular).
 
 ```sql
--- migration 013 (excerpt) — makes existing routes work
+-- migration 012 (excerpt) — makes existing routes work.
+-- ⚠️ ROUND-2 CORRECTION: verified against main. The routes use status value 'library'
+-- (routes/reader.py:413-414), columns `minutes` + `logged_at` and a NULLable book_id with
+-- MULTIPLE sessions/day (reader.py:546; book_dna.py:30) — NOT 'library_only'/minutes_read/date/
+-- one-per-day. The earlier shape would have kept the routes broken (the exact mistake this fixes).
 ALTER TABLE reading_progress
-    ADD COLUMN IF NOT EXISTS status       TEXT DEFAULT 'library_only'
-        CHECK (status IN ('want_to_read','reading','finished','abandoned','library_only')),
+    ADD COLUMN IF NOT EXISTS status       TEXT DEFAULT 'library'
+        CHECK (status IN ('want_to_read','reading','finished','abandoned','library')),
     ADD COLUMN IF NOT EXISTS started_at   TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS finished_at  TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS abandoned_at TIMESTAMPTZ;
 
-CREATE TABLE IF NOT EXISTS reading_log (        -- name matches routes/reader.py + experimental/book_dna.py
-    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    book_id      UUID NOT NULL REFERENCES books(id) ON DELETE CASCADE,
-    date         DATE NOT NULL,
-    pages_read   INT,
-    minutes_read INT,
-    UNIQUE (user_id, book_id, date)
+CREATE TABLE IF NOT EXISTS reading_log (        -- name + columns match routes/reader.py:546 & book_dna.py:30
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    book_id    UUID REFERENCES books(id) ON DELETE CASCADE,   -- NULLable: "read 30 pages on paper"
+    minutes    INT,
+    pages_read INT,
+    logged_at  TIMESTAMPTZ NOT NULL DEFAULT now()             -- timestamp, many sessions/day; NO unique constraint
 );
+CREATE INDEX IF NOT EXISTS reading_log_user_time_idx ON reading_log (user_id, logged_at);
 ```
 
-No new route code — the `PUT /books/{id}/status`, `/reading/streak`, `POST /reading/log` handlers in
-`routes/reader.py` start working once these exist. UI wiring is the only remaining *feature* work.
+This is the smallest, most urgent change and should be **migration 012 on its own** (three broken
+routes fixed by one migration). No new route code — the handlers already exist in `main`.
 
 ---
 
@@ -151,12 +168,20 @@ def health(now: float | None = None) -> dict:
     loops = {}
     degraded = False
     for name, b in _beats.items():
-        stale = b.get("last_ok_at") is None or (now - b["last_ok_at"]) > 3600
+        # ⚠️ ROUND-2: per-loop threshold (3× that loop's own interval), NOT a fixed 3600s — otherwise
+        # log_retention (86,400s) and isbn_extract (3,600s) report permanently stale.
+        threshold = 3 * b.get("interval", 300)
+        stale = b.get("last_ok_at") is None or (now - b["last_ok_at"]) > threshold
         bad = stale or b["consecutive_errors"] >= 3
         degraded = degraded or bad
         loops[name] = {**b, "healthy": not bad}
     return {"loops": loops, "degraded": degraded}
 ```
+
+> **⚠️ ROUND-2:** loops that start once and loop internally (e.g. `isbn_extract`) never return from
+> their tick, so the `_supervised` wrapper never records success for them. Such workers must call
+> `heartbeat.record(name, ok=True, interval=…)` from **inside** their own loop body. Each loop
+> registers its `interval` so `health()` can use `3× interval` as the staleness threshold.
 
 ```python
 # scheduler._supervised (sketch): wrap each loop tick
@@ -182,39 +207,63 @@ N intervals — which would have surfaced every silent failure on day one.
 which writes into the file, and `contribute_back`, which submits to **Open Library**). Centralize.
 
 ```sql
--- A book is eligible for automated pipelines only when it's a real 'book',
--- not locked, and not a summary/workbook/article/sample.
-CREATE OR REPLACE VIEW eligible_books AS
-    SELECT b.*
-    FROM books b
-    WHERE b.content_type = 'book'
-      AND b.identity_status <> 'locked';
+-- ⚠️ ROUND-2: ONE view is not enough. Identity-rewriting pipelines must also skip 'protected'
+-- (PR #1: "enrichment may ADD data, but not CHANGE identity"). And with multi-user, only the
+-- canonical row (canonical_id IS NULL) is eligible, or copies drift. List columns explicitly so
+-- later ALTERs to books don't silently omit them from a `SELECT b.*` view.
+
+-- Pipelines that only ADD missing data (covers, description fill, tags):
+CREATE OR REPLACE VIEW enrichable_books AS
+    SELECT id, title, isbn, description, cover_path, extra_metadata, content_type, identity_status
+    FROM books
+    WHERE content_type = 'book'
+      AND identity_status <> 'locked'
+      AND canonical_id IS NULL;                 -- multi-user: canonical only
+
+-- Pipelines that may CHANGE identity (title cleanup, ISBN extraction, sentence_match._apply_match,
+-- fast_local title pass) — additionally exclude 'protected':
+CREATE OR REPLACE VIEW identifiable_books AS
+    SELECT id, title, isbn, content_type, identity_status
+    FROM books
+    WHERE content_type = 'book'
+      AND identity_status = 'auto'              -- NOT protected, NOT locked
+      AND canonical_id IS NULL;
 ```
 
 ```python
-# Every pipeline candidate query selects FROM eligible_books, never FROM books directly.
-# Example — the ISBN worker:
-rows = await db.fetch_all(
-    "SELECT id, isbn FROM eligible_books WHERE isbn IS NULL LIMIT $1", batch)
+# Add-only pipeline:            SELECT ... FROM enrichable_books  WHERE ...  -- pipeline-candidate
+# Identity-rewriting pipeline:  SELECT ... FROM identifiable_books WHERE ... -- pipeline-candidate
+#
+# writeback_metadata / contribute_back take a book_id (no candidate list) — they must do an explicit
+# row check, since no view gates them:
+async def guard_or_skip(book_id: str) -> bool:
+    row = await db.fetch_one("SELECT content_type, identity_status FROM books WHERE id=$1", UUID(book_id))
+    return row and row["content_type"] == "book" and row["identity_status"] != "locked"
 ```
 
-**The enforcing test (fails when a new pipeline forgets the gate):**
+**The enforcing test — marker-based (round-2 fix).** A blanket `FROM books` regex fails on day one
+(every `WHERE id=$1` single-row fetch matches) and omits `scheduler.py`, where `_google_books_loop`,
+`_cover_loop` and `_isbn_worker` candidate queries live. Require an explicit marker instead:
 
 ```python
 # tests/unit/test_pipeline_gate.py
 import pathlib, re
-PIPELINE_MODULES = ["isbn.py","title_cleanup.py","sentence_match.py","deep_enrich.py",
-    "fast_local.py","ol_works.py","metadata.py","format_stack.py","writeback.py",
-    "contribute.py","incipit_match.py","organize.py","intelligence.py"]
+# Any candidate query (one that selects a BATCH of books to process) must be tagged
+# `-- pipeline-candidate` AND select FROM a *_books view, never FROM books.
+SCANNED = ["isbn.py","title_cleanup.py","sentence_match.py","deep_enrich.py","fast_local.py",
+           "ol_works.py","metadata.py","format_stack.py","intelligence.py","incipit_match.py",
+           "organize.py","scheduler.py"]          # scheduler.py INCLUDED (busiest)
 
-def test_pipelines_select_from_eligible_books():
+def test_candidate_queries_use_a_view():
     offenders = []
-    for m in PIPELINE_MODULES:
-        src = pathlib.Path("brainycat", m).read_text()
-        # any 'FROM books' that isn't 'FROM eligible_books' in an automated candidate query
-        for match in re.finditer(r"FROM\s+books\b", src):
-            offenders.append(f"{m}: {src[match.start()-40:match.start()+20]!r}")
-    assert not offenders, "pipeline selects FROM books instead of eligible_books:\n" + "\n".join(offenders)
+    for m in SCANNED:
+        src = pathlib.Path("brainycat", m).read_text() if (pathlib.Path("brainycat")/m).exists() \
+              else pathlib.Path("brainycat/routes", m).read_text()
+        for mt in re.finditer(r"--\s*pipeline-candidate", src):
+            window = src[mt.start()-400:mt.start()+80]
+            if "enrichable_books" not in window and "identifiable_books" not in window:
+                offenders.append(f"{m}: pipeline-candidate not gated by a *_books view")
+    assert not offenders, "\n".join(offenders)
 ```
 
 `writeback_metadata` and `contribute_back` gate the same way: **never** write a summary's metadata
@@ -237,7 +286,8 @@ CREATE INDEX IF NOT EXISTS books_content_type_idx ON books(content_type);
 
 ALTER TABLE book_links DROP CONSTRAINT IF EXISTS book_links_link_type_check;
 ALTER TABLE book_links ADD  CONSTRAINT book_links_link_type_check
-    CHECK (link_type IN ('ebook_audiobook','translation','edition','summary','stack'));
+    CHECK (link_type IN ('ebook_audiobook','translation','edition','summary'));
+    -- ROUND-2: NO 'stack' here — stacking = one book with two book_files, not a link between books.
 
 CREATE TABLE IF NOT EXISTS book_summaries (
     book_id UUID PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
@@ -279,6 +329,20 @@ async def get_or_note_stale(book_id: str, kind: str) -> dict:
 The **goldmine** self-summary (M3 = library-vision B5) is one object: it stores its text in
 `ai_content(kind='goldmine')` **and** registers a `book_summaries` row with
 `is_self_generated=true, provider='self'` linked to the original.
+
+> **⚠️ ROUND-2 corrections:**
+> - **Migrate existing summaries.** Summaries already live in `books.extra_metadata->'summary'`
+>   (`summaries.py:117/189`). Add a data migration into `ai_content`, or they're orphaned and there
+>   are two stores.
+> - **Staleness is not only time.** Also store `prompt_version` and the **source file hash**, so
+>   content goes stale when the prompt changes or the underlying text changes (a stack/merge), not
+>   only after 6 months.
+> - **Per-user vs shared keys.** `UNIQUE(book_id, kind)` suits shared kinds (goldmine, X-Ray).
+>   Per-user kinds (`ask_book`, `recap`) need `user_id` in the key once multi-user lands.
+> - **Drop `'stack'` from the `book_links` CHECK** — stacking means *one book with two `book_files`*,
+>   not a link between two books (contradicts §D5). Keep only if documented as a transitional marker.
+> - **Folding in `is_workbook`** also needs `UPDATE books SET content_type='workbook' WHERE is_workbook`
+>   and a switch in `convert.py:114–124`, which still reads the flag.
 
 ---
 
@@ -328,37 +392,57 @@ async def ingest_dedup(user_id: str, file_path: str) -> str:
 **Trust rule (D) — the decision the owner made, in code:**
 
 ```python
+# ⚠️ ROUND-2: the earlier version was close to the INVERSE of the intended rule — it relied on an
+# undefined _is_downgrade(), and when that was false an uncorroborated replacement of a trusted value
+# fell through to "neutral → apply". Corrected: "neutral" is defined NARROWLY (whitespace/case only);
+# ANY uncorroborated change to a trusted, non-empty value is QUEUED, not applied.
+
+# Dynamic column names come from a module-level allowlist (repo convention, CLAUDE.md):
+EDITABLE_FIELDS = {"title", "author", "isbn", "description", "publisher", "series"}
+
+def _is_neutral(old: str, new: str) -> bool:
+    return old is not None and " ".join(old.split()).lower() == " ".join(new.split()).lower()
+
 async def submit_metadata_edit(user_id, book_id, field, new_value, is_admin) -> dict:
-    book = await db.fetch_one("SELECT title, isbn, description FROM books WHERE id=$1", UUID(book_id))
+    if field not in EDITABLE_FIELDS:
+        return {"error": "field not editable"}
+    book = await db.fetch_one("SELECT title, author, isbn, description, identity_status "
+                              "FROM books WHERE id=$1", UUID(book_id))
     old = book[field]
+    additive   = old is None or old == ""                       # previously missing → welcome
+    corrob     = await _matches_public_source(field, new_value, book)   # OL/BnF agree?
+    trusted    = book["identity_status"] in ("protected", "locked") or await _was_corroborated(book_id, field)
 
-    corrob = await _matches_public_source(field, new_value, book)   # OL/BnF/etc. agree?
-    additive = (old is None or old == "")                            # was previously missing?
-    contradicts = (old not in (None, "")) and not corrob and _is_downgrade(field, old, new_value)
-
-    if is_admin or additive or corrob:
-        # Constructive/corroborated (or admin) → apply to the shared canonical record now.
+    if is_admin or additive or corrob or _is_neutral(old, new_value):
         await _apply_canonical(book_id, field, new_value, source=f"user:{user_id}")
-        return {"applied": True, "corroborated": bool(corrob)}
-    if contradicts:
-        # Goes against trusted data → queue for admin review, do NOT touch the shared record.
-        await db.execute(
-            "INSERT INTO metadata_edit_queue (book_id,user_id,field,old_value,new_value,corroborated_by)"
-            " VALUES ($1,$2,$3,$4,$5,$6)",
-            UUID(book_id), UUID(user_id), field, str(old), str(new_value), corrob)
-        return {"applied": False, "queued_for_review": True}
-    # Neutral change (e.g. reformatting) → apply.
-    await _apply_canonical(book_id, field, new_value, source=f"user:{user_id}")
-    return {"applied": True}
+        return {"applied": True, "corroborated": bool(corrob), "additive": additive}
+
+    # Any uncorroborated change to a non-empty (and especially trusted) value → admin review queue.
+    await db.execute(
+        "INSERT INTO metadata_edit_queue (book_id,user_id,field,old_value,new_value,corroborated_by)"
+        " VALUES ($1,$2,$3,$4,$5,$6)",
+        UUID(book_id), UUID(user_id), field, str(old), str(new_value), None)
+    return {"applied": False, "queued_for_review": True, "trusted_target": trusted}
 ```
 
-**Worked examples of rule D:**
-- Book has no ISBN; user adds `9781440881565` that checksums valid → **additive → applied**.
-- Description empty; user pastes a description → **additive → applied**.
-- Title is `"Sapiens"` (matches Open Library); user changes it to `"Sapiens (my notes)"` →
-  contradicts trusted data, not corroborated → **queued for admin review**.
-- Author `"Yuval Noah Harari"` (corroborated); user changes to `"Harari"` → downgrade, not
-  corroborated → **queued**. Admin can approve if intended.
+**Worked examples of rule D (corrected):**
+- No ISBN; user adds a checksum-valid `9781440881565` → **additive → applied**.
+- Empty description; user pastes one → **additive → applied**.
+- `"Sapiens"` → `"Sapiens (my notes)"` (non-empty, uncorroborated) → **queued for admin review**.
+- `"Yuval Noah Harari"` → `"Harari"` (non-empty, uncorroborated) → **queued**.
+- `" Sapiens "` → `"Sapiens"` (whitespace only) → neutral → **applied**.
+
+> **⚠️ ROUND-2 — `/books/{id}/override` ("Fix misidentified") is now dangerous under shared metadata.**
+> It clears tags, categories and enrichment history. Once metadata is shared, one non-admin override
+> would wipe shared data for everyone. **Route non-admin overrides through the review queue** (admin
+> override still applies immediately). And the **upload race** (two concurrent uploads of the same
+> file both create a canonical) is closed by the *unique* partial index on `original_sha256` +
+> `ON CONFLICT` (see [`sha256`](#sha256)) — the plain index alone can't prevent it.
+>
+> **Data-model note:** rather than a virtual `books` row per user (duplicates every metadata column,
+> forces every query through `canonical_id`), a membership table
+> `user_library(user_id, book_id, added_at, visibility)` over **one** canonical `books` row is simpler
+> and can't drift; per-user state already keys on `(user_id, book_id)`.
 
 ---
 
@@ -396,6 +480,14 @@ CANDIDATES_SQL = """
   GROUP BY a.book_id, b.book_id"""     # sub-quadratic; restart-safe; incremental
 ```
 
+> **⚠️ ROUND-2:** books with empty/tiny fingerprints (image-only PDFs — many here) all produce the
+> **same** signature, so all 32 bands collide into one bucket and the self-join emits every pair
+> among them (a quadratic blow-up). Guard it:
+> - **Exclude** books below a minimum k-gram count from banding (`WHERE total_chars >= MIN`); route
+>   image-only PDFs to the cover-pHash path instead.
+> - **Cap bucket size**: skip / log any `(band_no, band_hash)` bucket above a threshold (boilerplate-
+>   heavy publisher templates cause the same blow-up on a smaller scale).
+
 ---
 
 <a name="d4"></a>
@@ -406,23 +498,49 @@ signals **actually present**, gate ISBN through `reject_shared`, and **fit** wei
 
 ```python
 # Weighted mean over PRESENT signals — so an ISBN-less pair can still reach high confidence.
+# ⚠️ ROUND-2: a bare weighted mean inflates weak pairs. With only title/author + size present
+# (common, given coverage gaps), two volumes of a series (title≈0.9, size≈0.95) fuse to
+# (0.20·0.9 + 0.05·0.95)/0.25 ≈ 0.91 → "probable duplicate" — the series-as-duplicates bug fixed
+# on fides this week. Fixes: (1) require a MINIMUM present weight (or shrink toward a prior);
+# (2) keep the numeric-token series guard from intelligence.find_duplicates; (3) prefer a fitted
+# logistic model with missing-value indicators, which handles this natively.
+MIN_PRESENT_WEIGHT = 0.45   # below this, not enough evidence to score — send to review, don't fuse-high
+
 def fuse(signals: dict[str, float], weights: dict[str, float]) -> float:
     present = {k: v for k, v in signals.items() if v is not None}
     if not present:
         return 0.0
     wsum = sum(weights[k] for k in present)
-    return sum(weights[k] * present[k] for k in present) / wsum   # normalized to [0,1]
+    if wsum < MIN_PRESENT_WEIGHT:
+        return 0.0                      # insufficient evidence — never inflate
+    return sum(weights[k] * present[k] for k in present) / wsum
 
-# Worked example — two byte-identical texts, NO ISBN on either:
-#   signals = {minhash_jaccard: 1.0, title_author_sim: 1.0, cover_phash: 0.9, skeleton: 1.0, size_ratio: 1.0}
-#   (isbn_equal absent)  → fuse = weighted mean of present ≈ 0.99  → flagged. (Old rubric: 0.65, missed.)
+def looks_like_series(a, b) -> bool:
+    # e.g. "... Vol. 1" vs "... Vol. 2", "Book 1" vs "Book 3": same base title, different number.
+    return same_base_title(a.title, b.title) and series_number(a.title) != series_number(b.title)
 
-def isbn_signal(a, b) -> float | None:
-    if not a.isbn or not b.isbn or a.isbn != b.isbn:
+# Worked example — two byte-identical texts, NO ISBN (all content signals present):
+#   fuse ≈ 0.99 → flagged. Two series volumes (only title+size present, wsum=0.25 < 0.45) → 0.0 +
+#   series guard → NOT flagged. (Old rubric: 0.65 missed the first; naive mean: 0.91 mis-flagged the second.)
+
+def isbn_signal(a, b, shared_isbns: set[str]) -> float | None:
+    if not a.isbn or not b.isbn:
+        return None                     # missing → no signal
+    if a.isbn != b.isbn:
+        return 0.0                      # ⚠️ ROUND-2: two valid DIFFERENT ISBNs = evidence of a
+                                        # different edition (D5 needs this), not "no signal"
+    if a.isbn in shared_isbns:          # placeholder ISBN carried by many unrelated titles
         return None
-    if reject_shared(a.isbn):          # baseline.md: one ISBN shared by 29 unrelated files
-        return None                    # weak/placeholder ISBN → don't let it count
     return 1.0
+
+# ⚠️ ROUND-2: identify.reject_shared(cands, titles) is BATCH-oriented and returns a list — it is not
+# a per-ISBN predicate. Precompute the shared-ISBN set once (ISBN -> >k distinct normalized titles):
+def shared_isbn_set(rows, k: int = 3) -> set[str]:
+    by_isbn: dict[str, set[str]] = defaultdict(set)
+    for r in rows:
+        if r["isbn"]:
+            by_isbn[r["isbn"]].add(norm_title(r["title"]))
+    return {isbn for isbn, titles in by_isbn.items() if len(titles) > k}
 
 # Weights are FITTED, not guessed (charter principle 4): logistic regression on labeled pairs.
 # tests/golden/fit_dedup_weights.py trains on tests/golden/dedup_pairs.tsv (true/edition/unrelated)
@@ -439,17 +557,33 @@ edition-linked. Translations (MinHash ≈ 0) use the OL `work_key` or multilingu
 
 ```python
 def classify(a, b, fused: float, signals: dict) -> str:
-    if a.sha256 and a.sha256 == b.sha256:
-        return "exact_file_duplicate"                 # → delete the extra copy
-    same_work = (signals.get("isbn_signal") == 1.0
-                 or signals.get("ol_work_key_match")           # editions+translations share work_key
-                 or fused >= FIT.stack_threshold)
-    if same_work and a.format != b.format and signals.get("minhash_jaccard", 0) >= 0.8:
-        return "same_edition_other_format"            # → STACK via format_stack.verify_and_stack()
-    if signals.get("minhash_jaccard", 0) < 0.2 and signals.get("multilingual_cos", 0) >= 0.75:
+    # ⚠️ ROUND-2 CORRECTION: added `duplicate_copy` — the MOST COMMON real duplicate here
+    # (two libgen/Anna's Archive downloads of the same EPUB, not byte-identical). The earlier
+    # version let these fall through to `other_edition` and *linked* them instead of offering
+    # deletion. Also: equal (non-shared) ISBN ⇒ same edition, never "other edition"; translation
+    # now requires same-work evidence, not cosine alone.
+    if a.original_sha256 and a.original_sha256 == b.original_sha256:
+        return "exact_file_duplicate"                 # identical original bytes → delete extra copy
+    same_work = (signals.get("isbn_signal") == 1.0    # equal, non-shared ISBN ⇒ SAME edition
+                 or signals.get("ol_work_key_match")  # editions+translations share work_key
+                 or fused >= FIT.same_work_threshold)
+    same_format = (a.format == b.format)
+    high_content = signals.get("minhash_jaccard", 0) >= 0.8
+
+    if same_work and same_format and (high_content or signals.get("size_ratio", 0) >= 0.9):
+        return "duplicate_copy"                       # same edition, same format, different file
+                                                      # → keep best copy (fides _recommend), delete other
+    if same_work and not same_format and high_content:
+        return "same_edition_other_format"            # EPUB+PDF of one edition → STACK
+    # translation needs SAME-WORK evidence, not cosine alone (French/English books on one topic
+    # reach cosine≥0.75 without being translations):
+    if (signals.get("ol_work_key_match") or signals.get("same_author_translated_title")) \
+            and a.language != b.language and signals.get("minhash_jaccard", 1) < 0.2:
         return "translation"                          # → book_links('translation')
+    if signals.get("isbn_signal") is None and signals.get("different_isbn"):
+        return "other_edition"                        # two valid, different, non-shared ISBNs
     if same_work:
-        return "other_edition"                        # → book_links('edition')
+        return "other_edition"
     if fused >= FIT.probable_threshold:
         return "probable_duplicate"                   # → review queue
     return "not_duplicate"                            # → sticky dismiss
@@ -457,12 +591,16 @@ def classify(a, b, fused: float, signals: dict) -> str:
 
 | Class | Evidence | Action |
 |---|---|---|
-| exact_file_duplicate | identical `sha256` | delete extra copy |
-| same_edition_other_format | same work + different `format` + MinHash ≥ 0.8 | **stack** (one book, two files) |
-| other_edition | same work, different ISBN/year | `book_links('edition')` |
-| translation | MinHash ≈ 0 + multilingual cosine ≥ 0.75 (or shared `work_key`) | `book_links('translation')` |
+| exact_file_duplicate | identical **original** `sha256` | delete extra copy |
+| **duplicate_copy** (most common here) | same work + **same** `format` + high MinHash/size | keep best copy, delete the other |
+| same_edition_other_format | same work + **different** `format` + MinHash ≥ 0.8 | **stack** (one book, two files) |
+| other_edition | different valid non-shared ISBN / different year | `book_links('edition')` |
+| translation | same-work evidence + different `language` + MinHash ≈ 0 | `book_links('translation')` |
 | probable_duplicate | fused ≥ threshold | review queue |
 | not_duplicate | below threshold | sticky dismiss |
+
+> Classify on **file pairs / format sets**, not a single `a.format`, for books that already have
+> several files.
 
 ---
 
@@ -470,12 +608,39 @@ def classify(a, b, fused: float, signals: dict) -> str:
 ## `book_files.sha256`
 
 ```sql
-ALTER TABLE book_files ADD COLUMN IF NOT EXISTS sha256 TEXT;
-CREATE INDEX IF NOT EXISTS book_files_sha256_idx ON book_files(sha256);
+ALTER TABLE book_files ADD COLUMN IF NOT EXISTS original_sha256 TEXT;  -- bytes AS RECEIVED (immutable)
+ALTER TABLE book_files ADD COLUMN IF NOT EXISTS original_md5    TEXT;  -- for LibGen/AA cross-reference
+ALTER TABLE book_files ADD COLUMN IF NOT EXISTS current_sha256  TEXT;  -- of the stored file (integrity)
+ALTER TABLE book_files ADD COLUMN IF NOT EXISTS anna_md5        TEXT;  -- MD5 parsed from filename, if present
+CREATE INDEX IF NOT EXISTS book_files_original_sha256_idx ON book_files(original_sha256);
+-- Cross-user dedup needs a UNIQUE key on canonical rows (round-2: the plain index can't prevent the race):
+CREATE UNIQUE INDEX IF NOT EXISTS book_files_canonical_orig_uidx
+    ON book_files(original_sha256) WHERE original_sha256 IS NOT NULL;  -- pair with ON CONFLICT on ingest
 ```
-Computed at ingest, backfilled once. Exact-duplicate detection becomes
-`SELECT sha256 FROM book_files GROUP BY sha256 HAVING count(*)>1` instead of re-MD5ing on every run,
-and it is the key for both cross-user dedup ([MT](#mt)) and the LibGen/AA source ([below](#libgen)).
+
+> **⚠️ ROUND-2 BLOCKER FIX.** BrainyCat *modifies files*: `watcher._import_file` calls `fix_epub(dst)`
+> which does `os.replace(tmp_path, epub_path)` (`epub_fix.py:57`), and `writeback_metadata` later
+> rewrites EPUB OPFs / PDFs. So a hash of the **stored** file won't match the LibGen/AA record (MD5 of
+> the original download) or another user's upload of the same original — breaking both LibGen lookup
+> and cross-user dedup. **Hash the original bytes at ingest, before `fix_epub`, and store them
+> immutably** (`original_sha256`, `original_md5`). Compute `current_sha256` separately for integrity.
+>
+> **Free win:** 1,122 of 3,949 files on fides (28%) carry the Anna's Archive MD5 in the filename
+> (`… -- <32 hex> -- Anna's Archive.epub`). Parse it into `anna_md5` at ingest — the
+> filename-standardizing rename drops it, but `filename_history` retains the old names for backfill.
+
+```python
+def ingest(user_id, incoming_path):
+    orig_sha = sha256_file(incoming_path)                 # BEFORE any modification
+    orig_md5 = md5_file(incoming_path)                    # for LibGen/AA
+    anna_md5 = re.search(r"--\s*([0-9a-f]{32})\s*--\s*Anna", os.path.basename(incoming_path))
+    dst = move_into_library(incoming_path)
+    fix_epub(dst)                                         # may rewrite dst in place → changes its hash
+    # store orig_sha / orig_md5 / anna_md5 immutably; current_sha256 computed after fixes
+```
+
+Exact-duplicate detection becomes `GROUP BY original_sha256`; it is also the key for cross-user dedup
+([MT](#mt)) and the LibGen/AA source ([below](#libgen)).
 
 ---
 
@@ -544,6 +709,17 @@ The provider catalog + scoring is ported from Intello's `router.py`/`models.py` 
 confirmed is well-built); the difference is the caller passes `Intent` (real business context)
 instead of relying on keyword `classify_task`.
 
+> **⚠️ ROUND-2 notes:**
+> - **Define "full text" precisely.** `ASK_BOOK` needs RAG *excerpts*, so `allow_full_text=False`
+>   must mean "at most N tokens of excerpts per call, passed as a **structured argument**" — never
+>   book text smuggled inside `prompt` (which would bypass the guard). Specify N.
+> - **Measure local goldmine throughput first.** Whole-book summarization of ~3,900 books on CPU with
+>   a capable local model may take **weeks**. Allow an explicit per-book **cloud opt-in** (or batch
+>   it) rather than discovering this after building.
+> - **Ledger scope is BrainyCat-only.** It preserves BrainyCat's budgets, but other projects still
+>   spend through Intello — a *global* cap would need one ledger to report to another. Known limit,
+>   the owner's call, noted so it isn't a surprise.
+
 ---
 
 <a name="libgen"></a>
@@ -554,15 +730,21 @@ instead of relying on keyword `classify_task`.
 
 ```python
 # One entry in the offline LocalSource registry (C2). Metadata only — no content, no file transfer.
-async def identify_by_md5(file_path: str) -> dict | None:
-    md5 = md5_file(file_path)                          # LibGen/AA index is MD5-keyed (not sha256)
+async def identify_by_md5(book_file_row) -> dict | None:
+    # ⚠️ ROUND-2: use the ORIGINAL-download MD5 (parsed from an Anna's Archive filename, or the
+    # original_md5 captured at ingest BEFORE fix_epub) — NOT a hash of the modified stored file,
+    # which won't match the LibGen/AA index.
+    md5 = book_file_row["anna_md5"] or book_file_row["original_md5"]
+    if not md5:
+        return None
     row = local_libgen_db.execute(
         "SELECT title, author, isbn, year, publisher, language "
         "FROM md5_meta WHERE md5=? LIMIT 1", (md5,)).fetchone()
     return dict(row) if row else None
-# Registered with a disk_budget (the OL editions dump alone is 12.6 GB → 14 GB index — measured),
-# enabled per-source, local-first in metadata.enrich_book before any network call.
+# Registered with a disk_budget (measured: OL editions dump 12.6 GB → 14 GB index), enabled
+# per-instance, off by default; local-first in metadata.enrich_book before any network call.
 ```
 
-**Legal/ethical note (owner-approved):** metadata only (bibliographic facts), no book content is
-downloaded or served; the dumps are used purely to identify files the owner already possesses.
+**Legal/ethical note (owner-approved; repo is public — describe carefully):** this is
+**hash-keyed bibliographic metadata**, off by default, enabled per instance. No book content is
+downloaded or served; the dumps are used only to identify files the owner already possesses.

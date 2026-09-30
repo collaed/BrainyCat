@@ -1,5 +1,10 @@
 # BrainyCat — User Journeys
 
+> **⚠️ Note (2026-09-30):** UJ-34 (summary auto-detection) must also cover the **audio** path — a
+> Blinkist MP3 has no text pages, so detection uses ID3/M4B tags + incoming-folder rules (STT only
+> as a last resort), and linking requires **author-surname agreement**, not title alone. See
+> [`roadmap/decisions-and-code.md`](./roadmap/decisions-and-code.md) and the PR #2 review response.
+
 ## UJ-01: First Visit & Authentication
 1. User navigates to `your-server:8000`
 2. Caddy forward_auth redirects to ECB login page

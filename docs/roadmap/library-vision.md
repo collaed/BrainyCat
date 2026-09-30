@@ -1,5 +1,17 @@
 # BrainyCat Roadmap — Multi-Format / Multi-Language / Multi-Edition, Maximal Enrichment, Offline Reference DBs, and Owned Summaries
 
+> **⚠️ SUPERSEDED IN PLACES (2026-09-30).** This document describes the *pre-review* design. Where it
+> conflicts with the PR #2 review outcomes, the corrected versions govern — see
+> [`decisions-and-code.md`](./decisions-and-code.md) and
+> [`../reviews/2026-09-30-pr2-review-response.md`](../reviews/2026-09-30-pr2-review-response.md).
+> In particular: the A2 "13 call-site" gate is replaced by the two central views
+> (`enrichable_books` / `identifiable_books`, honoring `identity_status='protected'` and
+> `canonical_id`); B1 summary detection includes the **audio** path (ID3/M4B tags + folder rules,
+> STT last resort) and requires **author-surname agreement**; offline DBs carry mandatory disk
+> budgets and add the **LibGen/AA hash-keyed metadata** source; multilingual embeddings are
+> higher-priority (they serve the dedup translation class); multi-tenant is in scope; LLM content is
+> stored with a 6-month refresh.
+
 > Planning document. No code changes. Companion document: [`dedup-overhaul.md`](./dedup-overhaul.md).
 >
 > Verified against the codebase on 2026-09-30. Some modules this plan builds upon
