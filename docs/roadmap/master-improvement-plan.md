@@ -104,9 +104,18 @@ re-surfaced here so it is not lost. Grouped by theme, tagged with its origin.
   request; ensure it is tracked in the backlog. **Recovered — tracked in backlog.**
 - **Cross-project MCP / SSO** (v2-req R2.11.22 / R2.11.23) — ecosystem-level; parked, noted.
 
+### In-app AI & LLM routing (new, from steering 2026-09-30)
+
+- **Bring LLM routing in-app** so routing decisions live next to the business context (the caller
+  knows whether a request is a description fill, a chapter summary, OCR-cleanup, or a translation),
+  instead of Intello's context-blind keyword classification. Port Intello's proven scoring / AIMD /
+  cost-ledger / cross-session-learning mechanisms; keep Intello as one backend (and likely the
+  "heavy media" OCR/TTS/STT backend). `../ai_use/` was investigated and is an **empty directory** —
+  nothing to port from it. **See the dedicated plan [`ai-in-app.md`](./ai-in-app.md) (Tasks AI1–AI8).**
+
 ## Consolidated program
 
-The three roadmap documents form one program:
+The roadmap documents form one program:
 
 ```mermaid
 flowchart TD
