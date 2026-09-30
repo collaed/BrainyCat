@@ -16,9 +16,14 @@ implementation and prescribes a **fused, scalable, review-driven** replacement.
 
 Each defect below is a real property of the current code, with its exact root cause.
 
-1. **O(n²) all-pairs loop capped by `checked >= batch_size`.** `find_duplicates_by_content` compares
+1. **O(n²) all-pairs loop with no cursor, capped by `checked >= batch_size`.** `find_duplicates_by_content` compares
    every book against every other in a nested loop, but breaks once `checked` reaches `batch_size`.
-   On ~63K books the full set is never compared — most pairs are never examined. Despite the
+   **Worse than first stated (per review §3.4):** there is *no cursor* — the list is re-sorted by
+   title every call and `checked` counts outer-loop rows, so every run re-compares the *same* first
+   `batch_size` books, and any pair where both books sort after that position is **never** compared
+   on any run. (On the fides tree this is now called every 20 s with `batch_size=20` — re-scanning
+   the same 20 books forever; fix in Phase 0.) At the real library scale
+   (**~3,900 books on fides, not 63K** — that figure was unverified and is corrected here) the full set is never compared — most pairs are never examined. Despite the
    "MinHash/LSH" naming, there is **no LSH banding/blocking**: it is brute-force MinHash without the
    bucketing that is the entire point of LSH.
 
@@ -119,6 +124,17 @@ Combine these into a confidence in `[0, 1]` and a class via the documented rubri
 
 **Fusion rubric (weights and thresholds — each linked to a requirement).** Weights are the initial
 proposal, to be tuned against the labeled fixture set in Task D4.
+
+> **⚠️ CORRECTED after PR #2 review (see [`decisions-and-code.md` §D4](./decisions-and-code.md#d4)).**
+> A fixed linear sum with `isbn_equal=0.35` **cannot flag any ISBN-less pair**: the max reachable
+> score without ISBN is 0.25+0.20+0.10+0.05+0.05 = **0.65**, below the 0.70 threshold — and ISBN-less
+> books are exactly the hard cases. Mandatory fixes: (1) **renormalize over the signals actually
+> present** (weighted mean), so an identical-text pair with no ISBN scores ~0.99; (2) **fit the
+> weights on labeled pairs** rather than hand-guessing (charter principle 4); (3) gate `isbn_equal`
+> through `identify.reject_shared()` first. The weights below are only initial priors for fitting,
+> and the class table is superseded by the **5-class** table in [§D5](./decisions-and-code.md#d5)
+> (format ≠ edition: same-edition-different-format is **stacked**, not edition-linked; translations
+> use the OL `work_key` / multilingual embeddings).
 
 | Signal | Weight | Rationale | Requirement |
 |---|---:|---|---|
@@ -224,7 +240,14 @@ PR #1 already fixed two dedup **primitive** bugs that this overhaul depends on:
   `PYTHONHASHSEED`) with `zlib.crc32`, so fingerprints computed before and after a restart live in
   the same hash space and can actually match.
 - **bottom-k MinHash + `asyncio.to_thread`** — replaced an unbounded O(n·k) MinHash that blocked the
-  event loop for tens of seconds with a value-based bottom-k sketch run off the event loop.
+  event loop for tens of seconds with a size-capped MinHash run off the event loop.
+
+> **Correction (review §3.3):** `_minhash` is **not** a bottom-k sketch — it truncates the input set
+> to its 50,000 smallest values (`_MINHASH_MAX_INPUT`) then computes a classic **128-function k-hash
+> MinHash**. Good news for D3: the signature is *positional*, so LSH banding applies to it directly
+> (see [`decisions-and-code.md` §D3](./decisions-and-code.md#d3)). Caveat: truncating each book's set
+> independently biases the Jaccard estimate downward when set sizes differ greatly (PDF vs EPUB of
+> the same text); a true bottom-k over the union, or a higher cap, removes the bias.
 
 This overhaul **builds on those fixes** and adds what was still missing: LSH banding (DR1),
 multi-signal fusion (DR2), edition-awareness (DR3), content-type awareness (DR4), a coverage

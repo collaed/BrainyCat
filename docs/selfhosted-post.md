@@ -53,7 +53,8 @@ Includes PostgreSQL with pgvector. No external dependencies required. Optional I
 
 *Draft addition for the next post / changelog.*
 
-Most of us have book summaries we already paid for — getAbstract, Blinkist, or our own notes. They
+Most of us have book summaries we already own as files — commercial ones we paid for, or our own
+notes. They
 usually live in a folder, disconnected from the actual books. BrainyCat will:
 
 - **Auto-detect** summary files (dropped in the incoming folder or uploaded) by recognizing the

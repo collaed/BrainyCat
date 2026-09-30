@@ -1,5 +1,22 @@
 # BrainyCat — Backlog
 
+> **⚠️ Re-graded after PR #2 review (2026-09-30) — see
+> [`reviews/2026-09-30-pr2-review-response.md`](./reviews/2026-09-30-pr2-review-response.md) and
+> [`roadmap/decisions-and-code.md`](./roadmap/decisions-and-code.md).** Key changes:
+> - **M2 (status/reading-log schema) is a P0 *bug fix*, not a P1 feature** — the routes exist in
+>   `main` and 500 today because no migration creates `reading_log` / the `reading_progress` status
+>   columns.
+> - **M4's LoC removal is already done** (`9df101f`); only the per-book enrichment explanation
+>   remains.
+> - **M5 / M6 / M7 are mostly small UI wiring** — their backends already exist in `main`.
+> - **New P0 items:** land/reconcile the two unmerged trees (Phase 0), loop heartbeat in `/health`,
+>   schema-vs-code audit, `book_pipeline_state` + `jsonb_typeof='object'` CHECK, `book_files.sha256`,
+>   D1 with a cursor, Calibre `ImportError`, CPU-bound work off the event loop.
+> - **Multi-tenant is now IN scope** (trusted group, `canonical_id` dedup, shared compounding
+>   metadata with the admin-review trust rule) — no longer parked.
+> - **GHCR images (M11) deferred**; **LibGen/AA MD5 metadata source added** (owner-approved).
+
+
 > Single prioritized backlog. Consolidates the Ideas Parking Lot from `roadmap.md`, the recovered
 > ideas from `roadmap/master-improvement-plan.md`, and the task IDs from the three detailed roadmaps
 > (`roadmap/master-improvement-plan.md` M1–M12, `roadmap/library-vision.md` A/B/C, and

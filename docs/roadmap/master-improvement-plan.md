@@ -24,6 +24,15 @@ been silently dropped:
 
 ## Recovered ideas — scoped before, not on the active table
 
+> **⚠️ Post-review correction (2026-09-30):** the PR #2 review verified that **~10 of these already
+> exist in `main`** as backend routes/modules — several unwired to the UI, and **M2's status/reading-log
+> routes 500 today** because their schema was never migrated. Treat this section as a *gap table*, not
+> greenfield: M2 schema → **P0 bug fix** (table name `reading_log`, singular); M4's LoC removal →
+> **already done** (`9df101f`); M5/M6/M7 → **small UI wiring**. Full per-item status and the corrected
+> sequencing are in [`reviews/2026-09-30-pr2-review-response.md`](../reviews/2026-09-30-pr2-review-response.md)
+> and [`decisions-and-code.md`](./decisions-and-code.md). M1 is reshaped into a per-pipeline
+> `book_pipeline_state` table (one column cannot model ~15 pipelines) — see §M1 there.
+
 Each item below was already specified in an earlier doc, is still valuable, and is explicitly
 re-surfaced here so it is not lost. Grouped by theme, tagged with its origin.
 

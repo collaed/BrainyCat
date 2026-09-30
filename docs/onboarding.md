@@ -49,16 +49,19 @@ Summaries have no ISBN and are deliberately excluded from ISBN/title enrichment 
 - Turn on the incoming-folder watcher if you drop files via Samba/NFS.
 - Set your reading languages (fluent/secondary) so enrichment routing prefers the right regional
   source (French → BnF, German → DNB).
-- Optionally enable offline reference DBs (`BRAINYCAT_OFFLINE_LOOKUP=true`) for fast, unlimited
+- Optionally enable offline reference DBs (`BRAINYCAT_OFFLINE_LOOKUP=true` — ⚠️ *pending merge; not
+  yet in `main`'s `config.py`*) for fast, unlimited
   local ISBN/title lookup against the OpenLibrary dump (and BnF, auto-enabled if your library is
   >30% French). Google Books has no dump and stays API-only.
 
 ## Part 2 — New contributor onboarding
 
 ### Architecture in one paragraph
-FastAPI + `asyncpg`, single process, ~16 supervised background asyncio loops. PostgreSQL 16
-(pgvector, pg_trgm, unaccent). Vanilla HTML/JS frontend, **no build step**. Deploy via `docker cp`
-into the running container then `docker restart` (code is not volume-mounted). See
+FastAPI + `asyncpg`, single process, background asyncio loops (the exact count depends on which tree
+is deployed — *pending Phase 0 reconciliation*). PostgreSQL 16
+(pgvector, pg_trgm, unaccent). Vanilla HTML/JS frontend, **no build step**. Deploy: the fides
+instance builds with `docker compose up -d --build`; a baked-image flow (`docker cp` into a running
+container) is also used in some environments. See
 [`devdocs/architecture.md`](../devdocs/architecture.md) and
 [`devdocs/data-model.md`](../devdocs/data-model.md).
 
@@ -66,7 +69,7 @@ into the running container then `docker restart` (code is not volume-mounted). S
 - `brainycat/web.py` — app wiring; `brainycat/routes/` — route modules.
 - `brainycat/scheduler.py` — the supervised background loops.
 - `brainycat/metadata.py` + `brainycat/sources/` — enrichment dispatch + 21 source adapters.
-- `brainycat/isbn.py`, `brainycat/identify.py`, `brainycat/confidence.py` — identification.
+- `brainycat/isbn.py`, `brainycat/identify.py`, `brainycat/confidence.py` (⚠️ *pending merge — not yet in `main`*) — identification.
 - `brainycat/fingerprints.py` — content dedup (see `roadmap/dedup-overhaul.md` for the planned rework).
 - `migrations/versions/` — Alembic migrations (current max: `011_translations`; next is `012`).
 

@@ -117,6 +117,17 @@ environment / a **gitignored** `secrets.md` template at the repo root (documente
 
 ## Task Breakdown
 
+> **Owner decision (2026-09-30):** the PR #2 review recommended *extending Intello* with intent hints
+> rather than porting its router. The owner chose **in-app routing** — "Intello understood as a routing
+> function to select and feed LLMs; if we build it in BC, it is still there in spirit." So AI1–AI7
+> proceed, with two things carried over from the review: **AI0 (consolidate all LLM call sites behind
+> one `ai.complete(intent, …)`) is done first**, and a **single cost ledger lives in BrainyCat's
+> Postgres with per-intent budgets** so the cross-app budget control the reviewer worried about losing
+> is preserved in-app. Local-first: cloud providers are opt-in *per intent*, and full book text is
+> never sent to a cloud provider unless explicitly enabled for that intent. Provider keys stay in
+> `.env` / Docker secrets, not a repo-root `secrets.md`. Concrete code:
+> [`decisions-and-code.md` §AI](./decisions-and-code.md#ai).
+
 - **Task AI1 — Provider registry + config.** Port `LLMProvider` and the provider catalog into
   `brainycat/ai_router/providers.py`; read keys from config/secrets; mark availability. Tests: registry
   loads, availability reflects present keys. *(AR3, AR5)*
