@@ -256,9 +256,14 @@ async def run_calibre_import(path: str = Query(...), _a: Any = Depends(require_a
 # ── EPUB Lint ────────────────────────────────────────────────────────────
 
 
-@router.post("/import/goodreads")
+@router.post("/import/goodreads/csv")
 async def import_goodreads(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Import Goodreads CSV export. Send CSV as request body."""
+    """Import a Goodreads CSV export (raw CSV as the request body). POST /api/v1/import/goodreads/csv.
+
+    K4 fix: previously mapped to POST /import/goodreads, which collided with (and was shadowed by /
+    shadowed) the multipart `import_gr` handler above. Moved to a distinct path. Called by the
+    Goodreads-import flow that posts CSV text directly (vs the file-upload variant above).
+    """
     from brainycat.goodreads import import_goodreads_csv
 
     body = await request.body()
@@ -1026,9 +1031,15 @@ async def pdf_embed(book_id: str) -> dict[str, Any]:
 
 
 # ── Calibre Library Import ────────────────────────────────────────────────
-@router.post("/import/calibre")
-async def import_calibre(body: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Import books from a Calibre library folder."""
+@router.post("/import/calibre/import")
+async def import_calibre_run_body(body: dict[str, Any] | None = None, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Import books from a Calibre library folder. POST /api/v1/import/calibre/import (admin-only).
+
+    K4 fix: previously also mapped to POST /import/calibre, which SHADOWED the detect/stats handler
+    above (FastAPI uses the last-registered route for a duplicate path). Moved to a distinct path and
+    added the missing admin guard. Called by the admin Calibre-import UI ("Import" button, after the
+    detect/stats step). Body: {path, limit}.
+    """
     body = body or {}
     path = body.get("path", "/data/calibre")
     limit = body.get("limit", 100)

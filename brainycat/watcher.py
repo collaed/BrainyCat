@@ -96,9 +96,20 @@ async def _import_file(file_path: str) -> None:
     shutil.move(file_path, dst)
     size = os.path.getsize(dst)
 
+    # K6: hash the ORIGINAL bytes BEFORE fix_epub rewrites the file, and recover any Anna's Archive
+    # MD5 from the filename before the standardizing rename drops it. These are the keys LibGen/AA
+    # lookup and cross-user dedup rely on; a post-fix hash would not match.
+    from brainycat.file_hashes import capture_original_hashes
+
+    hashes = capture_original_hashes(dst, filename)
+
     # Fix EPUB
     if ext == ".epub":
         fix_epub(dst)
+
+    from brainycat.file_hashes import sha256_file
+
+    current_sha256 = sha256_file(dst)  # of the stored (possibly fixed) file, for integrity checks
 
     # Extract metadata
     meta = extract_metadata(dst)
@@ -131,12 +142,18 @@ async def _import_file(file_path: str) -> None:
         if lang_row:
             await execute("INSERT INTO books_languages (book_id, language_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", book_id, lang_row["id"])
     await execute(
-        "INSERT INTO book_files (book_id, file_path, format, file_size, file_name) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO book_files (book_id, file_path, format, file_size, file_name, "
+        "original_md5, original_sha256, current_sha256, anna_md5) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         book_id,
         dst,
         ext.lstrip("."),
         size,
         filename,
+        hashes["original_md5"],
+        hashes["original_sha256"],
+        current_sha256,
+        hashes["anna_md5"],
     )
 
     # Record filename history if title differs from original filename

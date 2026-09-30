@@ -35,12 +35,14 @@ async def start_scheduler() -> None:
         ("incipit_match", _incipit_match_loop, 600),
         # Housekeeping
         ("log_retention", _log_retention_loop, 86400),
-        # NOTE: ocr_copyright, cover_phash, validation (metadata_validator), and confidence loops
-        # are intentionally NOT scheduled — the modules they call (brainycat.ocr_copyright /
-        # cover_phash / metadata_validator / confidence) were never implemented, only stubbed as
-        # scheduler hooks. Re-add them here once those modules exist. See docs/known-issues.md.
-        # (text_profiler was in this category too, but turned out to be misdiagnosed — see
-        # _fingerprint_loop above, which is what it should have called all along.)
+        # Re-enabled: the modules these call now exist (brainycat.ocr_copyright / cover_phash /
+        # metadata_validator / confidence were previously stubbed-only and removed from this list;
+        # verified each exposes the function its loop calls — process_batch / validate_batch /
+        # compute_batch). See docs/known-issues.md "Four scheduler loops...".
+        ("cover_phash", _cover_phash_loop, 30),
+        ("validation", _validation_loop, 30),
+        ("confidence", _confidence_loop, 60),
+        ("ocr_copyright", _ocr_copyright_loop, 15),
     ]
     for name, fn, interval in loops:
         task = asyncio.create_task(_supervised(name, fn, interval))
