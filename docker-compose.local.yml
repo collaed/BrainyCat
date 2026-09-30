@@ -14,9 +14,17 @@ services:
       - BRAINYCAT_DATABASE_URL=postgresql://brainycat:brainycat@postgres:5432/brainycat
     volumes:
       - /mnt/buffer/brainycat/data:/data
+    networks:
+      - default
+      - arr
     depends_on:
       postgres:
         condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     entrypoint: >
       sh -c "for i in 1 2 3 4 5; do alembic upgrade head && break || sleep 3; done;
              uvicorn brainycat.web:app --host 0.0.0.0 --port 8000"
@@ -39,3 +47,8 @@ services:
 
 volumes:
   brainycat-pgdata:
+
+networks:
+  default:
+  arr:
+    external: true

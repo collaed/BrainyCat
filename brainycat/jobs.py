@@ -68,6 +68,7 @@ async def run_in_background(job_id: str, coro: Any) -> None:
     """Run a coroutine as a background task, updating job status."""
 
     async def _wrapper() -> None:
+        """Run the wrapped coroutine, updating the job's status/progress and recording any failure."""
         try:
             await update_job(job_id, status="running")
             await coro

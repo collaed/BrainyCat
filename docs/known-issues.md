@@ -50,3 +50,75 @@ proxy for `original_title` where drift-detection needs "the title this book star
 `record_change()` is actually called with the true prior value (see the `metadata_history` fix in
 the "upload/OPDS/auth" PR). If another `original_filename`/`book_originals` reference turns up, it's
 the same root cause — apply the same substitution, don't add the phantom column/table.
+
+## Four scheduler loops call modules that were never implemented
+
+`brainycat/scheduler.py::start_scheduler` registered five background loops
+(`_text_profiler_loop`, `_ocr_copyright_loop`, `_cover_phash_loop`, `_validation_loop`,
+`_confidence_loop`) that each `import` a module that was never written:
+`brainycat.text_profiler`, `brainycat.ocr_copyright`, `brainycat.cover_phash`,
+`brainycat.metadata_validator`, `brainycat.confidence`. Every tick (10s/15s/30s/30s/60s
+respectively) they hit `ModuleNotFoundError`, got caught by `_supervised()`'s outer
+`except Exception`, and logged a `*_error` warning forever.
+
+**Correction, found later the same session:** `_text_profiler_loop` was initially lumped in with
+the other four and disabled — wrong call. Its body wasn't *only* the missing-module import; below
+that it also called `brainycat.fingerprints.find_duplicates_by_content()`, which is a real,
+working function (drives the Content Duplicates page, `static/intel-content-dupes.html`). This
+loop was the *only* thing that ever called it (and `compute_all_fingerprints()`) automatically —
+so disabling the loop silently stopped a working feature, not just a broken stub. Fixed by
+rewriting it as `_fingerprint_loop`, calling `compute_all_fingerprints()` +
+`find_duplicates_by_content()` directly instead of the nonexistent `text_profiler.process_batch()`,
+and re-scheduling it (20s interval). Lesson: when a loop body has multiple statements, check each
+one before writing off the whole loop as dead.
+
+The remaining four are disabled by removing their entries from the `loops` list in
+`start_scheduler()` (the function bodies are left in place as a starting point). What each was
+meant to do, if picked up later:
+
+- **ocr_copyright** — scan OCR'd text for a copyright page / rights statement, presumably to flag
+  books that shouldn't be OCR'd or re-distributed.
+- **cover_phash** — perceptual hash of cover images, for duplicate/edition detection independent
+  of text similarity.
+- **metadata_validator** — a validation pass over enriched metadata (referenced nowhere else, no
+  spec found).
+- **confidence** — batch confidence scoring (`brainycat/identify.py`'s `resolve()`/`decide()` may
+  already cover this ground for ISBN identification specifically — check there before building a
+  separate `confidence.py`).
+
+`brainycat.ol_local` (referenced by `brainycat/fast_local.py` and `brainycat/ol_works.py`) was the
+sixth missing module in this family but is being built for real (local Open Library dump import —
+see the OL-dump import task) rather than silenced, since `fast_local_isbn`/`fast_local_title` are
+still scheduled and useful once it exists.
+
+## `books.extra_metadata` sometimes degrades from a JSON object into a JSON array
+
+Found on 5 books while verifying the new `ol_local` wiring (`fast_local_isbn_error: "path element
+at position 1 is not an integer: \"title_parsed\""`) — `jsonb_set(..., '{local_enriched}', ...)`
+requires an object target, but `extra_metadata` on these rows is a JSON **array** whose elements
+include both proper objects (`{"title_fixed": true}`) and, oddly, JSON-encoded **strings**
+(`"{\"isbn_ocr_tried\": true}"` — a string containing escaped JSON, not a parsed object).
+
+Likely mechanism: Postgres's `jsonb || jsonb` concatenation operator requires *both* operands to be
+objects to merge by key — if either side isn't an object, both sides get coerced into arrays and
+concatenated element-wise instead. Several modules write via
+`extra_metadata = COALESCE(extra_metadata, '{}'::jsonb) || $1::jsonb` (`title_cleanup.py`,
+`metadata.py`, `bisac.py`, `worddumb.py`, `contribute.py`, `readability.py`,
+`routes/books.py`, `scheduler.py`) — if *any one* of these ever received a non-object payload for
+`$1` (or ran against a row where `extra_metadata` had already been corrupted into an array by an
+earlier bad write), the object silently mutates into an array from then on. Once that happens,
+`extra_metadata ? 'some_flag'` (used everywhere as an "already processed" guard) checks array
+*element* membership instead of object *key* membership, which never matches a flag stored as
+`{"flag": true}` — so the "already processed" guard permanently fails open and the same background
+loop reprocesses (and re-appends to) that book's `extra_metadata` forever, growing it without bound
+(one affected book had ~80 duplicate `{"title_parsed": true}` array entries).
+
+Not fully root-caused — haven't identified which specific call site first introduces a non-object
+payload. `brainycat/fast_local.py`'s `jsonb_set` calls were patched to tolerate this (coerce back to
+`{}` via `CASE WHEN jsonb_typeof(extra_metadata) = 'object' ...`) since that's the code path that
+was actively crash-looping, but the other `||`-based call sites listed above are not yet hardened
+and a currently-clean book could still be pushed into this state by any of them. Next step: audit
+each `|| $N::jsonb` call site's Python-side payload to confirm it's always `json.dumps(<dict>)` (not
+a list, not a double-encoded string), and consider a migration to clean up the already-corrupted
+rows (`UPDATE books SET extra_metadata = '{}'::jsonb WHERE jsonb_typeof(extra_metadata) != 'object'`
+after inspecting what — if anything — of value is recoverable from the affected rows' arrays).

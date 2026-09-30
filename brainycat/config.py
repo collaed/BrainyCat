@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     session_max_age: int = 86400 * 7  # 7 days
 
     def __init__(self, **kwargs: object) -> None:
+        """Load settings, generating and persisting a random `secret_key` on first run if none is configured."""
         super().__init__(**kwargs)
         if not self.secret_key:
             import os
@@ -41,10 +42,12 @@ class Settings(BaseSettings):
 
     @property
     def heavy_url(self) -> str:
+        """Intello URL to use for heavy jobs (OCR/TTS/STT), falling back to the default intello_url."""
         return self.intello_heavy_url or self.intello_url
 
     @property
     def heavy_key(self) -> str:
+        """Intello API key to use for heavy jobs, falling back to the default intello_api_key."""
         return self.intello_heavy_api_key or self.intello_api_key
     signal_api_url: str = "http://signal-api:8080"
     smtp_host: str = "mailserver"
@@ -52,6 +55,7 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = ""  # defaults to smtp_user, then brainycat@{smtp_host}, if unset
+    smtp_validate_certs: bool = True  # set false when smtp_host is a local relay/tunnel, not the real MX name
     resend_api_key: str = ""  # if set, Kindle/device delivery uses the Resend HTTP API instead of SMTP
 
     # Google Books
@@ -89,6 +93,8 @@ class Settings(BaseSettings):
     exp_pdf_embed: str = "0"
     readarr_url: str = ""
     readarr_api_key: str = ""
+    readarr_root_folder: str = ""  # auto-detected from Readarr's own config if unset
+    readarr_quality_profile_id: str = ""  # auto-detected (first available) if unset
     google_client_id: str = ""
     google_client_secret: str = ""
     oidc_issuer: str = ""

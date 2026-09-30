@@ -38,6 +38,7 @@ async def list_api_keys(user: Any = Depends(get_current_user)) -> list[dict[str,
 
 @router.delete("/api-keys/{key_id}")
 async def delete_api_key(key_id: str, user: Any = Depends(get_current_user)) -> dict[str, bool]:
+    """Delete one of the current user's API keys. DELETE /api/v1/api-keys/{key_id}; no frontend caller found."""
     from uuid import UUID as _UUID
 
     await db.execute("DELETE FROM api_keys WHERE id = $1 AND user_id = $2", _UUID(key_id), user["id"])
@@ -49,6 +50,7 @@ async def delete_api_key(key_id: str, user: Any = Depends(get_current_user)) -> 
 
 @router.get("/settings/languages")
 async def get_language_prefs(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get the current user's preferred catalog languages. GET /api/v1/settings/languages; no frontend caller found."""
     row = await db.fetch_one("SELECT preferences FROM users WHERE id = $1", user["id"])
     prefs = (row["preferences"] or {}) if row else {}
     return {"languages": prefs.get("catalog_languages", ["en", "fr"])}
@@ -56,6 +58,7 @@ async def get_language_prefs(user: Any = Depends(get_current_user)) -> dict[str,
 
 @router.post("/settings/languages")
 async def set_language_prefs(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Set the current user's preferred catalog languages. POST /api/v1/settings/languages; no frontend caller found."""
     body = await request.json()
     langs = body.get("languages", ["en", "fr"])
     import json
@@ -73,12 +76,14 @@ async def set_language_prefs(request: Request, user: Any = Depends(get_current_u
 
 @router.get("/settings")
 async def get_settings(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get the current user's account settings (kindle email, email, role). GET /api/v1/settings, called from static/settings.html to populate the settings form."""
     row = await db.fetch_one("SELECT kindle_email, email, role FROM users WHERE id = $1", user["id"])
     return dict(row) if row else {}
 
 
 @router.patch("/settings")
 async def update_settings(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Partially update the current user's account settings from an allowlist of fields. PATCH /api/v1/settings, called from static/settings.html when saving the kindle email."""
     allowed = {"kindle_email", "email", "packt_email", "packt_password", "auto_send_kindle"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
@@ -95,11 +100,13 @@ async def update_settings(body: dict[str, Any], user: Any = Depends(get_current_
 
 @router.get("/settings/security")
 async def get_security_settings(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Report whether login is currently required. GET /api/v1/settings/security, called from static/settings.html to set the auth-required toggle."""
     return {"auth_required": await auth.is_auth_required()}
 
 
 @router.put("/settings/security")
 async def update_security_settings(body: auth.AuthRequiredUpdate, _admin: Any = Depends(auth.require_admin)) -> dict[str, Any]:
+    """Toggle whether login is required, admin only. PUT /api/v1/settings/security, called from static/settings.html's auth-required toggle."""
     await db.execute(
         """INSERT INTO app_settings (key, value, updated_at) VALUES ('auth_required', $1::jsonb, now())
            ON CONFLICT (key) DO UPDATE SET value = $1::jsonb, updated_at = now()""",
@@ -110,6 +117,7 @@ async def update_security_settings(body: auth.AuthRequiredUpdate, _admin: Any = 
 
 @router.post("/user/password")
 async def change_password(body: auth.PasswordChange, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Change the current user's password after verifying the current one. POST /api/v1/user/password, called from static/settings.html's password change form."""
     import bcrypt
 
     row = await db.fetch_one("SELECT password_hash FROM users WHERE id = $1", user["id"])

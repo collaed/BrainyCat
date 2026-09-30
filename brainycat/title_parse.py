@@ -25,13 +25,40 @@ from brainycat.isbn import _clean_isbn
 _HEX8_PREFIX_RE = re.compile(r"^[0-9a-f]{8}\s+")
 _HEX32_RE = re.compile(r"^[0-9a-f]{32}$")
 _ANNA_SUFFIX_RE = re.compile(r"\s*--\s*Anna[’']s Archive\s*$", re.IGNORECASE)  # noqa: RUF001 — both apostrophe styles appear in real data
-_LIBGEN_SUFFIX_RE = re.compile(r"\s*-\s*libgen\.\w+\s*$", re.IGNORECASE)
+_LIBGEN_SUFFIX_RE = re.compile(r"\s*-\s*libgen\.\w+(-\d+)?\s*$", re.IGNORECASE)  # "-N" collision suffix, if the file got renamed on disk
 _YEAR_PUBLISHER_PAREN_RE = re.compile(r"\((\d{4}),\s*([^)]+)\)\s*$")
 _LEADING_ISBN_RE = re.compile(r"^(97[89][\d\-]{9,15}|\d{9}[\dXx])\s+(.+)$")
 _LEAKED_EXT_RE = re.compile(r"\s+\S{1,6}\.(indd|qxd|docx?|BAT|ai|psd)\s*$", re.IGNORECASE)
 _BRACKET_SERIES_RE = re.compile(r"^\[[^\]]+\]\s*")
 _PLACE_RE = re.compile(r"^[A-ZÀ-Ý][\w'\-]*(,\s*[A-ZÀ-Ý][\w'\-]*)+$")
 _ISBN_SHAPE_RE = re.compile(r"^[\d\-\sXx]{9,17}$")
+_BULLET_ISBN_RE = re.compile(r"[·•]\s*ISBN\s*[:.]?\s*([\dXx\-]{9,17})", re.IGNORECASE)
+_SITE_SUFFIX_RE = re.compile(r"\s*-\s*[\w.]+\.(com|li|net|org|se|is|io|me)\s*$", re.IGNORECASE)
+# Common words that show up in a descriptive subtitle but essentially never in a person's name —
+# used to tell "Title - Author" from "Title - Subtitle" when nothing else disambiguates them.
+_SUBTITLE_STOPWORDS = {
+    "the", "a", "an", "of", "in", "to", "for", "and", "or", "with", "from", "your", "how", "why",
+    "what", "guide", "manual", "book", "complete", "essential", "ultimate", "introduction", "edition",
+    "des", "les", "la", "le", "du", "de", "et", "pour", "sur", "dans", "un", "une", "au", "aux",
+    # Ebook-site names that are just as capitalized-2-words-shaped as a real name — "PDF Room" is
+    # the site, not the author. Reject these specifically rather than trying to keep growing this
+    # list; a real match will fall back to "title unchanged", which is always the safe default.
+    "pdf", "room", "drive", "archive", "library", "download", "books", "ebook", "ebooks", "online", "free",
+}
+
+
+def _looks_like_person_name(s: str) -> bool:
+    """Heuristic check that a short string looks like a person's name (short, capitalized words,
+    no subtitle-ish stopwords) — internal helper used only by `parse_title` in this file."""
+    s = s.strip()
+    if not s or len(s) > 40:
+        return False
+    words = s.split()
+    if not (1 <= len(words) <= 4):
+        return False
+    if any(w.strip(".,").lower() in _SUBTITLE_STOPWORDS for w in words):
+        return False
+    return all(w[0].isupper() for w in words if w and w[0].isalpha())
 
 
 @dataclass
@@ -45,6 +72,8 @@ class ParsedTitle:
 
 
 def _looks_like_year_or_place(s: str) -> bool:
+    """Heuristic check that a trailing segment is a publication year or a place name rather than a
+    publisher — internal helper used only by `_pop_trailing_metadata` in this file."""
     s = s.strip()
     if len(s) > 60:
         return False
@@ -84,6 +113,7 @@ def parse_title(raw: str) -> ParsedTitle:
     (falls back to a noise-stripped version of the input) — check `.confidence` before trusting
     the other fields for an automatic write."""
     s = raw.strip()
+    had_hex_prefix = bool(_HEX8_PREFIX_RE.match(s))
     s = _HEX8_PREFIX_RE.sub("", s)
 
     isbn_from_prefix = None
@@ -104,6 +134,38 @@ def parse_title(raw: str) -> ParsedTitle:
             return ParsedTitle(title=parts[0], author=parts[1], isbn=isbn, publisher=publisher, year=year, confidence="high")
         if len(parts) == 1:
             return ParsedTitle(title=parts[0], isbn=isbn, publisher=publisher, year=year, confidence="high")
+
+    # Bullet-ISBN metadata block — a different export tool's format, ISBN on its own bullet line,
+    # with either:
+    #   "Title - Author\n\n\u00b7 ISBN 123..."               (author joined to the title line), or
+    #   "Title - site.com\n\nAuthor \u00b7 ISBN 123..."       (author on its own line just above the bullet)
+    # The bullet-ISBN line is a strong, distinctive signal this is a structured record, which is
+    # what makes splitting on " - " safe here (unlike a bare title string, where " - " is just as
+    # likely to be a real subtitle separator).
+    bullet_m = _BULLET_ISBN_RE.search(s)
+    if bullet_m:
+        bullet_isbn = _clean_isbn(re.sub(r"[^0-9Xx]", "", bullet_m.group(1)))
+        isbn = bullet_isbn or isbn_from_prefix
+        before = s[: bullet_m.start()]
+        lines = [ln.strip(" \t·•") for ln in before.split("\n") if ln.strip(" \t·•")]
+
+        author = None
+        title_text = ""
+        if len(lines) >= 2:
+            # The line right above the bullet is the author; everything before that is the title.
+            author = lines[-1]
+            title_text = " ".join(lines[:-1])
+        elif lines:
+            title_text = lines[0]
+
+        title_text = _SITE_SUFFIX_RE.sub("", title_text).strip()
+        title_text = re.sub(r"\\([()\[\].,;:!?])", r"\1", title_text)  # un-escape "\(...\)" leakage
+
+        if not author and " - " in title_text:
+            maybe_title, maybe_author = title_text.rsplit(" - ", 1)
+            title_text, author = maybe_title.strip(), maybe_author.strip()
+
+        return ParsedTitle(title=title_text, author=author, isbn=isbn, confidence="high" if (isbn or author) else "medium")
 
     # libgen.li: "[Series] Author - Title (year, Publisher) - libgen.xx"
     if _LIBGEN_SUFFIX_RE.search(s):
@@ -133,5 +195,15 @@ def parse_title(raw: str) -> ParsedTitle:
 
     # Leaked print-production file extension ("Burn-after-writing BAT.indd")
     s = _LEAKED_EXT_RE.sub("", s).strip()
+
+    # Bare "hex8 Title - Author" with no other marker at all. The content-hash prefix alone is
+    # already a strong signal this is a filename-derived title (real book titles don't start with
+    # 8 lowercase hex chars) — but a single " - " is still ambiguous (could be a real subtitle), so
+    # only split it when the text after the last " - " is shaped like a short person's name and not
+    # a descriptive phrase ("Matthew MacDonald" yes; "Tackling Complexity in the Heart of Software" no).
+    if had_hex_prefix and " - " in s:
+        maybe_title, maybe_author = s.rsplit(" - ", 1)
+        if _looks_like_person_name(maybe_author):
+            return ParsedTitle(title=maybe_title.strip(), author=maybe_author.strip(), isbn=isbn_from_prefix, confidence="medium")
 
     return ParsedTitle(title=s, isbn=isbn_from_prefix, confidence="medium" if isbn_from_prefix else "low")

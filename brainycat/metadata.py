@@ -136,6 +136,7 @@ async def enrich_book(book_id: str, skip_postprocess: bool = False) -> dict[str,
             return {"skipped": "all_fallback_sources_backed_off"}
 
         async def _fetch(name: str, fn: Any) -> tuple[str, dict[str, Any] | None]:
+            """Query one fallback source with rate-limiting, retry, and title-variant retries."""
             from brainycat.retry import with_retry
 
             if rate_limiter.is_backed_off(name):
@@ -196,6 +197,7 @@ async def enrich_book(book_id: str, skip_postprocess: bool = False) -> dict[str,
     merged: dict[str, Any] = {}
 
     def _pick(field: str, shortest: bool = True) -> Any:
+        """Pick one source's value for a field, preferring the shortest (or longest) string."""
         vals = [r.get(field) for r in results if r.get(field)]
         if not vals:
             return None
@@ -459,6 +461,17 @@ async def postprocess_book(book_id: str, row: Any = None, merged: dict | None = 
     except Exception:
         pass
 
+    # Standardize filename to "Author - Title [ISBN].ext" (opt-in experimental feature)
+    from brainycat.config import settings as _settings
+
+    if _settings.exp_file_rename == "1":
+        try:
+            from brainycat.experimental.file_rename import rename_book_file
+
+            await rename_book_file(book_id)
+        except Exception:
+            pass
+
 
 def _compute_quality(book_id: str, row: Any, merged: dict[str, Any]) -> int:
     """Weighted completeness score 0-100 (Calibre-aligned)."""
@@ -466,6 +479,7 @@ def _compute_quality(book_id: str, row: Any, merged: dict[str, Any]) -> int:
     score = 0
 
     def _val(field: str) -> Any:
+        """Read a field from the merged enrichment result, falling back to the existing book row."""
         return merged.get(field) or rd.get(field)
 
     # Title (10)

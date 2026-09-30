@@ -20,6 +20,8 @@ router = APIRouter(prefix="/api/v1", tags=["books"])
 
 @router.put("/books/{book_id}/author")
 async def update_author(book_id: str, body: AuthorUpdate, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Replace a book's author with a single new name. PUT /api/v1/books/{book_id}/author, used by the
+    library UI's author-edit field."""
     from uuid import UUID as _UUID
 
     # Remove old author links
@@ -49,6 +51,8 @@ router.post("/books/{book_id}/link")(collections.link_books)
 
 @router.post("/books/{book_id}/enrich")
 async def enrich(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Trigger metadata enrichment for one book. POST /api/v1/books/{book_id}/enrich — called from the
+    library UI's "Enrich" action and the MCP server's enrich_book tool."""
     return await metadata.enrich_book(book_id)
 
 
@@ -57,6 +61,7 @@ async def enrich(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str,
 
 @router.post("/books/{book_id}/audio/diagnose")
 async def audio_diagnose(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Analyze an audiobook file's audio quality issues. POST /api/v1/books/{book_id}/audio/diagnose."""
 
     f = await db.fetch_one("SELECT id FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac') LIMIT 1", UUID(book_id))
     if not f:
@@ -66,6 +71,7 @@ async def audio_diagnose(book_id: str, _u: Any = Depends(get_current_user)) -> d
 
 @router.post("/books/{book_id}/audio/restore")
 async def audio_restore(book_id: str, profile: str = Query("digital_light"), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Apply audio restoration (noise/volume cleanup) to an audiobook file. POST /api/v1/books/{book_id}/audio/restore."""
 
     f = await db.fetch_one("SELECT id FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac') LIMIT 1", UUID(book_id))
     if not f:
@@ -75,6 +81,8 @@ async def audio_restore(book_id: str, profile: str = Query("digital_light"), _u:
 
 @router.post("/books/{book_id}/audio/preview")
 async def audio_preview(book_id: str, profile: str = Query("digital_light"), _u: Any = Depends(get_current_user)) -> Any:
+    """Render a short audio preview of a restoration profile before committing to a full restore.
+    POST /api/v1/books/{book_id}/audio/preview, returns an MP3 file response."""
 
     f = await db.fetch_one("SELECT id FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac') LIMIT 1", UUID(book_id))
     if not f:
@@ -90,18 +98,23 @@ async def audio_preview(book_id: str, profile: str = Query("digital_light"), _u:
 
 @router.post("/books/{book_id}/convert/tts")
 async def convert_tts(book_id: str, voice: str = Query("en_US-lessac-medium"), user: Any = Depends(get_current_user)) -> dict[str, str]:
+    """Queue a text-to-speech audiobook conversion job. POST /api/v1/books/{book_id}/convert/tts — used by
+    the MCP server's convert_tts tool and the library UI's TTS action."""
     job_id = await tts.convert_to_audiobook(book_id, voice, str(user["id"]))
     return {"job_id": job_id}
 
 
 @router.post("/books/{book_id}/convert/stt")
 async def convert_stt(book_id: str, model: str = Query("small"), user: Any = Depends(get_current_user)) -> dict[str, str]:
+    """Queue a speech-to-text transcription job for an audiobook. POST /api/v1/books/{book_id}/convert/stt."""
     job_id = await stt.transcribe_audiobook(book_id, model, str(user["id"]))
     return {"job_id": job_id}
 
 
 @router.post("/books/{book_id}/convert/{target_format}")
 async def convert_format(book_id: str, target_format: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Convert a book to a different ebook format (pdf, mobi, azw3, txt, ...). POST /api/v1/books/{book_id}/convert/{target_format}
+    — used by the MCP server's convert_format tool."""
     from brainycat.conversion import convert_book
 
     return await convert_book(book_id, target_format)
@@ -109,11 +122,14 @@ async def convert_format(book_id: str, target_format: str, _u: Any = Depends(get
 
 @router.post("/books/{book_id}/send-to-kindle")
 async def kindle(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Email a book to the user's configured Kindle address. POST /api/v1/books/{book_id}/send-to-kindle
+    — used by the "Send to Kindle" button in index.html/index.old.html and the MCP server's send_to_kindle tool."""
     return await convert.send_to_kindle(book_id, str(user["id"]))
 
 
 @router.post("/books/{book_id}/send-to-device")
 async def device(book_id: str, email: str = Query(...), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Email a book to an arbitrary e-reader device address. POST /api/v1/books/{book_id}/send-to-device."""
     return await convert.send_to_device(book_id, email)
 
 
@@ -133,27 +149,34 @@ async def send_status(message_id: str, _u: Any = Depends(get_current_user)) -> d
 async def translate(
     book_id: str, target_lang: str = Query(...), backend: str = Query("argos"), user: Any = Depends(get_current_user)
 ) -> dict[str, str]:
+    """Queue a full-book translation job. POST /api/v1/books/{book_id}/translate — used by the translate
+    action in index.old.html/reader.html and the MCP server's translate_book tool."""
     job_id = await translation.translate_book(book_id, target_lang, backend, str(user["id"]))
     return {"job_id": job_id}
 
 
 @router.get("/books/{book_id}/notes")
 async def get_note(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Fetch the current user's note for a book. GET /api/v1/books/{book_id}/notes."""
     return await stats.get_note(str(user["id"]), book_id) or {}
 
 
 @router.post("/books/{book_id}/notes")
 async def save_note(book_id: str, body: NoteBody, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Create or update the current user's note for a book. POST /api/v1/books/{book_id}/notes."""
     return await stats.save_note(str(user["id"]), book_id, body.content)
 
 
 @router.post("/books/{book_id}/podcast-feed")
 async def create_podcast(book_id: str, schedule: str = Query("daily"), user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Create a private podcast RSS feed that delivers the book as serialized audio episodes.
+    POST /api/v1/books/{book_id}/podcast-feed."""
     return await podcast.create_feed(book_id, str(user["id"]), schedule)
 
 
 @router.post("/books/{book_id}/ocr")
 async def ocr_book(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, str]:
+    """Queue a full-book OCR job for a scanned PDF. POST /api/v1/books/{book_id}/ocr."""
     from brainycat.ocr import ocr_pdf
 
     job_id = await ocr_pdf(book_id, str(user["id"]))
@@ -170,6 +193,8 @@ async def find_translations_route(book_id: str, _u: Any = Depends(get_current_us
 
 @router.get("/books/{book_id}/translations")
 async def get_translations_route(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Return known original/sibling translations already linked to this book. GET /api/v1/books/{book_id}/translations
+    — used by the translations panel in index.html, alongside find_translations_route which discovers them."""
     from brainycat.translations import get_translation_info
 
     return await get_translation_info(book_id)
@@ -194,6 +219,8 @@ async def override_identity(book_id: str, body: IdentityOverride, _u: Any = Depe
 
 @router.post("/books/{book_id}/lock")
 async def lock_identity(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Freeze a book's metadata against further automated enrichment. POST /api/v1/books/{book_id}/lock
+    — used by the "Lock identity" action in index.html."""
     from brainycat.manual_override import lock_book
 
     return await lock_book(book_id)
@@ -201,6 +228,8 @@ async def lock_identity(book_id: str, _u: Any = Depends(get_current_user)) -> di
 
 @router.post("/books/{book_id}/unlock")
 async def unlock_identity(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Return a locked/protected book to normal automated enrichment. POST /api/v1/books/{book_id}/unlock
+    — used by the "Unlock identity" action in index.html."""
     from brainycat.manual_override import unlock_book
 
     return await unlock_book(book_id)
@@ -211,6 +240,7 @@ async def unlock_identity(book_id: str, _u: Any = Depends(get_current_user)) -> 
 
 @router.post("/books/{book_id}/download-metadata")
 async def download_metadata(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Calibre-style "download metadata" alias for enrichment. POST /api/v1/books/{book_id}/download-metadata."""
     return await metadata.enrich_book(book_id)
 
 
@@ -249,6 +279,8 @@ async def download_cover(book_id: str, _u: Any = Depends(get_current_user)) -> d
 
 @router.post("/books/{book_id}/classify")
 async def classify_book(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Classify a book's genre (Thema codes) via LLM. POST /api/v1/books/{book_id}/classify — used by the
+    MCP server's classify_book tool."""
     from brainycat.metadata import classify_genre_via_llm
 
     return await classify_genre_via_llm(book_id)
@@ -336,6 +368,7 @@ async def generate_pdf(book_id: str, _u: Any = Depends(get_current_user)) -> dic
 
 @router.post("/books/{book_id}/extract-isbn")
 async def extract_book_isbn(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Extract and store an ISBN found in the book's own file content. POST /api/v1/books/{book_id}/extract-isbn."""
     from brainycat.isbn import extract_and_store_isbn
 
     return await extract_and_store_isbn(book_id)
@@ -346,6 +379,7 @@ async def extract_book_isbn(book_id: str, _u: Any = Depends(get_current_user)) -
 
 @router.patch("/books/{book_id}/workbook")
 async def toggle_workbook(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Flip a book's is_workbook flag. PATCH /api/v1/books/{book_id}/workbook."""
     from uuid import UUID as _UUID
 
     row = await db.fetch_one("SELECT is_workbook FROM books WHERE id = $1", _UUID(book_id))
@@ -359,6 +393,8 @@ async def toggle_workbook(book_id: str, _u: Any = Depends(get_current_user)) -> 
 
 @router.post("/books/{book_id}/writeback")
 async def writeback(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Write a book's current DB metadata back into its file (EPUB OPF, ID3, etc.). POST /api/v1/books/{book_id}/writeback
+    — used by efficiency.html's per-book writeback action."""
     from brainycat.writeback import writeback_metadata
 
     return await writeback_metadata(book_id)
@@ -366,6 +402,8 @@ async def writeback(book_id: str, _u: Any = Depends(get_current_user)) -> dict[s
 
 @router.post("/writeback/batch")
 async def batch_wb(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Writeback metadata for up to 50 books at once. POST /api/v1/writeback/batch — used by efficiency.html's
+    batch writeback button."""
     from brainycat.writeback import batch_writeback
 
     return await batch_writeback(limit=50)
@@ -441,6 +479,8 @@ async def bilingual_content(book_id: str, _u: Any = Depends(get_current_user)) -
 
 @router.get("/books/{book_id}/similar")
 async def similar_books(book_id: str, _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Find books with similar content embeddings. GET /api/v1/books/{book_id}/similar — used by the
+    "Similar books" panel in index.old.html and the MCP server's similar_books tool."""
     from brainycat.embeddings import find_similar
 
     return await find_similar(book_id)
@@ -470,6 +510,8 @@ async def shared_annotations(book_id: str, _u: Any = Depends(get_current_user)) 
 
 @router.post("/books/{book_id}/index-content")
 async def index_content(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Build the semantic search index for a book's full text. POST /api/v1/books/{book_id}/index-content
+    — a prerequisite for search_content()."""
     from brainycat.companion import index_book_content
 
     return await index_book_content(book_id)
@@ -477,6 +519,8 @@ async def index_content(book_id: str, _u: Any = Depends(get_current_user)) -> di
 
 @router.get("/books/{book_id}/search-content")
 async def search_content(book_id: str, q: str = Query(...), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Semantic search within one book's indexed content. GET /api/v1/books/{book_id}/search-content
+    — used by the MCP server's search_content tool."""
     from brainycat.companion import semantic_search
 
     return await semantic_search(book_id, q)
@@ -627,6 +671,8 @@ async def batch_delete(body: BatchDeleteBody, _u: Any = Depends(get_current_user
 
 @router.post("/books/{book_id}/epub-check")
 async def epub_check(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Run a structural quality check on an EPUB (structure, links, images). POST /api/v1/books/{book_id}/epub-check
+    — used by the MCP server's epub_check tool."""
     from brainycat.epub_check import check_epub
 
     return await check_epub(book_id)
@@ -634,6 +680,7 @@ async def epub_check(book_id: str, _u: Any = Depends(get_current_user)) -> dict[
 
 @router.post("/books/{book_id}/epub-split")
 async def epub_split(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Split an oversized EPUB into multiple volumes. POST /api/v1/books/{book_id}/epub-split."""
     from brainycat.epub_tools import split_epub
 
     return await split_epub(book_id)
@@ -644,6 +691,8 @@ async def epub_split(book_id: str, _u: Any = Depends(get_current_user)) -> dict[
 
 @router.get("/books/{book_id}/sources")
 async def book_sources(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get side-by-side metadata from every enrichment source for a book. GET /api/v1/books/{book_id}/sources
+    — used by the MCP server's book_sources tool."""
     from brainycat.aggregator import aggregate_metadata
 
     return await aggregate_metadata(book_id)
@@ -651,6 +700,8 @@ async def book_sources(book_id: str, _u: Any = Depends(get_current_user)) -> dic
 
 @router.post("/books/{book_id}/epub-lint")
 async def epub_lint(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Lint an EPUB's CSS, images, fonts, and accessibility. POST /api/v1/books/{book_id}/epub-lint
+    — used by the MCP server's epub_lint tool."""
     from brainycat.epub_lint import lint_epub
 
     return await lint_epub(book_id)
@@ -661,6 +712,7 @@ async def epub_lint(book_id: str, _u: Any = Depends(get_current_user)) -> dict[s
 
 @router.post("/books/{book_id}/word-wise")
 async def word_wise(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Generate Kindle-style Word Wise inline definitions for a book. POST /api/v1/books/{book_id}/word-wise."""
     from brainycat.worddumb import generate_word_wise
 
     return await generate_word_wise(book_id)
@@ -668,6 +720,8 @@ async def word_wise(book_id: str, _u: Any = Depends(get_current_user)) -> dict[s
 
 @router.post("/books/{book_id}/xray")
 async def xray(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Generate Kindle-style X-Ray character/term data for a book. POST /api/v1/books/{book_id}/xray
+    — used by the MCP server's list_characters tool."""
     from brainycat.worddumb import generate_xray
 
     return await generate_xray(book_id)
@@ -678,6 +732,7 @@ async def xray(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, A
 
 @router.post("/books/{book_id}/extract-cover")
 async def extract_cover(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Extract the embedded cover image from an AZW3/MOBI/KFX file. POST /api/v1/books/{book_id}/extract-cover."""
     from uuid import UUID as _UUID
 
     from brainycat.azw3 import extract_azw3_cover
@@ -719,6 +774,7 @@ async def deacsm(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str,
 
 @router.post("/books/{book_id}/convert/kepub")
 async def convert_kepub(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Convert a book's EPUB to Kobo's KEPUB format. POST /api/v1/books/{book_id}/convert/kepub."""
     from brainycat.kepub import epub_to_kepub
 
     return await epub_to_kepub(book_id)
@@ -729,6 +785,7 @@ async def convert_kepub(book_id: str, _u: Any = Depends(get_current_user)) -> di
 
 @router.post("/books/{book_id}/custom/{column_name}")
 async def set_custom_value(book_id: str, column_name: str, request: Request, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Set a user-defined custom column's value for a book. POST /api/v1/books/{book_id}/custom/{column_name}."""
     from brainycat.custom_columns import set_value
 
     body = await request.json()
@@ -740,6 +797,8 @@ async def set_custom_value(book_id: str, column_name: str, request: Request, _u:
 
 @router.post("/books/{book_id}/footnotes")
 async def get_footnotes(book_id: str, request: Request, _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Generate explanatory footnotes for a chapter's text. POST /api/v1/books/{book_id}/footnotes
+    — called by the reader while displaying a chapter."""
     from brainycat.footnotes import generate_footnotes
 
     body = await request.json()
@@ -751,6 +810,7 @@ async def get_footnotes(book_id: str, request: Request, _u: Any = Depends(get_cu
 
 @router.post("/books/{book_id}/detect-chapters")
 async def detect_chapters(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Detect chapter boundaries in a book for adaptive splitting. POST /api/v1/books/{book_id}/detect-chapters."""
     from brainycat.chapter_split import detect_chapters as _detect
 
     return await _detect(book_id)
@@ -761,6 +821,7 @@ async def detect_chapters(book_id: str, _u: Any = Depends(get_current_user)) -> 
 
 @router.post("/books/{book_id}/readability")
 async def book_readability(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Compute a readability score for a book's text. POST /api/v1/books/{book_id}/readability."""
     from brainycat.readability import score_book_readability
 
     return await score_book_readability(book_id)
@@ -771,6 +832,8 @@ async def book_readability(book_id: str, _u: Any = Depends(get_current_user)) ->
 
 @router.get("/books/{book_id}/summary")
 async def book_summary_l1(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Fetch a book's short (level-1) AI summary, generating it if not cached. GET /api/v1/books/{book_id}/summary
+    — used by the summary panel in index.html."""
     from brainycat.summaries import summary_level1
 
     return await summary_level1(book_id)
@@ -778,6 +841,7 @@ async def book_summary_l1(book_id: str, _u: Any = Depends(get_current_user)) -> 
 
 @router.post("/books/{book_id}/summary")
 async def book_summary_l2(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Generate a book's longer, more detailed (level-2) AI summary. POST /api/v1/books/{book_id}/summary."""
     from brainycat.summaries import summary_level2
 
     return await summary_level2(book_id)
@@ -785,6 +849,7 @@ async def book_summary_l2(book_id: str, _u: Any = Depends(get_current_user)) -> 
 
 @router.post("/books/{book_id}/goldmine")
 async def book_goldmine(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Generate a book's "goldmine" of standout quotes/insights via AI. POST /api/v1/books/{book_id}/goldmine."""
     from brainycat.summaries import goldmine
 
     return await goldmine(book_id)
@@ -807,6 +872,8 @@ async def book_goldmine(book_id: str, _u: Any = Depends(get_current_user)) -> di
 
 @router.get("/books/{book_id}/export/markdown")
 async def export_markdown(book_id: str, user: Any = Depends(get_current_user)) -> Any:
+    """Export a book's highlights, notes, bookmarks, and reading status as a downloadable Markdown file.
+    GET /api/v1/books/{book_id}/export/markdown — used by the export action in app.html."""
     from uuid import UUID as _UUID
 
     book = await db.fetch_one(
@@ -861,6 +928,8 @@ async def export_markdown(book_id: str, user: Any = Depends(get_current_user)) -
 
 @router.post("/books/{book_id}/ingest")
 async def run_ingest(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Manually (re-)run the ingest pipeline for a book. POST /api/v1/books/{book_id}/ingest — used by the
+    ingest action in app.html."""
     from brainycat.ingest import ingest_book
 
     return await ingest_book(book_id)
@@ -891,6 +960,8 @@ async def smart_pdf_convert(book_id: str, _u: Any = Depends(get_current_user)) -
 
 @router.get("/books/{book_id}/reviews")
 async def book_reviews_aggregated(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Aggregate ratings/reviews for a book from external sources (Google Books, Open Library, etc.).
+    GET /api/v1/books/{book_id}/reviews."""
     from brainycat.reviews import aggregate_reviews
 
     book = await db.fetch_one(
@@ -1109,6 +1180,7 @@ async def compare_formats(book_id: str, _u: Any = Depends(get_current_user)) -> 
 
 @router.get("/books/{book_id}/isbn-region")
 async def book_isbn_region(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Look up the publisher/region for a book's ISBN. GET /api/v1/books/{book_id}/isbn-region."""
     from brainycat.isbn import isbn_to_region
 
     book = await db.fetch_one("SELECT isbn, title FROM books WHERE id = $1", __import__("uuid").UUID(book_id))
@@ -1485,6 +1557,8 @@ async def merge_audio_chapters(book_id: str, _u: Any = Depends(get_current_user)
 
 @router.post("/books/{book_id}/clippings")
 async def save_clipping(book_id: str, body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Save a text clipping/highlight from the reader. POST /api/v1/books/{book_id}/clippings
+    — used by reader.html's highlight-save action."""
     from uuid import UUID as _UUID
 
     await db.execute(
@@ -1499,6 +1573,8 @@ async def save_clipping(book_id: str, body: dict[str, Any], user: Any = Depends(
 
 @router.get("/books/{book_id}/clippings")
 async def get_clippings(book_id: str, user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List a user's saved clippings/highlights for a book. GET /api/v1/books/{book_id}/clippings
+    — used by reader.html's highlights list."""
     from uuid import UUID as _UUID
 
     rows = await db.fetch_all(
@@ -1582,9 +1658,32 @@ async def fulltext_search(q: str = Query(...), limit: int = Query(20), _u: Any =
     return {"query": q, "results": [dict(r) for r in rows], "count": len(rows)}
 
 
+@router.get("/books/{book_id}/pdf-info")
+async def pdf_info(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Cheap page count for a PDF (open + len(doc), no rendering) — used by the quick page-image
+    browser (static/reader.html?...&quick=1) to know how many /pdf-page/{n} calls it can make,
+    without downloading/parsing the whole file client-side like the full pdf.js reader does."""
+    import fitz
+
+    row = await db.fetch_one(
+        "SELECT bf.file_path FROM book_files bf WHERE bf.book_id = $1 AND bf.format = 'pdf' LIMIT 1",
+        UUID(book_id),
+    )
+    if not row or not os.path.isfile(row["file_path"]):
+        return {"error": "not found"}
+    doc = fitz.open(row["file_path"])
+    pages = len(doc)
+    doc.close()
+    return {"pages": pages}
+
+
 @router.get("/books/{book_id}/pdf-page/{page_num}")
 async def serve_pdf_page(book_id: str, page_num: int, _u: Any = Depends(get_current_user)) -> Any:
-    """Serve a single PDF page as PNG — for range-streaming large PDFs."""
+    """Serve a single PDF page as a rendered PNG (server-side, via PyMuPDF) — lets a caller browse
+    a heavy PDF page by page without downloading/parsing the whole file, unlike the full pdf.js
+    reader in static/reader.html which fetches the entire file up front. Used by: the page-preview
+    shown before the "Fix misidentified"/"Edit" prompts in static/index.html and
+    static/intel-quality.html, and the quick page-image browser mode in static/reader.html."""
     import fitz
     from fastapi.responses import Response
 

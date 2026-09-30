@@ -90,6 +90,7 @@ _idf_cache: dict[str, float] = {}
 
 
 async def _get_idf() -> dict[str, float]:
+    """Return the cached IDF table, computing it on first use. Internal helper used by `generate_embedding`."""
     global _idf_cache
     if not _idf_cache:
         _idf_cache = await compute_idf()
@@ -97,6 +98,7 @@ async def _get_idf() -> dict[str, float]:
 
 
 def invalidate_idf_cache() -> None:
+    """Clear the cached IDF table so it's recomputed on next use. Called by `reindex_all` after library changes."""
     global _idf_cache
     _idf_cache = {}
 

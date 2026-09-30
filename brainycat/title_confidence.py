@@ -12,6 +12,16 @@ from __future__ import annotations
 import re
 from typing import Any
 
+# Titles that never got parsed into something real — a bare "unknown"/"untitled" fallback, a raw
+# ISBN string, or a short hex-id fragment left over from a hashed download filename.
+_UNRESOLVED_TITLE_RE = re.compile(r"^\s*(unknown( title)?|untitled|isbn[ _]|[0-9a-f]{6,8}[ _])", re.IGNORECASE)
+
+
+def is_unresolved_title(title: str | None) -> bool:
+    """Check whether a title is a placeholder (missing, "untitled", raw ISBN, hashed filename). Called by `intelligence.py` and `experimental/file_rename.py`."""
+    return not title or bool(_UNRESOLVED_TITLE_RE.match(title))
+
+
 # Series → Publisher mapping for enrichment query boosting
 SERIES_PUBLISHER_MAP: dict[str, str] = {
     # O'Reilly

@@ -61,6 +61,8 @@ def _validate_value(value: Any, datatype: str) -> tuple[Any, str | None]:
 
 
 async def create_column(name: str, label: str, datatype: str = "text") -> dict[str, Any]:
+    """Register a new custom metadata column. Called by the admin custom-columns endpoint in
+    routes/admin.py."""
     if datatype not in VALID_TYPES:
         return {"error": f"invalid type '{datatype}', must be one of: {sorted(VALID_TYPES)}"}
     if not name.isidentifier():
@@ -75,11 +77,15 @@ async def create_column(name: str, label: str, datatype: str = "text") -> dict[s
 
 
 async def list_columns() -> list[dict[str, Any]]:
+    """List all defined custom columns. Called by the admin custom-columns list endpoint in
+    routes/admin.py."""
     rows = await fetch_all("SELECT name, label, datatype FROM custom_columns ORDER BY name")
     return [dict(r) for r in rows]
 
 
 async def set_value(book_id: str, column_name: str, value: Any) -> dict[str, Any]:
+    """Validate and store a custom-column value for a book in `books.extra_metadata`. Called by the
+    custom-column value endpoint in routes/books.py."""
     col = await fetch_one("SELECT datatype FROM custom_columns WHERE name = $1", column_name)
     if not col:
         return {"error": f"column '{column_name}' not found"}
@@ -98,6 +104,7 @@ async def set_value(book_id: str, column_name: str, value: Any) -> dict[str, Any
 
 
 async def get_value(book_id: str, column_name: str) -> Any:
+    """Read a single custom-column value for a book. No caller found in the codebase currently."""
     row = await fetch_one(
         "SELECT extra_metadata->>$1 as val FROM books WHERE id = $2",
         column_name,

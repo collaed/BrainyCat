@@ -28,6 +28,13 @@ header button{padding:.4rem .8rem;border-radius:6px;border:none;background:var(-
 .upload-row.warn{border-left:3px solid #eab308}
 .upload-row.err{border-left:3px solid var(--danger)}
 .upload-summary{font-size:.8rem;color:var(--muted);margin-top:.5rem}
+.search-row{display:flex;gap:.5rem;margin-bottom:1rem}
+.search-row input{flex:1;padding:.6rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)}
+.search-row button{padding:.6rem 1rem;border-radius:6px;border:none;background:var(--accent);color:#fff;cursor:pointer}
+.wanted-result{background:var(--surface);border-radius:8px;padding:.8rem 1rem;margin-bottom:.6rem;display:flex;align-items:center;gap:1rem}
+.wanted-result .info{flex:1}.wanted-result .title{font-weight:600}.wanted-result .meta{font-size:.8rem;color:var(--muted)}
+.wanted-result button{padding:.4rem .9rem;border-radius:6px;border:none;background:var(--success);color:#fff;cursor:pointer;font-size:.85rem}
+.wanted-result button:disabled{background:var(--muted);cursor:default}
 </style></head><body>
 <header><a href="index.html">← Library</a><h2>📥 Incoming Files</h2><button onclick="scan()">🔄 Scan Now</button><div id="bc-nav"></div></header>
 <script src="nav.js"></script>
@@ -38,12 +45,48 @@ header button{padding:.4rem .8rem;border-radius:6px;border:none;background:var(-
     <input type="file" id="file-input" multiple accept=".epub,.pdf,.mobi,.azw3,.mp3,.m4b,.flac,.ogg,.zip" onchange="uploadFiles(this.files)">
     <div id="upload-status"></div>
   </div>
+  <div class="section-label">Get a book — searches Readarr, downloads land here once found</div>
+  <div class="search-row">
+    <input type="text" id="wanted-query" placeholder="Book title or author…" onkeydown="if(event.key==='Enter')searchWanted()">
+    <button onclick="searchWanted()">Search</button>
+  </div>
+  <div id="wanted-results"></div>
+
   <div class="section-label">Server incoming folder — awaiting review (separate from the upload above)</div>
   <div id="list"></div>
 </div>
 <script src="api.js"></script>
 <script>
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+let wantedResults = [];
+async function searchWanted() {
+    const q = document.getElementById('wanted-query').value.trim();
+    const box = document.getElementById('wanted-results');
+    if (!q) return;
+    box.innerHTML = '<p style="color:var(--muted)">Searching…</p>';
+    const r = await BC.post('/readarr/search', { query: q });
+    if (r.error) { box.innerHTML = `<p style="color:var(--danger)">${esc(r.error)}</p>`; return; }
+    wantedResults = r.results || [];
+    if (!wantedResults.length) { box.innerHTML = '<p style="color:var(--muted)">No results.</p>'; return; }
+    box.innerHTML = wantedResults.map((res, i) => `
+      <div class="wanted-result" id="wanted-${i}">
+        <div class="info">
+          <div class="title">${esc(res.title)}${res.year ? ' (' + esc(res.year) + ')' : ''}</div>
+          <div class="meta">${esc(res.author || 'Unknown author')}</div>
+        </div>
+        <button onclick="addWanted(${i})">⬇ Add &amp; download</button>
+      </div>`).join('');
+}
+
+async function addWanted(i) {
+    const el = document.getElementById('wanted-' + i);
+    const btn = el.querySelector('button');
+    btn.disabled = true; btn.textContent = 'Adding…';
+    const r = await BC.post('/readarr/add', { book: wantedResults[i].book });
+    if (r.error) { btn.disabled = false; btn.textContent = '⬇ Add & download'; alert('Failed: ' + r.error); return; }
+    btn.textContent = '✓ Added — searching Readarr';
+}
 
 // Turn one /books/upload response into a flat list of {filename, status, detail} rows.
 // A .zip upload comes back as {zip:true, results:[...]} — one row per file inside it.

@@ -19,6 +19,7 @@ _ua_idx = 0
 
 
 def _next_ua() -> str:
+    """Round-robin through the user-agent pool to vary outgoing requests. Internal helper used by `search`."""
     global _ua_idx
     _ua_idx = (_ua_idx + 1) % len(_UA_LIST)
     return _UA_LIST[_ua_idx]

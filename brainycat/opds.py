@@ -14,6 +14,11 @@ PAGE_SIZE = 50
 
 
 async def catalog(page: int = 1) -> Response:
+    """Render a paginated OPDS Atom feed of the full library.
+
+    Called by GET /api/v1/opds/catalog.xml (brainycat/routes/reader.py), used by OPDS
+    client apps to browse the library.
+    """
     offset = (page - 1) * PAGE_SIZE
     total = await fetch_one("SELECT count(*) as n FROM books")
     total_count = total["n"] if total else 0
@@ -57,6 +62,10 @@ async def catalog(page: int = 1) -> Response:
 
 
 async def search_opds(q: str, page: int = 1) -> Response:
+    """Render an OPDS Atom feed of books matching a title/author search.
+
+    Called by GET /api/v1/opds/search (brainycat/routes/reader.py), used by OPDS client apps.
+    """
     offset = (page - 1) * PAGE_SIZE
     books = await fetch_all(
         f"""
@@ -83,6 +92,7 @@ async def search_opds(q: str, page: int = 1) -> Response:
 
 
 def _entry(b: Any) -> str:
+    """Render a single book as an OPDS Atom <entry>. Internal helper used by catalog() and search_opds()."""
     authors_xml = "".join(f"<author><name>{_esc(a)}</name></author>" for a in (b["authors"] or []))
     formats = b["formats"] or []
 
@@ -111,4 +121,5 @@ def _entry(b: Any) -> str:
 
 
 def _esc(s: str) -> str:
+    """Escape a string for safe inclusion in XML text content. Internal helper used by _entry()."""
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

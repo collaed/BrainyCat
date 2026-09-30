@@ -18,6 +18,10 @@ router = APIRouter(prefix="/api/v1/catalog", tags=["catalog"])
 async def gutenberg_search(
     q: str = Query(""), language: str = Query("en"), page: int = Query(1), _u: Any = Depends(get_current_user)
 ) -> Any:
+    """Search Project Gutenberg and cross-link matching LibriVox audiobooks, or browse by page.
+
+    GET /api/v1/catalog/gutenberg/search — called from the search box in static/catalog.html.
+    """
     from brainycat.sources.gutendex import browse, search
 
     if q:
@@ -49,6 +53,10 @@ async def gutenberg_search(
 
 @router.get("/gutenberg/{gutenberg_id}")
 async def gutenberg_detail(gutenberg_id: int, _u: Any = Depends(get_current_user)) -> Any:
+    """Fetch full Gutenberg book metadata by ID.
+
+    GET /api/v1/catalog/gutenberg/{gutenberg_id}.
+    """
     from brainycat.sources.gutendex import get_book
 
     return await get_book(gutenberg_id)
@@ -56,6 +64,11 @@ async def gutenberg_detail(gutenberg_id: int, _u: Any = Depends(get_current_user
 
 @router.post("/gutenberg/{gutenberg_id}/import")
 async def gutenberg_import(gutenberg_id: int, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Download a Gutenberg EPUB and add it as a new book in the library.
+
+    POST /api/v1/catalog/gutenberg/{gutenberg_id}/import — triggered by the "Import" button
+    (importGut()) in static/catalog.html.
+    """
     from uuid import UUID, uuid4
 
     from brainycat.sources.gutendex import get_book as gb
@@ -102,6 +115,10 @@ async def gutenberg_import(gutenberg_id: int, _u: Any = Depends(get_current_user
 
 @router.get("/librivox/search")
 async def librivox_search(title: str = Query(""), author: str = Query(""), _u: Any = Depends(get_current_user)) -> Any:
+    """Search LibriVox public-domain audiobooks by title or author.
+
+    GET /api/v1/catalog/librivox/search — called from the search box in static/catalog.html.
+    """
     from brainycat.sources.librivox import search
 
     return await search(title=title or None, author=author or None)
@@ -202,6 +219,10 @@ async def catalog_crosslink(title: str = Query(""), author: str = Query(""), _u:
 
 @router.post("/sync/gutenberg")
 async def sync_gut(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Refresh the local Gutenberg catalog cache from the upstream API.
+
+    POST /api/v1/catalog/sync/gutenberg, admin-only.
+    """
     from brainycat.catalog_cache import sync_gutenberg
 
     return await sync_gutenberg()
@@ -209,6 +230,10 @@ async def sync_gut(_a: Any = Depends(require_admin)) -> dict[str, Any]:
 
 @router.post("/sync/librivox")
 async def sync_lv(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Refresh the local LibriVox catalog cache from the upstream API.
+
+    POST /api/v1/catalog/sync/librivox, admin-only.
+    """
     from brainycat.catalog_cache import sync_librivox
 
     return await sync_librivox()
@@ -216,6 +241,10 @@ async def sync_lv(_a: Any = Depends(require_admin)) -> dict[str, Any]:
 
 @router.post("/sync/crosslinks")
 async def sync_crosslinks(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Recompute cached Gutenberg-to-LibriVox ebook/audiobook crosslinks.
+
+    POST /api/v1/catalog/sync/crosslinks, admin-only.
+    """
     from brainycat.catalog_cache import compute_crosslinks
 
     return await compute_crosslinks()
@@ -225,6 +254,11 @@ async def sync_crosslinks(_a: Any = Depends(require_admin)) -> dict[str, Any]:
 async def cached_search(
     q: str = Query(""), source: str = Query("gutenberg"), language: str = Query("en"), _u: Any = Depends(get_current_user)
 ) -> dict[str, Any]:
+    """Search the local catalog cache for a source instead of hitting the live API.
+
+    GET /api/v1/catalog/cached — used internally by unified_catalog_search() and available
+    directly for faster repeat lookups.
+    """
     from brainycat.catalog_cache import search_cached
 
     return await search_cached(q, source, language)
@@ -232,6 +266,10 @@ async def cached_search(
 
 @router.get("/standard-ebooks/search")
 async def standard_ebooks_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> Any:
+    """Search Standard Ebooks' curated public-domain catalog.
+
+    GET /api/v1/catalog/standard-ebooks/search.
+    """
     from brainycat.sources.standard_ebooks import search
 
     return await search(q)
@@ -239,6 +277,10 @@ async def standard_ebooks_search(q: str = Query(""), _u: Any = Depends(get_curre
 
 @router.get("/github/search")
 async def github_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search GitHub repos for free ebooks.
+
+    GET /api/v1/catalog/github/search — called from the search box in static/catalog.html.
+    """
     from brainycat.sources.github_books import search_ebooks
 
     return await search_ebooks(q)
@@ -246,6 +288,10 @@ async def github_search(q: str = Query(""), _u: Any = Depends(get_current_user))
 
 @router.get("/github/awesome")
 async def github_awesome(topic: str = Query("books"), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search curated GitHub "awesome-*" list repos for a topic.
+
+    GET /api/v1/catalog/github/awesome.
+    """
     from brainycat.sources.github_books import search_awesome_lists
 
     return await search_awesome_lists(topic)
@@ -253,6 +299,10 @@ async def github_awesome(topic: str = Query("books"), _u: Any = Depends(get_curr
 
 @router.get("/github/{owner}/{repo}/files")
 async def github_files(owner: str, repo: str, _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List EPUB files found in a specific GitHub repo.
+
+    GET /api/v1/catalog/github/{owner}/{repo}/files.
+    """
     from brainycat.sources.github_books import find_epub_files
 
     return await find_epub_files(owner, repo)
@@ -260,6 +310,10 @@ async def github_files(owner: str, repo: str, _u: Any = Depends(get_current_user
 
 @router.get("/oapen/search")
 async def oapen_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search OAPEN's open-access academic book catalog.
+
+    GET /api/v1/catalog/oapen/search — called from the search box in static/catalog.html.
+    """
     from brainycat.sources.open_textbooks import search_oapen
 
     return await search_oapen(q)
@@ -267,6 +321,10 @@ async def oapen_search(q: str = Query(""), _u: Any = Depends(get_current_user)) 
 
 @router.get("/openstax")
 async def openstax_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search OpenStax's free textbook catalog.
+
+    GET /api/v1/catalog/openstax — called from the search box in static/catalog.html.
+    """
     from brainycat.sources.open_textbooks import search_openstax
 
     return await search_openstax(q)
@@ -274,6 +332,10 @@ async def openstax_search(q: str = Query(""), _u: Any = Depends(get_current_user
 
 @router.get("/open-textbooks/search")
 async def otl_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search the Open Textbook Library catalog.
+
+    GET /api/v1/catalog/open-textbooks/search.
+    """
     from brainycat.sources.open_textbooks import search_open_textbook_library
 
     return await search_open_textbook_library(q)
@@ -295,6 +357,7 @@ async def unified_catalog_search(q: str = Query(""), language: str = Query("en")
         return {"ebooks": [], "audiobooks": [], "textbooks": [], "github": []}
 
     async def safe(coro: Any) -> dict[str, Any]:
+        """Run a source coroutine and swallow errors, returning an empty result on failure."""
         try:
             return await coro
         except Exception:
@@ -808,6 +871,10 @@ async def import_from_catalog(body: dict[str, Any], user: Any = Depends(get_curr
 # ── OPDS catalog subscriptions ────────────────────────────────────────────
 @router.get("/opds-subscriptions")
 async def list_opds_subscriptions(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List configured external OPDS catalog subscriptions.
+
+    GET /api/v1/catalog/opds-subscriptions.
+    """
     from brainycat.opds_catalogs import get_catalogs
 
     return await get_catalogs()
@@ -815,6 +882,10 @@ async def list_opds_subscriptions(_u: Any = Depends(get_current_user)) -> list[d
 
 @router.get("/opds-browse")
 async def browse_opds_catalog(url: str = Query(...), q: str = Query(None), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Browse or search an external OPDS catalog subscription by URL.
+
+    GET /api/v1/catalog/opds-browse.
+    """
     from brainycat.opds_catalogs import browse_opds
 
     results = await browse_opds(url, q)

@@ -18,6 +18,7 @@ def heavy(fn: Any) -> Any:
 
     @wraps(fn)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        """Run the wrapped function inside the shared heavy-op semaphore."""
         async with _heavy_sem:
             return await fn(*args, **kwargs)
 

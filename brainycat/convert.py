@@ -56,14 +56,17 @@ async def convert_format(book_id: str, target_format: str) -> dict[str, Any]:
 
 
 def _smtp_from() -> str:
+    """Resolve the From address for outgoing mail, falling back through settings. Internal helper used by send_to_kindle() and send_to_device()."""
     return settings.smtp_from or settings.smtp_user or f"brainycat@{settings.smtp_host}"
 
 
 async def _smtp_send(msg: EmailMessage) -> None:
+    """Send an EmailMessage over SMTP using configured settings. Internal helper used by send_to_kindle() and send_to_device()."""
     kwargs: dict[str, Any] = {
         "hostname": settings.smtp_host,
         "port": settings.smtp_port,
         "use_tls": settings.smtp_port == 465,  # implicit TLS; port 587 uses opportunistic STARTTLS by default
+        "validate_certs": settings.smtp_validate_certs,
     }
     if settings.smtp_user:
         kwargs["username"] = settings.smtp_user

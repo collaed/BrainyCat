@@ -26,6 +26,7 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
 
 
 def _parse_edition(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize an Open Library /isbn/ edition response into BrainyCat's metadata source format."""
     covers = data.get("covers", [])
     return {
         "source": "open_library",
@@ -41,6 +42,7 @@ def _parse_edition(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _parse_search(doc: dict[str, Any]) -> dict[str, Any]:
+    """Normalize an Open Library /search.json result doc into BrainyCat's metadata source format."""
     cover_id = doc.get("cover_i")
     return {
         "source": "open_library",

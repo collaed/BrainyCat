@@ -16,6 +16,7 @@ _pool: asyncpg.Pool | None = None  # type: ignore[type-arg]
 
 
 def _encode_json(value: Any) -> str:
+    """Encode a value for a jsonb parameter, passing already-serialized strings through unchanged. Internal codec used by the connection pool for jsonb binds."""
     # 42+ call sites across 30 files already do `json.dumps(...)` themselves before binding a jsonb
     # parameter (the established, only-option workaround for this codec never having existed). An
     # unconditional encoder here would double-encode every one of them. Passing an already-serialized

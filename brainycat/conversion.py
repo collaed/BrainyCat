@@ -29,6 +29,7 @@ PROFILES = {
 
 
 def _load_css(profile: str = "classic") -> str:
+    """Read the stylesheet for a named conversion profile, defaulting to 'classic'. Internal helper used elsewhere in this file."""
     p = PROFILES.get(profile, PROFILES["classic"])
     css_path = STYLES_DIR / p["css_file"]
     if css_path.is_file():

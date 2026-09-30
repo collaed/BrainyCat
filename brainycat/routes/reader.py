@@ -17,6 +17,8 @@ router = APIRouter(prefix="/api/v1", tags=["reader"])
 
 @router.get("/incoming")
 async def list_incoming(status: str | None = Query(None), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List files waiting in the incoming folder, optionally filtered by status. GET /api/v1/incoming,
+    called by static/incoming.html's `load()`."""
     return await scanner.list_incoming(status)
 
 
@@ -35,16 +37,22 @@ async def incoming_status(_u: Any = Depends(get_current_user)) -> dict[str, Any]
 
 @router.post("/incoming/scan")
 async def trigger_scan(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Re-scan the incoming folder for new files. POST /api/v1/incoming/scan, called by
+    static/incoming.html's `scan()`."""
     return await scanner.scan_incoming()
 
 
 @router.post("/incoming/{item_id}/confirm")
 async def confirm(item_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Confirm an incoming item for import into the library. POST /api/v1/incoming/{item_id}/confirm,
+    called by static/incoming.html's `confirm()`."""
     return await scanner.confirm_incoming(item_id)
 
 
 @router.post("/incoming/{item_id}/reject")
 async def reject(item_id: str, _u: Any = Depends(get_current_user)) -> dict[str, bool]:
+    """Reject an incoming item, discarding it. POST /api/v1/incoming/{item_id}/reject, called by
+    static/incoming.html's `reject()`."""
     return await scanner.reject_incoming(item_id)
 
 
@@ -53,7 +61,8 @@ async def reject(item_id: str, _u: Any = Depends(get_current_user)) -> dict[str,
 
 @router.put("/progress/{book_id}")
 async def save_progress(book_id: str, body: ProgressUpdate, user: Any = Depends(get_current_user)) -> dict[str, bool]:
-
+    """Save reading position/percentage for a book. PUT /api/v1/progress/{book_id}, called by
+    static/reader.html as the reader location changes."""
     await db.execute(
         """INSERT INTO reading_progress (user_id, book_id, position, position_timestamp, percentage, is_finished, updated_at)
            VALUES ($1,$2,$3,$4,$5,$6,now())
@@ -70,14 +79,16 @@ async def save_progress(book_id: str, body: ProgressUpdate, user: Any = Depends(
 
 @router.get("/progress/{book_id}")
 async def get_progress(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-
+    """Get the saved reading position/percentage for a book. GET /api/v1/progress/{book_id}, called
+    by static/reader.html on open to resume where the user left off."""
     row = await db.fetch_one("SELECT * FROM reading_progress WHERE user_id = $1 AND book_id = $2", user["id"], UUID(book_id))
     return dict(row) if row else {}
 
 
 @router.post("/bookmarks/{book_id}")
 async def add_bookmark(book_id: str, body: BookmarkCreate, user: Any = Depends(get_current_user)) -> dict[str, bool]:
-
+    """Add a bookmark at a position in a book. POST /api/v1/bookmarks/{book_id}; no caller found in
+    static/*.html — likely intended for the reader's bookmark UI or external API clients."""
     await db.execute(
         "INSERT INTO bookmarks (user_id, book_id, position, title) VALUES ($1,$2,$3,$4)",
         user["id"],
@@ -90,14 +101,16 @@ async def add_bookmark(book_id: str, body: BookmarkCreate, user: Any = Depends(g
 
 @router.get("/bookmarks/{book_id}")
 async def get_bookmarks(book_id: str, user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
-
+    """List bookmarks for a book. GET /api/v1/bookmarks/{book_id}; no caller found in static/*.html."""
     rows = await db.fetch_all("SELECT * FROM bookmarks WHERE user_id = $1 AND book_id = $2 ORDER BY created_at", user["id"], UUID(book_id))
     return [dict(r) for r in rows]
 
 
 @router.post("/annotations/{book_id}")
 async def add_annotation(book_id: str, body: AnnotationCreate, user: Any = Depends(get_current_user)) -> dict[str, bool]:
-
+    """Add a highlight/annotation to a book. POST /api/v1/annotations/{book_id}; static/player.html
+    posts to a different path (/books/{id}/annotations, handled elsewhere) — no caller found for
+    this exact route in static/*.html."""
     await db.execute(
         "INSERT INTO annotations (user_id, book_id, cfi_range, text_content, note, color) VALUES ($1,$2,$3,$4,$5,$6)",
         user["id"],
@@ -112,7 +125,8 @@ async def add_annotation(book_id: str, body: AnnotationCreate, user: Any = Depen
 
 @router.get("/annotations/{book_id}")
 async def get_annotations(book_id: str, user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
-
+    """List annotations for a book. GET /api/v1/annotations/{book_id}; no caller found in
+    static/*.html for this exact route."""
     rows = await db.fetch_all(
         "SELECT * FROM annotations WHERE user_id = $1 AND book_id = $2 ORDER BY created_at", user["id"], UUID(book_id)
     )
@@ -124,6 +138,8 @@ async def get_annotations(book_id: str, user: Any = Depends(get_current_user)) -
 
 @router.get("/sync/map/{book_id}")
 async def sync_map(book_id: str, _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Get the ebook/audiobook sync map for a book (text position <-> audio timestamp). GET
+    /api/v1/sync/map/{book_id}; no caller found in static/*.html — used for audio/text sync clients."""
     return await sync.get_sync_map(book_id)
 
 
@@ -131,6 +147,8 @@ async def sync_map(book_id: str, _u: Any = Depends(get_current_user)) -> list[di
 async def sync_position(
     book_id: str, from_type: str = Query("text"), position: str = Query("0"), _u: Any = Depends(get_current_user)
 ) -> dict[str, Any]:
+    """Translate a position between text and audio using the sync map. GET
+    /api/v1/sync/position/{book_id}; no caller found in static/*.html."""
     return await sync.translate_position(book_id, from_type, position)
 
 
@@ -139,6 +157,8 @@ async def sync_position(
 
 @router.get("/recommendations/profile")
 async def reco_profile(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Rebuild and return the user's taste profile used for recommendations. GET
+    /api/v1/recommendations/profile, called by static/recommendations.html's `rebuild()`."""
     return await recommendations.build_profile(str(user["id"]))
 
 
@@ -159,11 +179,15 @@ async def reco_category(category: str, user: Any = Depends(get_current_user)) ->
 
 @router.get("/opds/catalog.xml")
 async def opds_catalog(page: int = Query(1)) -> Any:
+    """Serve the paginated OPDS catalog feed. GET /api/v1/opds/catalog.xml, linked from
+    static/index.html and consumed by OPDS clients like KOReader."""
     return await opds.catalog(page)
 
 
 @router.get("/opds/search")
 async def opds_search(q: str = Query(""), page: int = Query(1)) -> Any:
+    """Serve OPDS search results. GET /api/v1/opds/search; no caller found in static/*.html — used
+    by OPDS clients' search-in-catalog feature."""
     return await opds.search_opds(q, page)
 
 
@@ -186,6 +210,8 @@ async def toggle_share(annotation_id: str, _u: Any = Depends(get_current_user)) 
 
 @router.get("/recommendations/by-user/{user_id}")
 async def taste_recommendations(user_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get 7-category taste-based recommendations for a user. GET
+    /api/v1/recommendations/by-user/{user_id}, called by mcp_server.py's `taste_recommendations` tool."""
     # Was "/recommendations/{user_id}" — an exact path-shape collision with reco_category's
     # "/recommendations/{category}" above, registered first, so this handler was permanently shadowed
     # and every call (including the real one from mcp_server.py's taste_recommendations tool) silently
@@ -197,6 +223,8 @@ async def taste_recommendations(user_id: str, _u: Any = Depends(get_current_user
 
 @router.get("/taste-profile/{user_id}")
 async def taste_profile(user_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Build and return a user's taste profile (7-category breakdown). GET
+    /api/v1/taste-profile/{user_id}; no caller found in static/*.html or mcp_server.py."""
     from brainycat.taste import build_taste_profile
 
     return await build_taste_profile(user_id)

@@ -404,13 +404,30 @@ async function ocrCover(id){
   alert('No ISBN found on the cover, and no text-search suggestions came back. Raw OCR text (use it to correct the title/author manually):\n\n'+r.text.slice(0,1000));
 }
 
+function showPdfPagePreview(id){
+  // A few page images (server-rendered, GET /books/{id}/pdf-page/{n}) so a human fixing a bad
+  // title/author has something to look at — browsing a few pages is usually enough to tell what
+  // a book actually is, no need to open the full reader. Native prompt() blocks JS but the
+  // already-painted page underneath (including these images) stays visible, so this shows fine
+  // behind the prompt() calls that follow it.
+  const box=document.createElement('div');
+  box.id='pdf-page-preview';
+  box.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;gap:.6rem;padding:1rem;overflow:auto';
+  box.innerHTML=[0,1,2].map(n=>`<img src="/api/v1/books/${id}/pdf-page/${n}" style="max-height:85vh;max-width:30vw;border:2px solid #fff;background:#fff" onerror="this.style.display='none'">`).join('');
+  document.body.appendChild(box);
+  return box;
+}
+function removePdfPagePreview(box){ if(box) box.remove(); }
+
 async function overrideIdentity(id){
   const b=books.find(x=>x.id===id)||{};
+  const previewBox=(b.formats||[]).includes('pdf')?showPdfPagePreview(id):null;
   const title=prompt('Correct title:',b.title||'');
-  if(title===null)return;
+  if(title===null){removePdfPagePreview(previewBox);return;}
   const author=prompt('Correct author (leave blank to skip):',(b.authors||[])[0]||'');
-  if(author===null)return;
+  if(author===null){removePdfPagePreview(previewBox);return;}
   const isbn=prompt('ISBN, if you have it (leave blank to skip):',b.isbn||'');
+  removePdfPagePreview(previewBox);
   if(isbn===null)return;
   if(!confirm('This clears tags, categories, and enrichment history derived from the current (wrong) identity, and locks title/author/ISBN against automatic overwrite until you review it. Continue?'))return;
   const r=await BC.post('/books/'+id+'/override',{title:title||null,author:author||null,isbn:isbn||null});

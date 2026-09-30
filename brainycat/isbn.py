@@ -609,6 +609,10 @@ async def extract_and_store_isbn(book_id: str) -> dict[str, Any]:
 
 
 async def batch_extract_isbns(limit: int = 50) -> dict[str, Any]:
+    """Run extract_and_store_isbn() over a batch of books that are missing an ISBN.
+
+    Called by POST /api/v1/isbn/extract (brainycat/routes/enrichment.py, admin-only, used by efficiency.html).
+    """
     rows = await fetch_all(
         """
         SELECT b.id FROM books b

@@ -29,15 +29,18 @@ async def start_scheduler() -> None:
         # ISBN extraction (dedicated worker thread — starts once, loops internally)
         ("isbn_extract", _isbn_extract_loop, 3600),
         ("ol_works", _ol_works_loop, 3),
-        # CPU-bound (yields between items, separate from API loops)
-        ("text_profiler", _text_profiler_loop, 10),
-        ("ocr_copyright", _ocr_copyright_loop, 15),
-        ("cover_phash", _cover_phash_loop, 30),
         # Disk/mixed
+        ("fingerprint", _fingerprint_loop, 20),
         ("format_stack", _format_stack_loop, 300),
-        ("validation", _validation_loop, 30),
         ("incipit_match", _incipit_match_loop, 600),
-        ("confidence", _confidence_loop, 60),
+        # Housekeeping
+        ("log_retention", _log_retention_loop, 86400),
+        # NOTE: ocr_copyright, cover_phash, validation (metadata_validator), and confidence loops
+        # are intentionally NOT scheduled — the modules they call (brainycat.ocr_copyright /
+        # cover_phash / metadata_validator / confidence) were never implemented, only stubbed as
+        # scheduler hooks. Re-add them here once those modules exist. See docs/known-issues.md.
+        # (text_profiler was in this category too, but turned out to be misdiagnosed — see
+        # _fingerprint_loop above, which is what it should have called all along.)
     ]
     for name, fn, interval in loops:
         task = asyncio.create_task(_supervised(name, fn, interval))
@@ -60,6 +63,9 @@ async def _supervised(name: str, fn: Any, interval: int) -> None:
 
 # ── Enrichment (with row locking) ────────────────────────────────────────
 async def _enrichment_loop() -> None:
+    """Runs every 10s. Locks a batch of up to 6 low-quality/not-yet-locked books, enriches them
+    in parallel via `metadata.enrich_book`, fires off post-processing, and deep-enriches any that
+    are still below quality 50 afterward. Registered in `start_scheduler`'s `loops` list."""
     from brainycat import db
     from brainycat.db import get_pool
     from brainycat.metadata import enrich_book
@@ -88,6 +94,8 @@ async def _enrichment_loop() -> None:
 
     # Enrich all locked books in parallel (not sequentially)
     async def _enrich_one(row):
+        """Enrich a single locked book with a 20s timeout, returning 1 if enrichment succeeded else 0.
+        Internal helper used only within `_enrichment_loop`, run concurrently via `asyncio.gather`."""
         try:
             async with asyncio.timeout(20):
                 result = await enrich_book(str(row["id"]), skip_postprocess=True)
@@ -217,18 +225,19 @@ async def _google_books_loop() -> None:
 
 
 # ── Fingerprints + embeddings ─────────────────────────────────────────────
-# ── Unified text profiler (fingerprint + embedding + incipit in one pass) ──
-async def _text_profiler_loop() -> None:
-    """Single-pass: read file once, compute fingerprint + embedding + incipit."""
-    from brainycat.text_profiler import process_batch
+async def _fingerprint_loop() -> None:
+    """Compute content fingerprints for un-fingerprinted books, then compare for content-level
+    duplicates once a batch is caught up. (Previously named _text_profiler_loop and routed through
+    a brainycat.text_profiler.process_batch() that was never implemented — see docs/known-issues.md
+    — which meant this loop, and the two real functions below, never actually ran.)"""
+    from brainycat.fingerprints import compute_all_fingerprints, find_duplicates_by_content
 
-    result = await process_batch(batch_size=5)
-    if result.get("processed", 0) > 0:
-        await log.ainfo("text_profiled", **result)
+    result = await compute_all_fingerprints(batch_size=20)
+    if result.get("computed", 0) > 0:
+        await log.ainfo("fingerprints_computed", **result)
 
-    # Run dedup comparison periodically (when no new files to process)
-    if result.get("status") == "complete":
-        from brainycat.fingerprints import find_duplicates_by_content
+    # Run dedup comparison periodically (when no new files to fingerprint)
+    if result.get("pending", 0) == 0:
         dupes = await find_duplicates_by_content(batch_size=20)
         if dupes["new_matches"] > 0:
             await log.ainfo("dupes_found", **dupes)
@@ -288,6 +297,9 @@ async def _validation_loop() -> None:
         await log.ainfo("validation_run", **result)
 
 async def _format_stack_loop() -> None:
+    """Runs every 300s (5 min). Auto-stacks matching formats of the same book, detects series from
+    titles, runs dedup merge, and (if enabled) FTS indexing and email import. Registered in
+    `start_scheduler`'s `loops` list."""
     from brainycat.series_detect import detect_series
 
     try:
@@ -323,6 +335,9 @@ async def _format_stack_loop() -> None:
 
 # ── Title cleanup + genre classification (with rate limiting) ─────────────
 async def _title_cleanup_loop() -> None:
+    """Runs every 90s. Runs the title-cleanup cycle (ISBN-from-filename, API title fixes),
+    classifies a few untagged books via Google Books, and auto-detects series from titles.
+    Registered in `start_scheduler`'s `loops` list."""
     from brainycat.title_cleanup import run_title_cleanup_cycle
 
     result = await run_title_cleanup_cycle()
@@ -434,6 +449,9 @@ async def _split_pdf_chunk(pdf_path: str, max_bytes: int) -> str | None:
 
 # ── OCR polling + submission ──────────────────────────────────────────────
 async def _ocr_loop() -> None:
+    """Runs every 120s. Checks the Intello OCR service's health, polls pending OCR jobs for
+    completion (downloading and storing finished results), then submits the next eligible
+    unprocessed PDF for OCR if the queue is empty. Registered in `start_scheduler`'s `loops` list."""
     from brainycat.config import settings
     from brainycat.db import execute, fetch_all, fetch_one
     from brainycat.http_client import get_client
@@ -538,6 +556,8 @@ async def _ocr_loop() -> None:
 
 # ── Fast local lookup (no network, bulk ISBN/title matching) ──────────────
 async def _fast_local_isbn_loop() -> None:
+    """Runs every 2s. Runs a batch of the local (no-network) ISBN lookup pass. Registered in
+    `start_scheduler`'s `loops` list."""
     from brainycat.fast_local import fast_local_pass
     result = await fast_local_pass(batch_size=100)
     if result.get("enriched", 0) > 0:
@@ -545,6 +565,8 @@ async def _fast_local_isbn_loop() -> None:
 
 
 async def _fast_local_title_loop() -> None:
+    """Runs every 5s. Runs a batch of the local (no-network) title-matching pass. Registered in
+    `start_scheduler`'s `loops` list."""
     from brainycat.fast_local import fast_title_pass
     result = await fast_title_pass(batch_size=50)
     if result.get("found", 0) > 0:
@@ -683,6 +705,8 @@ def _isbn_worker(worker_id: int) -> None:
 
 # ── OL Works API (description+rating for local-hit books) ─────────────────
 async def _ol_works_loop() -> None:
+    """Runs every 3s. Runs a batch of Open Library Works API enrichment (description/rating) for
+    books with a local ISBN hit. Registered in `start_scheduler`'s `loops` list."""
     from brainycat.ol_works import enrich_batch
     result = await enrich_batch(batch_size=10)
     if result.get("enriched", 0) > 0 or result.get("skipped"):
@@ -691,6 +715,9 @@ async def _ol_works_loop() -> None:
 
 # ── OCR Copyright Page (extract ISBN from first pages) ────────────────────
 async def _ocr_copyright_loop() -> None:
+    """Would run a batch of copyright-page OCR to extract ISBNs. Not currently registered in
+    `start_scheduler`'s `loops` list — `brainycat.ocr_copyright` was never implemented (see
+    docs/known-issues.md)."""
     from brainycat.ocr_copyright import process_batch
     result = await process_batch(batch_size=5)
     if result.get("isbn_found", 0) > 0:
@@ -699,6 +726,9 @@ async def _ocr_copyright_loop() -> None:
 
 # ── Cover Perceptual Hash ─────────────────────────────────────────────────
 async def _cover_phash_loop() -> None:
+    """Would run a batch of cover perceptual-hashing. Not currently registered in
+    `start_scheduler`'s `loops` list — `brainycat.cover_phash` was never implemented (see
+    docs/known-issues.md)."""
     from brainycat.cover_phash import process_batch
     result = await process_batch(batch_size=20)
     if result.get("computed", 0) > 0:
@@ -707,6 +737,8 @@ async def _cover_phash_loop() -> None:
 
 # ── Incipit Matching (periodic dedup via opening text) ────────────────────
 async def _incipit_match_loop() -> None:
+    """Runs every 600s (10 min). Runs a batch of dedup-via-opening-text matching and propagates
+    ISBNs across matched groups. Registered in `start_scheduler`'s `loops` list."""
     from brainycat.incipit_match import find_incipit_matches
     result = await find_incipit_matches(batch_size=100)
     if result.get("isbn_propagated", 0) > 0 or result.get("groups", 0) > 0:
@@ -715,6 +747,9 @@ async def _incipit_match_loop() -> None:
 
 # ── Confidence scoring ────────────────────────────────────────────────────
 async def _confidence_loop() -> None:
+    """Would run a batch of confidence scoring and recompute stale quality scores. Not currently
+    registered in `start_scheduler`'s `loops` list — `brainycat.confidence` was never implemented
+    (see docs/known-issues.md)."""
     from brainycat.confidence import compute_batch
     result = await compute_batch(batch_size=50)
     if result.get("computed", 0) > 0:
@@ -765,3 +800,12 @@ async def _watcher_loop() -> None:
             size2 = os.path.getsize(entry.path) if os.path.exists(entry.path) else 0
             if size1 == size2 and size1 > 0:
                 await _import_file(entry.path)
+
+
+async def _log_retention_loop() -> None:
+    """Purge rows older than 30 days from the DB-backed log tables (enrichment_log, job_logs) —
+    these grow one row per enrichment attempt per book and would otherwise accumulate forever."""
+    from brainycat.db import execute
+
+    await execute("DELETE FROM enrichment_log WHERE created_at < now() - interval '30 days'")
+    await execute("DELETE FROM job_logs WHERE created_at < now() - interval '30 days'")

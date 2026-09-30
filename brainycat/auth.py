@@ -90,6 +90,7 @@ async def _upsert_user(username: str, *, role: str = "reader") -> asyncpg.Record
 
 
 async def _get_user_by_id(user_id: str) -> asyncpg.Record | None:
+    """Look up a user row by UUID. Internal helper used by `get_current_user` and `update_user`."""
     return await fetch_one("SELECT * FROM users WHERE id = $1", UUID(user_id))
 
 
@@ -249,6 +250,7 @@ async def update_preferences(body: PreferencesUpdate, user: asyncpg.Record = Dep
 
 
 def _user_dict(row: asyncpg.Record | None) -> dict[str, Any]:
+    """Serialize a user DB row into a JSON-safe dict. Internal helper used by `login`, `me`, `list_users`, and `update_user`."""
     if not row:
         return {}
     return {

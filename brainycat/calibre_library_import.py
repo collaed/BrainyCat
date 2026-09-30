@@ -46,10 +46,12 @@ def _parse_opf(opf_path: str) -> dict[str, Any]:
         return {}
 
     def _text(tag: str) -> str | None:
+        """Return the stripped text of the first Dublin Core <dc:tag> element, or None if absent."""
         el = meta.find(f"dc:{tag}", NS) or meta.find(f"{{http://purl.org/dc/elements/1.1/}}{tag}")
         return el.text.strip() if el is not None and el.text else None
 
     def _all_text(tag: str) -> list[str]:
+        """Return the stripped text of every Dublin Core <dc:tag> element (e.g. multiple authors)."""
         els = meta.findall(f"dc:{tag}", NS) or meta.findall(f"{{http://purl.org/dc/elements/1.1/}}{tag}")
         return [el.text.strip() for el in els if el.text]
 

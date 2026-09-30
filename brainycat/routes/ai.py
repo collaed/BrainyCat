@@ -16,16 +16,20 @@ router = APIRouter(prefix="/api/v1", tags=["ai"])
 
 @router.get("/ai/recap/{book_id}")
 async def ai_recap(book_id: str, user: Any = Depends(get_current_user)) -> dict[str, str]:
+    """AI-generated recap of a book based on the user's reading progress. GET /api/v1/ai/recap/{book_id}."""
     return await companion.recap(book_id, str(user["id"]))
 
 
 @router.post("/ai/ask/{book_id}")
 async def ai_ask(book_id: str, question: str = Query(...), user: Any = Depends(get_current_user)) -> dict[str, str]:
+    """Ask the AI companion a question about a book. POST /api/v1/ai/ask/{book_id}, used by
+    static/bilingual.html's word-translation lookup."""
     return await companion.ask(book_id, str(user["id"]), question)
 
 
 @router.post("/ai/auto-tag/{book_id}")
 async def ai_tag(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Auto-tag a book via the AI companion. POST /api/v1/ai/auto-tag/{book_id}."""
     return await companion.auto_tag(book_id)
 
 
@@ -37,6 +41,8 @@ async def ai_tag(book_id: str, _u: Any = Depends(get_current_user)) -> dict[str,
 
 @router.post("/ai/explain")
 async def ai_explain(body: dict[str, Any], _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Explain a selected passage via the Intello LLM. POST /api/v1/ai/explain, called from the
+    selection popup in static/reader.html."""
     text = body.get("text", "")[:1000]
     if not text:
         return {"error": "no text"}
@@ -66,6 +72,8 @@ async def ai_explain(body: dict[str, Any], _u: Any = Depends(get_current_user)) 
 
 @router.post("/ai/translate")
 async def ai_translate(body: dict[str, Any], _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Translate a selected passage via the Intello LLM. POST /api/v1/ai/translate, called from the
+    selection popup in static/reader.html."""
     text = body.get("text", "")[:1000]
     if not text:
         return {"error": "no text"}

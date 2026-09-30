@@ -63,9 +63,15 @@ async def fast_local_pass(batch_size: int = 100) -> dict[str, Any]:
                 updates.append(f"cover_path = ${idx}")
                 params.append(f"https://covers.openlibrary.org/b/id/{result['cover_id']}-L.jpg")
 
-            # Mark as locally enriched
+            # Mark as locally enriched. extra_metadata is sometimes not an object (a pre-existing
+            # data bug elsewhere — see docs/known-issues.md) — jsonb_set errors on a non-object
+            # target, so coerce back to '{}' rather than crash-loop on those rows.
             idx += 1
-            updates.append(f"extra_metadata = jsonb_set(COALESCE(extra_metadata, '{{}}'::jsonb), '{{local_enriched}}', ${idx}::jsonb)")
+            updates.append(
+                f"extra_metadata = jsonb_set("
+                f"CASE WHEN jsonb_typeof(extra_metadata) = 'object' THEN extra_metadata ELSE '{{}}'::jsonb END, "
+                f"'{{local_enriched}}', ${idx}::jsonb)"
+            )
             params.append(json.dumps(True))
 
             if updates:
@@ -79,9 +85,11 @@ async def fast_local_pass(batch_size: int = 100) -> dict[str, Any]:
 
             enriched += 1
         else:
-            # Mark as attempted so we don't retry
+            # Mark as attempted so we don't retry (see note above re: non-object extra_metadata)
             await execute(
-                "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'::jsonb), '{local_enriched}', 'false'::jsonb) WHERE id = $1",
+                "UPDATE books SET extra_metadata = jsonb_set("
+                "CASE WHEN jsonb_typeof(extra_metadata) = 'object' THEN extra_metadata ELSE '{}'::jsonb END, "
+                "'{local_enriched}', 'false'::jsonb) WHERE id = $1",
                 row["id"],
             )
 
@@ -106,6 +114,8 @@ async def fast_title_pass(batch_size: int = 50) -> dict[str, Any]:
         return {"status": "complete", "found": 0}
 
     conn = _get_conn()
+    if conn is None:
+        return {"status": "no_local_db", "found": 0}
     found = 0
 
     for row in rows:
@@ -129,7 +139,9 @@ async def fast_title_pass(batch_size: int = 50) -> dict[str, Any]:
                 isbn, row["id"],
             )
             await execute(
-                "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'::jsonb), '{local_title_tried}', $1::jsonb) WHERE id = $2",
+                "UPDATE books SET extra_metadata = jsonb_set("
+                "CASE WHEN jsonb_typeof(extra_metadata) = 'object' THEN extra_metadata ELSE '{}'::jsonb END, "
+                "'{local_title_tried}', $1::jsonb) WHERE id = $2",
                 json.dumps({"isbn_from": match["method"], "confidence": confidence, "ol_key": match.get("ol_key")}),
                 row["id"],
             )
@@ -216,18 +228,23 @@ def _fuzzy_local_match(conn, norm_title: str) -> dict[str, Any] | None:
 
 
 async def _mark_title_tried(book_id, result) -> None:
+    """Flag a book as having already been through title-based local matching, to avoid retrying. Internal helper, called only from within this module."""
     await execute(
-        "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'::jsonb), '{local_title_tried}', 'true'::jsonb) WHERE id = $1",
+        "UPDATE books SET extra_metadata = jsonb_set("
+        "CASE WHEN jsonb_typeof(extra_metadata) = 'object' THEN extra_metadata ELSE '{}'::jsonb END, "
+        "'{local_title_tried}', 'true'::jsonb) WHERE id = $1",
         book_id,
     )
 
 
 async def _has_publisher(book_id: UUID) -> bool:
+    """Check whether a book already has a linked publisher. Internal helper, called only from within this module."""
     r = await fetch_one("SELECT 1 FROM books_publishers WHERE book_id = $1", book_id)
     return r is not None
 
 
 async def _add_publisher(book_id: UUID, name: str) -> None:
+    """Link a book to a publisher, creating the publisher row if needed. Internal helper, called only from within this module."""
     await execute("INSERT INTO publishers (name) VALUES ($1) ON CONFLICT DO NOTHING", name)
     pub = await fetch_one("SELECT id FROM publishers WHERE name = $1", name)
     if pub:
@@ -235,6 +252,7 @@ async def _add_publisher(book_id: UUID, name: str) -> None:
 
 
 async def _add_tag(book_id: UUID, name: str) -> None:
+    """Link a book to a tag, creating the tag row if needed. Internal helper, called only from within this module."""
     name = name.strip()[:50]
     await execute("INSERT INTO tags (name) VALUES ($1) ON CONFLICT DO NOTHING", name)
     tag = await fetch_one("SELECT id FROM tags WHERE name = $1", name)

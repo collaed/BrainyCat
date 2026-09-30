@@ -103,6 +103,8 @@ async def convert_to_audiobook(book_id: str, voice: str = "en", user_id: str | N
     job_id = await create_job("tts", book_id=book_id, user_id=user_id, params={"voice": voice})
 
     async def _run() -> None:
+        """Do the actual EPUB-to-audiobook conversion in the background; scheduled by
+        `convert_to_audiobook` via `run_in_background`, not called directly elsewhere."""
         file_row = await fetch_one("SELECT * FROM book_files WHERE book_id = $1 AND format = 'epub' LIMIT 1", UUID(book_id))
         if not file_row:
             await update_job(job_id, status="failed", error="No EPUB file")

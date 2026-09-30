@@ -12,6 +12,7 @@ API_URL = "https://gutendex.com/books"
 async def search(
     title: str | None = None, isbn: str | None = None, language: str | None = None, topic: str | None = None, page: int = 1
 ) -> dict[str, Any] | None:
+    """Search Project Gutenberg via Gutendex by title/language/topic. Called by the metadata aggregator (`metadata.py`) and catalog routes."""
     params: dict[str, Any] = {"page": page}
     if title:
         params["search"] = title
@@ -40,6 +41,7 @@ async def search(
 
 
 async def browse(language: str = "en", topic: str | None = None, page: int = 1) -> dict[str, Any]:
+    """List popular Gutenberg books by language/topic. Called by catalog routes (`routes/catalog.py`)."""
     params: dict[str, Any] = {"languages": language, "page": page, "sort": "popular"}
     if topic:
         params["topic"] = topic
@@ -53,6 +55,7 @@ async def browse(language: str = "en", topic: str | None = None, page: int = 1) 
 
 
 async def get_book(gutenberg_id: int) -> dict[str, Any] | None:
+    """Fetch a single Gutenberg book's details by its Gutenberg ID. Called by catalog routes (`routes/catalog.py`)."""
     client = get_client()
     try:
         resp = await client.get(f"{API_URL}/{gutenberg_id}", timeout=8)
@@ -64,6 +67,7 @@ async def get_book(gutenberg_id: int) -> dict[str, Any] | None:
 
 
 def _parse_book(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a raw Gutendex API book record into BrainyCat's source result shape. Internal helper used within this file."""
     authors = [a["name"] for a in data.get("authors", [])]
     formats = data.get("formats", {})
     epub_url = formats.get("application/epub+zip")

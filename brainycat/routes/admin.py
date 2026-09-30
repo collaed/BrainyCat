@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/v1", tags=["admin"])
 
 @router.get("/jobs/{job_id}")
 async def job_status(job_id: str) -> dict[str, Any]:
+    """Look up an async job's status by its local or remote id. GET /api/v1/jobs/{job_id} — polled from static/index.old.html."""
     j = await db.fetch_one("SELECT * FROM async_jobs WHERE id::text = $1 OR remote_job_id = $1", job_id)
     return dict(j) if j else {"error": "not found"}
 
@@ -28,11 +29,13 @@ async def job_status(job_id: str) -> dict[str, Any]:
 
 @router.get("/stats/overview")
 async def stats_overview(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Get library-wide stats for the current user. GET /api/v1/stats/overview — used by static/stats.html."""
     return await stats.get_stats(str(user["id"]))
 
 
 @router.get("/notes/export")
 async def export_notes(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Export all of the current user's notes/highlights. GET /api/v1/notes/export."""
     return await stats.export_notes(str(user["id"]))
 
 
@@ -41,6 +44,7 @@ async def export_notes(user: Any = Depends(get_current_user)) -> list[dict[str, 
 
 @router.post("/import/goodreads")
 async def import_gr(file: UploadFile, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Import a Goodreads export CSV. POST /api/v1/import/goodreads (admin-only)."""
     from brainycat.importers.calibre import import_goodreads
 
     content = (await file.read()).decode()
@@ -49,6 +53,7 @@ async def import_gr(file: UploadFile, _a: Any = Depends(require_admin)) -> dict[
 
 @router.post("/import/audiobookshelf")
 async def import_abs(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Import library data from an Audiobookshelf instance. POST /api/v1/import/audiobookshelf (admin-only)."""
     from brainycat.importers.calibre import import_audiobookshelf
 
     return await import_audiobookshelf()
@@ -59,6 +64,7 @@ async def import_abs(_a: Any = Depends(require_admin)) -> dict[str, Any]:
 
 @router.post("/covers/optimize")
 async def optimize_covers(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Recompress/resize existing covers to save space. POST /api/v1/covers/optimize — triggered from static/efficiency.html."""
     from brainycat.covers import optimize_all_covers
 
     return await optimize_all_covers()
@@ -66,6 +72,7 @@ async def optimize_covers(_a: Any = Depends(require_admin)) -> dict[str, Any]:
 
 @router.post("/covers/generate-missing")
 async def gen_covers(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Generate covers for books that don't have one. POST /api/v1/covers/generate-missing — triggered from static/efficiency.html."""
     from brainycat.covers import generate_missing_covers
 
     return await generate_missing_covers()
@@ -101,6 +108,7 @@ async def extract_pdf_covers(_a: Any = Depends(require_admin)) -> dict[str, Any]
 
 @router.get("/ui/skins")
 async def list_skins() -> list[dict[str, str]]:
+    """List available frontend UI skins/themes. GET /api/v1/ui/skins."""
     return [
         {"id": "default", "name": "BrainyCat Classic", "description": "Grid/list library view"},
         {"id": "spreadsheet", "name": "Spreadsheet", "description": "Data-first: dense grid, inline edit, batch actions"},
@@ -116,6 +124,7 @@ async def list_skins() -> list[dict[str, str]]:
 
 @router.post("/import/calibre")
 async def import_calibre(path: str = Query(...), _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Detect a Calibre library at `path` and report its stats without importing. POST /api/v1/import/calibre (admin-only)."""
     from brainycat.calibre_import import calibre_library_stats, detect_calibre_library
 
     if not detect_calibre_library(path):
@@ -282,6 +291,7 @@ async def import_kobo(path: str = Query(...), user: Any = Depends(get_current_us
 
 @router.get("/jobs")
 async def list_async_jobs(book_id: str = Query(None), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List async jobs, optionally filtered by book. GET /api/v1/jobs."""
     from brainycat.async_jobs import list_jobs
 
     return await list_jobs(book_id)
@@ -292,6 +302,7 @@ async def list_async_jobs(book_id: str = Query(None), _u: Any = Depends(get_curr
 
 @router.get("/plugins")
 async def list_plugins(_a: Any = Depends(require_admin)) -> list[dict[str, str]]:
+    """List loaded plugins. GET /api/v1/plugins (admin-only)."""
     from brainycat.plugins import get_plugins
 
     return get_plugins()
@@ -302,6 +313,7 @@ async def list_plugins(_a: Any = Depends(require_admin)) -> list[dict[str, str]]
 
 @router.get("/custom-columns")
 async def get_custom_columns(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List user-defined custom metadata columns. GET /api/v1/custom-columns."""
     from brainycat.custom_columns import list_columns
 
     return await list_columns()
@@ -309,6 +321,7 @@ async def get_custom_columns(_u: Any = Depends(get_current_user)) -> list[dict[s
 
 @router.post("/custom-columns")
 async def create_custom_column(request: Request, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Create a new custom metadata column. POST /api/v1/custom-columns (admin-only)."""
     from brainycat.custom_columns import create_column
 
     body = await request.json()
@@ -317,6 +330,7 @@ async def create_custom_column(request: Request, _a: Any = Depends(require_admin
 
 @router.get("/virtual-libraries")
 async def get_vlibs(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List the current user's saved virtual libraries (saved search filters). GET /api/v1/virtual-libraries."""
     from brainycat.virtual_libraries import list_virtual_libraries
 
     return await list_virtual_libraries(str(user["id"]))
@@ -324,6 +338,7 @@ async def get_vlibs(user: Any = Depends(get_current_user)) -> list[dict[str, Any
 
 @router.post("/virtual-libraries")
 async def create_vlib(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Create a virtual library (saved search) for the current user. POST /api/v1/virtual-libraries."""
     from brainycat.virtual_libraries import create_virtual_library
 
     body = await request.json()
@@ -332,6 +347,7 @@ async def create_vlib(request: Request, user: Any = Depends(get_current_user)) -
 
 @router.delete("/virtual-libraries/{vlib_id}")
 async def delete_vlib(vlib_id: str, user: Any = Depends(get_current_user)) -> dict[str, bool]:
+    """Delete a virtual library owned by the current user. DELETE /api/v1/virtual-libraries/{vlib_id}."""
     from brainycat.virtual_libraries import delete_virtual_library
 
     return await delete_virtual_library(vlib_id, str(user["id"]))
@@ -342,6 +358,7 @@ async def delete_vlib(vlib_id: str, user: Any = Depends(get_current_user)) -> di
 
 @router.post("/diff")
 async def edition_diff(request: Request, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Diff metadata/content between two book editions. POST /api/v1/diff."""
     from brainycat.edition_diff import diff_editions
 
     body = await request.json()
@@ -633,6 +650,7 @@ async def stats_dashboard(_u: Any = Depends(get_current_user)) -> dict[str, Any]
 
 @router.get("/stats/rate-limits")
 async def rate_limit_status(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Report current rate-limiter state per external API. GET /api/v1/stats/rate-limits — shown in static/settings.html."""
     from brainycat.rate_limit import rate_limiter
 
     return rate_limiter.get_status()
@@ -871,8 +889,8 @@ async def experimental_status() -> dict[str, Any]:
 
 @router.post("/experimental/evaluate/{feature}")
 async def evaluate_experimental(feature: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
-    body = body or {}
     """Run an experimental feature on a sample and compare with existing."""
+    body = body or {}
     book_id = body.get("book_id")
 
     if feature == "text_profile":
@@ -1021,12 +1039,21 @@ async def import_calibre(body: dict[str, Any] | None = None) -> dict[str, Any]:
 
 # ── Readarr Search ────────────────────────────────────────────────────────
 @router.post("/readarr/search")
-async def readarr_search(body: dict[str, Any] | None = None) -> dict[str, Any]:
+async def readarr_search(body: dict[str, Any] | None = None, _a: Any = Depends(require_admin)) -> dict[str, Any]:
     """Search Readarr for a book."""
     body = body or {}
     from brainycat.experimental.readarr import search_readarr
 
     return await search_readarr(body.get("query", ""))
+
+
+@router.post("/readarr/add")
+async def readarr_add(body: dict[str, Any], _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Add one specific search result (the `book` field from a /readarr/search result) to Readarr
+    and trigger an immediate search/download for it."""
+    from brainycat.experimental.readarr import add_to_readarr
+
+    return await add_to_readarr(body.get("book", {}))
 
 
 # ── Kindle Clippings Import ───────────────────────────────────────────────
@@ -1370,6 +1397,7 @@ async def filename_history(
     limit: int = Query(200, le=1000),
     _a: Any = Depends(require_admin),
 ) -> list[dict[str, Any]]:
+    """List past filename-rename operations. GET /api/v1/filename-history — shown in static/filename-history.html."""
     from brainycat.filename_history import get_history
     return await get_history(limit=limit, sort_by=sort, order=order,
                             min_alignment=min_alignment, max_alignment=max_alignment)
@@ -1377,12 +1405,14 @@ async def filename_history(
 
 @router.post("/filename-history/{history_id}/revert")
 async def revert_filename(history_id: str, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Undo a past filename rename. POST /api/v1/filename-history/{history_id}/revert — triggered from static/filename-history.html."""
     from brainycat.filename_history import revert_rename
     return await revert_rename(history_id)
 
 
 @router.post("/import/calibre-library")
 async def import_calibre(limit: int = Query(0), _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Run a full Calibre library import (up to `limit` books, 0 = no limit). POST /api/v1/import/calibre-library (admin-only)."""
     from brainycat.calibre_library_import import import_calibre_library
     return await import_calibre_library(limit=limit)
 
@@ -1396,36 +1426,42 @@ async def metadata_ops_pending(
     limit: int = Query(200, le=1000),
     _a: Any = Depends(require_admin),
 ) -> list[dict[str, Any]]:
+    """List metadata write operations awaiting review. GET /api/v1/metadata-ops — shown in static/metadata-ops.html."""
     from brainycat.metadata_audit import get_pending
     return await get_pending(limit=limit, book_id=book_id)
 
 
 @router.get("/books/{book_id}/operations")
 async def book_operations(book_id: str, _a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    """List the metadata write history for one book. GET /api/v1/books/{book_id}/operations — used by static/index.html."""
     from brainycat.metadata_audit import get_history
     return await get_history(book_id)
 
 
 @router.post("/metadata-ops/validate")
 async def validate_ops(body: dict[str, Any], _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Mark a set of metadata operations as validated/correct. POST /api/v1/metadata-ops/validate — triggered from static/metadata-ops.html."""
     from brainycat.metadata_audit import validate
     return await validate(body.get("ids", []))
 
 
 @router.post("/metadata-ops/validate-book/{book_id}")
 async def validate_book_ops(book_id: str, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Validate all pending metadata operations for one book. POST /api/v1/metadata-ops/validate-book/{book_id}."""
     from brainycat.metadata_audit import validate_all_for_book
     return await validate_all_for_book(book_id)
 
 
 @router.post("/metadata-ops/flag")
 async def flag_ops(body: dict[str, Any], _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Flag a set of metadata operations as suspicious. POST /api/v1/metadata-ops/flag — triggered from static/metadata-ops.html."""
     from brainycat.metadata_audit import flag
     return await flag(body.get("ids", []), body.get("reason", "Suspicious change"))
 
 
 @router.get("/bugs")
 async def list_bugs(status: str = Query("open"), _a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    """List metadata-audit bug reports by status. GET /api/v1/bugs — shown in static/metadata-ops.html."""
     from brainycat.metadata_audit import list_bugs
     return await list_bugs(status=status)
 
@@ -1435,30 +1471,35 @@ async def list_bugs(status: str = Query("open"), _a: Any = Depends(require_admin
 
 @router.get("/format-duplicates")
 async def format_duplicates(_a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    """Find books that appear to be the same title in different formats but aren't stacked. GET /api/v1/format-duplicates."""
     from brainycat.format_stack import find_format_duplicates
     return await find_format_duplicates()
 
 
 @router.post("/format-duplicates/stack")
 async def stack_formats(body: dict[str, Any], _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Verify and merge two book records as format-alternatives of the same book. POST /api/v1/format-duplicates/stack."""
     from brainycat.format_stack import verify_and_stack
     return await verify_and_stack(body["id_a"], body["id_b"])
 
 
 @router.post("/format-duplicates/auto-stack")
 async def auto_stack(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Run one auto-stacking cycle over all detected format duplicates. POST /api/v1/format-duplicates/auto-stack."""
     from brainycat.format_stack import auto_stack_cycle
     return await auto_stack_cycle()
 
 
 @router.get("/series")
 async def list_series(_a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    """List detected book series and any gaps in them. GET /api/v1/series — shown in static/series.html and static/fix-library.html."""
     from brainycat.series_detect import get_series_with_gaps
     return await get_series_with_gaps()
 
 
 @router.get("/series/{series_id}/missing")
 async def series_missing(series_id: str, _a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    """Search for volumes missing from a series. GET /api/v1/series/{series_id}/missing — used by static/series.html."""
     from brainycat.series_detect import search_missing_in_series
     return await search_missing_in_series(series_id)
 
@@ -1468,12 +1509,14 @@ async def series_missing(series_id: str, _a: Any = Depends(require_admin)) -> li
 
 @router.get("/search-content")
 async def search_content_endpoint(q: str = Query(...), limit: int = Query(20), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Full-text search over indexed book content. GET /api/v1/search-content."""
     from brainycat.search_index import search_content
     return await search_content(q, limit=limit)
 
 
 @router.post("/search-content/reindex")
 async def reindex(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Index a batch of books into the full-text search index. POST /api/v1/search-content/reindex (admin-only)."""
     from brainycat.search_index import index_batch
     return await index_batch(limit=50)
 
@@ -1483,12 +1526,14 @@ async def reindex(_a: Any = Depends(require_admin)) -> dict[str, Any]:
 
 @router.get("/rules")
 async def get_rules(_a: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    """List consumption rules. GET /api/v1/rules — shown in static/rules.html."""
     from brainycat.consumption_rules import list_rules
     return await list_rules()
 
 
 @router.post("/rules")
 async def create_rule_endpoint(body: dict[str, Any], _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Create a consumption rule. POST /api/v1/rules — triggered from static/rules.html."""
     from brainycat.consumption_rules import create_rule
     return await create_rule(
         body["name"], body["pattern"], body.get("match_field", "filename"),
@@ -1498,5 +1543,6 @@ async def create_rule_endpoint(body: dict[str, Any], _a: Any = Depends(require_a
 
 @router.delete("/rules/{rule_id}")
 async def delete_rule_endpoint(rule_id: str, _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Delete a consumption rule. DELETE /api/v1/rules/{rule_id} — triggered from static/rules.html."""
     from brainycat.consumption_rules import delete_rule
     return await delete_rule(rule_id)

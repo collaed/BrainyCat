@@ -23,6 +23,10 @@ else:
 
 
 async def _api(method: str, path: str, body: dict | None = None) -> dict:
+    """Call the BrainyCat REST API and return the parsed JSON (or a status dict for non-JSON responses).
+
+    Internal helper used by call_tool() to implement each MCP tool.
+    """
     c = get_client()
     if method == "GET":
         r = await c.get(path)
@@ -38,6 +42,11 @@ app = Server("brainycat")
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:
+    """Declare the MCP tools this server exposes, with their input schemas.
+
+    Registered via @app.list_tools() (MCP SDK); called by MCP clients (e.g. Claude) to
+    discover available tools before calling call_tool().
+    """
     return [
         Tool(
             name="search_books",
@@ -200,6 +209,11 @@ async def list_tools() -> list[Tool]:
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    """Dispatch an MCP tool call (from the list_tools() catalog) to the matching BrainyCat API endpoint.
+
+    Registered via @app.call_tool() (MCP SDK); invoked by MCP clients (e.g. Claude) when they use
+    one of this server's tools.
+    """
     result: dict[str, Any] = {}
 
     if name == "search_books":
@@ -273,6 +287,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
 
 async def main() -> None:
+    """Run the MCP server over stdio.
+
+    Entry point invoked when this module is run directly (`python -m brainycat.mcp_server`).
+    """
     async with stdio_server() as (read, write):
         await app.run(read, write, app.create_initialization_options())
 

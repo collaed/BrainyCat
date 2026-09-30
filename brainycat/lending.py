@@ -54,6 +54,7 @@ async def list_incoming_requests(user_id: str) -> list[dict[str, Any]]:
 
 
 async def list_my_requests(user_id: str) -> list[dict[str, Any]]:
+    """List lending requests you've made for other instances' books. Not currently wired to a route."""
     rows = await fetch_all(
         "SELECT * FROM lend_requests WHERE requester_id = $1 ORDER BY created_at DESC",
         UUID(user_id),
@@ -87,6 +88,7 @@ async def approve_request(request_id: str, owner_id: str, days: int = 14) -> dic
 
 
 async def deny_request(request_id: str) -> dict[str, Any]:
+    """Deny a pending lending request. Called by POST /api/v1/lending/{request_id}/deny in routes/social.py."""
     await execute("UPDATE lend_requests SET status = 'denied' WHERE id = $1", UUID(request_id))
     return {"ok": True}
 

@@ -12,6 +12,11 @@ from brainycat.http_client import get_client
 
 
 async def search(title: str | None = None, isbn: str | None = None) -> dict[str, Any] | None:
+    """Look up a book on ISBNdb by ISBN or title; returns None if no API key is configured or nothing matches.
+
+    Not currently wired into metadata.py's active source list (google_books, gutendex, open_library) —
+    this source is effectively unused/disabled unless something imports it directly.
+    """
     import os
 
     api_key = os.getenv("BRAINYCAT_ISBNDB_KEY", "")

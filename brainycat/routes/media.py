@@ -15,11 +15,13 @@ router = APIRouter(prefix="/api/v1", tags=["media"])
 
 @router.get("/tts/voices")
 async def tts_voices() -> list[dict[str, str]]:
+    """List available text-to-speech voices. GET /api/v1/tts/voices, delegates to `brainycat.tts.list_voices`; no frontend caller found."""
     return await tts.list_voices()
 
 
 @router.get("/translation/backends")
 async def translation_backends() -> list[dict[str, Any]]:
+    """List available translation backends. GET /api/v1/translation/backends, delegates to `brainycat.translation.list_backends`; no frontend caller found."""
     return await translation.list_backends()
 
 
@@ -28,6 +30,7 @@ async def translation_backends() -> list[dict[str, Any]]:
 
 @router.post("/epub-check/batch")
 async def batch_epub_check(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Run the EPUB quality checker over up to 50 unscored EPUBs (admin only). POST /api/v1/epub-check/batch; no frontend caller found."""
     rows = await db.fetch_all("""
         SELECT DISTINCT bf.book_id FROM book_files bf
         JOIN books b ON b.id = bf.book_id
@@ -49,6 +52,7 @@ async def batch_epub_check(_a: Any = Depends(require_admin)) -> dict[str, Any]:
 
 @router.post("/epub/merge")
 async def epub_merge(body: MergeBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Merge several EPUBs into one book. POST /api/v1/epub/merge, delegates to `brainycat.epub_tools.merge_epubs`; no frontend caller found."""
     from brainycat.epub_tools import merge_epubs
 
     return await merge_epubs(body.book_ids, body.title, body.author)
@@ -56,6 +60,7 @@ async def epub_merge(body: MergeBody, _u: Any = Depends(get_current_user)) -> di
 
 @router.get("/converters")
 async def converters(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """List available format converters. GET /api/v1/converters, delegates to `brainycat.format_convert.list_converters`; no frontend caller found."""
     from brainycat.format_convert import list_converters
 
     return await list_converters()
@@ -90,6 +95,7 @@ async def delivery_format(
 
 @router.get("/pdf-converters")
 async def pdf_converters(_u: Any = Depends(get_current_user)) -> dict[str, bool]:
+    """Report which PDF conversion backends are available. GET /api/v1/pdf-converters, delegates to `brainycat.pdf_convert.available_converters`; no frontend caller found."""
     from brainycat.pdf_convert import available_converters
 
     return available_converters()

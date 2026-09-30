@@ -181,11 +181,13 @@ def _analyze_personality(genre_analysis: dict[str, Any], total: int) -> str:
 
 
 async def get_note(user_id: str, book_id: str) -> dict[str, Any] | None:
+    """Fetch a user's saved note for a book. Called by GET /api/books/{book_id}/note in routes/books.py."""
     row = await fetch_one("SELECT * FROM book_notes WHERE user_id = $1 AND book_id = $2", UUID(user_id), UUID(book_id))
     return dict(row) if row else None
 
 
 async def save_note(user_id: str, book_id: str, content: str) -> dict[str, Any]:
+    """Create or update a user's note for a book. Called by POST /api/books/{book_id}/note in routes/books.py."""
     await execute(
         """INSERT INTO book_notes (user_id, book_id, content, updated_at)
            VALUES ($1,$2,$3,now())
@@ -198,6 +200,7 @@ async def save_note(user_id: str, book_id: str, content: str) -> dict[str, Any]:
 
 
 async def export_notes(user_id: str) -> list[dict[str, Any]]:
+    """Export all of a user's book notes with titles, for the admin notes-export endpoint (routes/admin.py)."""
     rows = await fetch_all(
         """
         SELECT bn.content, bn.updated_at, b.title FROM book_notes bn

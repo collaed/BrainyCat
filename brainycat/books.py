@@ -468,6 +468,10 @@ async def serve_file(book_id: str, file_id: str) -> FileResponse:
 
 
 def _book_dict(row: Any) -> dict[str, Any]:
+    """Convert a `books` DB row into the JSON shape returned by the book routes.
+
+    Internal helper used by list_books(), get_book(), and update_book() in this module.
+    """
     extra = row.get("extra_metadata") or {}
     signals = extra.get("content_signals", {}) if isinstance(extra, dict) else {}
     return {
