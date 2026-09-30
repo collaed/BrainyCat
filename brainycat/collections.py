@@ -24,6 +24,10 @@ class BookLinkCreate(BaseModel):
 
 
 async def create_collection(body: CollectionCreate, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Create a new collection (shelf) for the current user.
+
+    Registered as POST /collections in brainycat/routes/books.py.
+    """
     cid = uuid4()
     await execute(
         "INSERT INTO collections (id, user_id, name, description, is_public) VALUES ($1,$2,$3,$4,$5)",
@@ -37,6 +41,10 @@ async def create_collection(body: CollectionCreate, user: Any = Depends(get_curr
 
 
 async def list_collections(user: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List the current user's collections with book counts.
+
+    Registered as GET /collections in brainycat/routes/books.py.
+    """
     rows = await fetch_all(
         """SELECT c.*, count(cb.book_id) as book_count
            FROM collections c LEFT JOIN collection_books cb ON cb.collection_id = c.id
@@ -47,6 +55,10 @@ async def list_collections(user: Any = Depends(get_current_user)) -> list[dict[s
 
 
 async def add_book_to_collection(collection_id: str, book_id: str, user: Any = Depends(get_current_user)) -> dict[str, bool]:
+    """Append a book to the end of a collection owned by the current user.
+
+    Registered as POST /collections/{collection_id}/books/{book_id} in brainycat/routes/books.py.
+    """
     col = await fetch_one("SELECT id FROM collections WHERE id = $1 AND user_id = $2", UUID(collection_id), user["id"])
     if not col:
         raise HTTPException(status_code=404, detail="Collection not found")
@@ -63,11 +75,19 @@ async def add_book_to_collection(collection_id: str, book_id: str, user: Any = D
 
 
 async def remove_book_from_collection(collection_id: str, book_id: str, user: Any = Depends(get_current_user)) -> dict[str, bool]:
+    """Remove a book from a collection.
+
+    Registered as DELETE /collections/{collection_id}/books/{book_id} in brainycat/routes/books.py.
+    """
     await execute("DELETE FROM collection_books WHERE collection_id = $1 AND book_id = $2", UUID(collection_id), UUID(book_id))
     return {"ok": True}
 
 
 async def link_books(book_id: str, body: BookLinkCreate, _user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Create a typed link between two books (e.g. ebook/audiobook pair, translation, edition).
+
+    Registered as POST /books/{book_id}/link in brainycat/routes/books.py.
+    """
     if body.link_type not in {"ebook_audiobook", "translation", "edition"}:
         raise HTTPException(status_code=400, detail="Invalid link type")
     lid = uuid4()

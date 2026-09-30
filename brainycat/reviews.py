@@ -50,6 +50,7 @@ async def aggregate_reviews(title: str, isbn: str = "", author: str = "") -> dic
 
 
 async def _google_books_rating(query: str) -> dict[str, Any]:
+    """Fetch a book's average rating from Google Books. Internal helper called by `aggregate_reviews`."""
     try:
         c = get_client()
         gb_params = {"q": query, "maxResults": 1}
@@ -67,6 +68,7 @@ async def _google_books_rating(query: str) -> dict[str, Any]:
 
 
 async def _open_library_rating(isbn: str) -> dict[str, Any]:
+    """Fetch a book's average rating from Open Library via its work ID. Internal helper called by `aggregate_reviews`."""
     if not isbn:
         return {}
     try:
@@ -86,6 +88,7 @@ async def _open_library_rating(isbn: str) -> dict[str, Any]:
 
 
 async def _hardcover_rating(title: str, author: str) -> dict[str, Any]:
+    """Fetch a book's average rating from Hardcover's GraphQL API. Internal helper called by `aggregate_reviews`."""
     try:
         c = get_client()
         r = await c.post(
@@ -107,6 +110,7 @@ async def _hardcover_rating(title: str, author: str) -> dict[str, Any]:
 
 
 async def _storygraph_rating(title: str, author: str) -> dict[str, Any]:
+    """Scrape a book's average rating from a StoryGraph search page. Internal helper called by `aggregate_reviews`."""
     try:
         c = get_client()
         r = await c.get(f"https://app.thestorygraph.com/browse?search_term={title} {author}", headers={"User-Agent": "Mozilla/5.0"})

@@ -25,6 +25,7 @@ def parse_comicinfo(cbz_path: str) -> dict[str, Any]:
         return {}
 
     def _text(tag: str) -> str | None:
+        """Get the stripped text of a ComicInfo XML tag, or None if absent. Internal helper used only within `parse_comicinfo`."""
         el = root.find(tag)
         return el.text.strip() if el is not None and el.text else None
 

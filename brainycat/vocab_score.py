@@ -11,6 +11,10 @@ _COMMON_WORDS: set[str] | None = None
 
 
 def _get_common_words() -> set[str]:
+    """Lazily load and cache the top-5000 English word set used to score vocabulary difficulty.
+
+    Internal helper used only by analyze_vocabulary() in this module.
+    """
     global _COMMON_WORDS
     if _COMMON_WORDS is None:
         try:

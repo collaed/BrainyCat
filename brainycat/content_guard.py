@@ -60,9 +60,11 @@ def _sample_epub(path: str) -> list[str]:
 
     class TextExtractor(HTMLParser):
         def __init__(self):
+            """Initialize the parser with an empty buffer for collected text chunks."""
             super().__init__()
             self.text = []
         def handle_data(self, data):
+            """HTMLParser callback: accumulate each text chunk found between tags."""
             self.text.append(data)
 
     try:

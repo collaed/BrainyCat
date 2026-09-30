@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from brainycat.http_client import get_client
 
 API_URL = "https://www.googleapis.com/books/v1/volumes"
+
+# Set (to time.monotonic() + backoff) on a 429 — lets the dedicated scheduler loop
+# (scheduler._google_books_loop) skip cheaply instead of hitting the API every tick.
+_key_exhausted_until = 0.0
+_anon_exhausted_until = 0.0
 
 
 async def search(title: str | None = None, isbn: str | None = None) -> dict[str, Any] | None:
@@ -17,13 +23,19 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
     client = get_client()
     from brainycat.config import settings
 
+    used_key = bool(settings.google_books_api_key)
     params: dict[str, Any] = {"q": q, "maxResults": 1}
-    if settings.google_books_api_key:
+    if used_key:
         params["key"] = settings.google_books_api_key
     resp = await client.get(API_URL, params=params)
     if resp.status_code == 429:
         from brainycat.rate_limit import rate_limiter
         rate_limiter.report_failure("google")
+        global _key_exhausted_until, _anon_exhausted_until
+        if used_key:
+            _key_exhausted_until = time.monotonic() + 60
+        else:
+            _anon_exhausted_until = time.monotonic() + 60
         return None
     if resp.status_code != 200:
         return None

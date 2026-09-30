@@ -29,6 +29,8 @@ W = 4  # window size
 
 
 def _extract_full_text(file_path: str, fmt: str) -> str:
+    """Extract all plain text from an epub or pdf file. Internal helper used only by `_compute_sync`
+    in this file."""
     try:
         if fmt == "epub":
             import ebooklib
@@ -54,6 +56,8 @@ def _extract_full_text(file_path: str, fmt: str) -> str:
 
 
 def _normalize(text: str) -> str:
+    """Lowercase and strip punctuation/extra whitespace before winnowing. Internal helper used only
+    by `_text_fingerprint` in this file."""
     text = text.lower()
     text = re.sub(r"[^\w\s]", "", text)
     return re.sub(r"\s+", " ", text).strip()
@@ -288,6 +292,8 @@ async def compare_fingerprints(book_id_a: str, book_id_b: str) -> float | None:
 
 
 async def compute_all_fingerprints(batch_size: int = 20) -> dict[str, Any]:
+    """Compute fingerprints for a batch of un-fingerprinted books. Called every 20s by
+    `scheduler._fingerprint_loop`."""
     rows = await fetch_all(
         """
         SELECT b.id FROM books b
@@ -382,37 +388,115 @@ async def find_duplicates_by_content(batch_size: int = 50) -> dict[str, Any]:
     return {"new_matches": new_matches, "total_pending": total_matches["n"] if total_matches else 0}
 
 
+# Formats that carry real, selectable text — as opposed to a PDF that's just page-scan images.
+_TEXT_FORMATS = {"epub", "mobi", "azw3", "fb2", "txt"}
+# Below this text-density (chars per KB of file size), a PDF's fingerprint sample is basically
+# nothing — the empirical distribution across this library's fingerprinted PDFs has p10 ≈ 9.3
+# chars/KB and a handful of clear outliers under 2, so 3 sits comfortably between "no OCR text
+# layer" and "genuinely short/sparse but real text."
+_LOSSY_CHARS_PER_KB = 3.0
+
+
+def _side_profile(formats: list[str] | None, total_size: int | None, total_chars: int | None) -> dict[str, Any]:
+    """Summarize one side of a duplicate pair (formats, size, whether it's a lossy scanned PDF).
+    Internal helper used only by `get_duplicate_matches` in this file."""
+    formats = formats or []
+    has_text_format = bool(_TEXT_FORMATS & set(formats))
+    chars_per_kb = (total_chars / (total_size / 1000)) if total_chars and total_size else None
+    # Lossy: no epub/mobi/etc, and either no fingerprint yet or a suspiciously text-sparse PDF.
+    is_lossy = not has_text_format and "pdf" in formats and (chars_per_kb is None or chars_per_kb < _LOSSY_CHARS_PER_KB)
+    return {
+        "formats": formats,
+        "size": total_size or 0,
+        "has_text_format": has_text_format,
+        "is_lossy": is_lossy,
+    }
+
+
+def _recommend(a: dict[str, Any], b: dict[str, Any]) -> tuple[str, int]:
+    """Pick which side to keep: prefer real text over a lossy scan, then more formats, then the
+    larger file (usually the more complete/higher-quality copy). Returns (keep, space_saved_bytes)."""
+    if a["is_lossy"] != b["is_lossy"]:
+        keep = "a" if b["is_lossy"] else "b"
+    elif len(a["formats"]) != len(b["formats"]):
+        keep = "a" if len(a["formats"]) > len(b["formats"]) else "b"
+    else:
+        keep = "a" if a["size"] >= b["size"] else "b"
+    drop = b if keep == "a" else a
+    return keep, drop["size"]
+
+
 async def get_duplicate_matches() -> list[dict[str, Any]]:
+    """List pending content-duplicate matches with keep/drop recommendations. Called by
+    `GET /api/v1/fingerprints/matches` in routes/enrichment.py, used by static/intel-content-dupes.html."""
     rows = await fetch_all("""
         SELECT dm.*, ba.title as title_a, bb.title as title_b,
                array_agg(DISTINCT aa.name) FILTER (WHERE aa.name IS NOT NULL) as authors_a,
-               array_agg(DISTINCT ab.name) FILTER (WHERE ab.name IS NOT NULL) as authors_b
+               array_agg(DISTINCT ab.name) FILTER (WHERE ab.name IS NOT NULL) as authors_b,
+               array_agg(DISTINCT bfa.format) FILTER (WHERE bfa.format IS NOT NULL) as formats_a,
+               array_agg(DISTINCT bfb.format) FILTER (WHERE bfb.format IS NOT NULL) as formats_b,
+               sum(DISTINCT bfa.file_size) as size_a_raw,
+               sum(DISTINCT bfb.file_size) as size_b_raw,
+               max(fpa.total_chars) as chars_a,
+               max(fpb.total_chars) as chars_b
         FROM duplicate_matches dm
         JOIN books ba ON ba.id = dm.book_a_id JOIN books bb ON bb.id = dm.book_b_id
         LEFT JOIN books_authors baa ON baa.book_id = dm.book_a_id LEFT JOIN authors aa ON aa.id = baa.author_id
         LEFT JOIN books_authors bab ON bab.book_id = dm.book_b_id LEFT JOIN authors ab ON ab.id = bab.author_id
+        LEFT JOIN book_files bfa ON bfa.book_id = dm.book_a_id
+        LEFT JOIN book_files bfb ON bfb.book_id = dm.book_b_id
+        LEFT JOIN book_fingerprints fpa ON fpa.book_id = dm.book_a_id
+        LEFT JOIN book_fingerprints fpb ON fpb.book_id = dm.book_b_id
         WHERE dm.status = 'pending'
         GROUP BY dm.id, ba.title, bb.title
         ORDER BY dm.overlap_pct DESC
     """)
-    return [
-        {
-            "id": str(r["id"]),
-            "book_a": str(r["book_a_id"]),
-            "title_a": r["title_a"],
-            "authors_a": r["authors_a"] or [],
-            "book_b": str(r["book_b_id"]),
-            "title_b": r["title_b"],
-            "authors_b": r["authors_b"] or [],
-            "overlap_pct": round(r["overlap_pct"], 1),
-            "matching_samples": r["matching_samples"],
-            "total_samples": r["total_samples"],
-        }
-        for r in rows
-    ]
+    # NOTE: size_a/size_b use `sum(DISTINCT ...)` above to avoid fanout double-counting from the
+    # book_files join crossed with the authors join — fine as long as a book's files don't share
+    # an exact file_size (astronomically unlikely for real ebook files).
+    matches = []
+    for r in rows:
+        side_a = _side_profile(r["formats_a"], r["size_a_raw"], r["chars_a"])
+        side_b = _side_profile(r["formats_b"], r["size_b_raw"], r["chars_b"])
+        keep, space_saved = _recommend(side_a, side_b)
+
+        if side_a["is_lossy"] != side_b["is_lossy"]:
+            lossy_side, text_side = ("A", "B") if side_a["is_lossy"] else ("B", "A")
+            reco = f"Keep {text_side} (has real text) — {lossy_side} looks like a scanned PDF with no text layer"
+        elif keep == "a":
+            reco = "Keep A — more complete/larger copy" if side_a["size"] >= side_b["size"] else "Keep A"
+        else:
+            reco = "Keep B — more complete/larger copy" if side_b["size"] >= side_a["size"] else "Keep B"
+
+        matches.append(
+            {
+                "id": str(r["id"]),
+                "book_a": str(r["book_a_id"]),
+                "title_a": r["title_a"],
+                "authors_a": r["authors_a"] or [],
+                "formats_a": side_a["formats"],
+                "size_a": side_a["size"],
+                "is_lossy_a": side_a["is_lossy"],
+                "book_b": str(r["book_b_id"]),
+                "title_b": r["title_b"],
+                "authors_b": r["authors_b"] or [],
+                "formats_b": side_b["formats"],
+                "size_b": side_b["size"],
+                "is_lossy_b": side_b["is_lossy"],
+                "overlap_pct": round(r["overlap_pct"], 1),
+                "matching_samples": r["matching_samples"],
+                "total_samples": r["total_samples"],
+                "recommended_keep": keep,
+                "recommendation": reco,
+                "space_saved_bytes": space_saved,
+            }
+        )
+    return matches
 
 
 async def resolve_match(match_id: str, action: str) -> dict[str, bool]:
+    """Mark a duplicate match resolved (e.g. merged/dismissed). Called by the resolve endpoint in
+    routes/enrichment.py, used by static/intel-content-dupes.html."""
     await execute("UPDATE duplicate_matches SET status = $1 WHERE id = $2", action, UUID(match_id))
     return {"ok": True}
 

@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """App startup/shutdown: set up logging, open the DB pool, seed users, and start the scheduler. Invoked by FastAPI via the `lifespan` argument."""
     setup_logging()
     await db.get_pool()
     await auth.seed_users()
@@ -51,6 +52,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 class NoCacheStatic(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
+        """Add no-cache headers to responses under /static/ so edited files aren't served stale. Called by Starlette's middleware chain on every request."""
         response = await call_next(request)
         if request.url.path.startswith("/static/"):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -63,6 +65,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.on_event("startup")
 async def startup() -> None:
+    """Initialize the shared HTTP client and pre-seed rate-limit backoffs. Run by FastAPI's startup event."""
     get_client()  # Initialize shared client
     from brainycat.rate_limit import seed_from_db
 
@@ -71,6 +74,7 @@ async def startup() -> None:
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    """Close the shared HTTP client on app shutdown. Run by FastAPI's shutdown event."""
     from brainycat.http_client import close_client
     from brainycat.log import info
 
@@ -128,6 +132,7 @@ async def public_catalog():
 # ── Health ────────────────────────────────────────────────────────────────
 @app.get("/api/v1/health")
 async def health() -> dict[str, Any]:
+    """Report app/DB health status. GET /api/v1/health, used for monitoring/liveness checks."""
     s = await db.health_check()
     return {"status": "ok" if s.get("connected") else "degraded", "db": s}
 
@@ -152,6 +157,7 @@ app.get("/api/v1/books/{book_id}/file/{file_id}")(books.serve_file)
 
 @app.get("/api/v1/authors")
 async def list_authors(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List all authors with their book counts, most-published first. GET /api/v1/authors; no frontend caller found in static/*.html."""
     rows = await db.fetch_all(
         "SELECT a.id, a.name, count(ba.book_id) as book_count "
         "FROM authors a JOIN books_authors ba ON ba.author_id = a.id "

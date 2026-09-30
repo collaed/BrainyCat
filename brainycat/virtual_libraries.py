@@ -25,6 +25,10 @@ async def create_virtual_library(user_id: str, name: str, query: str, filters: d
 
 
 async def list_virtual_libraries(user_id: str) -> list[dict[str, Any]]:
+    """List a user's saved virtual libraries (saved searches).
+
+    Called by GET /api/v1/virtual-libraries (brainycat/routes/admin.py).
+    """
     rows = await fetch_all(
         "SELECT id, name, query, filters FROM virtual_libraries WHERE user_id = $1 ORDER BY name",
         UUID(user_id),
@@ -33,5 +37,9 @@ async def list_virtual_libraries(user_id: str) -> list[dict[str, Any]]:
 
 
 async def delete_virtual_library(vlib_id: str, user_id: str) -> dict[str, bool]:
+    """Delete a virtual library owned by the given user.
+
+    Called by DELETE /api/v1/virtual-libraries/{vlib_id} (brainycat/routes/admin.py).
+    """
     await execute("DELETE FROM virtual_libraries WHERE id = $1 AND user_id = $2", UUID(vlib_id), UUID(user_id))
     return {"ok": True}

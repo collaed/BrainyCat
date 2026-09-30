@@ -120,6 +120,8 @@ async def enrich_batch(batch_size: int = 10) -> dict[str, Any]:
 
 
 async def _mark_tried(book_id: UUID, result: Any) -> None:
+    """Record that OL Works lookup was attempted for a book (so `enrich_batch`'s query skips it
+    next cycle) — internal helper, only called from `enrich_batch` in this file."""
     await execute(
         "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'::jsonb), '{ol_works_tried}', $1::jsonb) WHERE id = $2",
         json.dumps(result if result else True), book_id,

@@ -155,6 +155,7 @@ async def check_drift(book_id: str) -> dict[str, Any]:
     stopwords = {"the", "and", "for", "with", "from", "that", "this", "are", "was", "les", "des", "une", "par"}
 
     def words(text: str) -> set[str]:
+        """Extract lowercase 3+ char words from text, excluding stopwords. Internal helper for check_drift()."""
         return {w for w in re.findall(r"\b\w{3,}\b", text) if w not in stopwords}
 
     current_words = words(current_title)

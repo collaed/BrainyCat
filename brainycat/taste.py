@@ -262,6 +262,7 @@ async def get_7cat_recommendations(
     seen: set[str] = set()
 
     def dedup(lst: list[dict], n: int) -> list[dict]:
+        """Trim a candidate list to the first n items not already seen in another recommendation category, reshaping each into the summary fields returned to the caller."""
         result = []
         for item in lst:
             bid = item.get("id", str(item.get("id", "")))

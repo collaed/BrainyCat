@@ -24,6 +24,10 @@ async def apply_override(
     isbn: str | None = None,
     description: str | None = None,
 ) -> dict[str, Any]:
+    """Apply user-corrected identity fields, wipe enrichment-derived data, and mark the book 'protected'.
+
+    Called from the "correct this book's identity" flow in brainycat/routes/books.py.
+    """
     book = await fetch_one("SELECT title, isbn, description FROM books WHERE id = $1", UUID(book_id))
     if not book:
         return {"error": "not found"}

@@ -191,11 +191,13 @@ async def follow_user(follower_id: str, hash_str: str) -> dict[str, Any]:
 
 
 async def unfollow_user(follower_id: str, follow_id: str) -> dict[str, bool]:
+    """Remove a follow relationship. No caller found in the codebase — not currently wired to any route."""
     await execute("DELETE FROM follows WHERE id = $1 AND follower_id = $2", UUID(follow_id), UUID(follower_id))
     return {"ok": True}
 
 
 async def list_following(user_id: str) -> list[dict[str, Any]]:
+    """List the profiles a user follows, with their cached feeds. Called by `brainycat.routes.social.get_following` (GET /api/v1/social/following)."""
     rows = await fetch_all(
         "SELECT id, server_url, username, cached_feed, last_fetched FROM follows WHERE follower_id = $1",
         UUID(user_id),

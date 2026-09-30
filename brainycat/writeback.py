@@ -169,6 +169,8 @@ def _update_epub_opf(
 
 
 def _xml_escape(s: str) -> str:
+    """Escape a string for safe insertion into the EPUB's XML content.opf — internal helper used
+    only within this file's writeback routine."""
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 

@@ -24,6 +24,7 @@ _WD_SPARQL = "https://query.wikidata.org/sparql"
 
 
 async def _wd_search(title: str, limit: int = 5) -> list[dict[str, Any]]:
+    """Search Wikidata entities by title. Internal helper used by `_pick_best_candidate`."""
     resp = await get_client().get(
         _WD_API,
         params={"action": "wbsearchentities", "search": title, "language": "en", "format": "json", "limit": limit, "type": "item"},
@@ -36,6 +37,7 @@ async def _wd_search(title: str, limit: int = 5) -> list[dict[str, Any]]:
 
 
 async def _wd_get_entity(qid: str) -> dict[str, Any] | None:
+    """Fetch a Wikidata entity's claims and English label by QID. Internal helper used elsewhere in this file."""
     resp = await get_client().get(
         _WD_API,
         params={"action": "wbgetentities", "ids": qid, "format": "json", "props": "claims|labels", "languages": "en"},
@@ -48,6 +50,7 @@ async def _wd_get_entity(qid: str) -> dict[str, Any] | None:
 
 
 def _claim_target(entity: dict[str, Any], prop: str) -> str | None:
+    """Get the QID an entity's first claim for `prop` points to. Internal helper used by `find_translations`."""
     claims = entity.get("claims", {}).get(prop)
     if not claims:
         return None
@@ -81,6 +84,7 @@ async def _pick_best_candidate(title: str, author: str | None) -> dict[str, Any]
 
 
 async def _wd_get_labels(qids: list[str]) -> dict[str, str]:
+    """Fetch English labels for a batch of Wikidata QIDs. Internal helper used by `_pick_best_candidate`."""
     if not qids:
         return {}
     resp = await get_client().get(
@@ -96,6 +100,7 @@ async def _wd_get_labels(qids: list[str]) -> dict[str, str]:
 
 
 async def _find_siblings(work_qid: str) -> list[dict[str, Any]]:
+    """SPARQL query for all editions (P629) of a Wikidata work, with their languages. Internal helper used by `find_translations`."""
     query = f"""
     SELECT ?edition ?editionLabel ?lang ?langLabel WHERE {{
       ?edition wdt:P629 wd:{work_qid} .

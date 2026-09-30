@@ -39,6 +39,7 @@ GENRE_COLORS: dict[str, dict[str, str]] = {
 
 
 def _hex_to_rgb(h: str) -> tuple[int, int, int]:
+    """Convert a '#rrggbb' hex color string to an RGB tuple; used internally by generate_cover()."""
     h = h.lstrip("#")
     return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 

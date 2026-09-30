@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/v1/kosync", tags=["kosync"])
 
 
 async def _auth_kosync(x_auth_user: str | None, x_auth_key: str | None) -> dict | None:
+    """Look up a KOReader user by the X-Auth-User/X-Auth-Key headers; used by every kosync route handler below."""
     if not x_auth_user or not x_auth_key:
         return None
     user = await db.fetch_one(

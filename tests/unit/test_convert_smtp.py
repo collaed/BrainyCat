@@ -32,11 +32,18 @@ async def test_smtp_send_passes_credentials_when_configured() -> None:
         patch.object(settings, "smtp_port", 587),
         patch.object(settings, "smtp_user", "brainycat@ecb.pm"),
         patch.object(settings, "smtp_password", "secret"),
+        patch.object(settings, "smtp_validate_certs", True),
         patch("brainycat.convert.aiosmtplib.send", new_callable=AsyncMock) as mock_send,
     ):
         await convert._smtp_send(msg)
         mock_send.assert_awaited_once_with(
-            msg, hostname="mail.ecb.pm", port=587, use_tls=False, username="brainycat@ecb.pm", password="secret"
+            msg,
+            hostname="mail.ecb.pm",
+            port=587,
+            use_tls=False,
+            validate_certs=True,
+            username="brainycat@ecb.pm",
+            password="secret",
         )
 
 
@@ -47,10 +54,25 @@ async def test_smtp_send_no_auth_kwargs_when_unconfigured() -> None:
         patch.object(settings, "smtp_host", "mailserver"),
         patch.object(settings, "smtp_port", 25),
         patch.object(settings, "smtp_user", ""),
+        patch.object(settings, "smtp_validate_certs", True),
         patch("brainycat.convert.aiosmtplib.send", new_callable=AsyncMock) as mock_send,
     ):
         await convert._smtp_send(msg)
-        mock_send.assert_awaited_once_with(msg, hostname="mailserver", port=25, use_tls=False)
+        mock_send.assert_awaited_once_with(msg, hostname="mailserver", port=25, use_tls=False, validate_certs=True)
+
+
+@pytest.mark.asyncio
+async def test_smtp_send_can_disable_cert_validation_for_local_relay() -> None:
+    msg = EmailMessage()
+    with (
+        patch.object(settings, "smtp_host", "172.24.0.1"),
+        patch.object(settings, "smtp_port", 2525),
+        patch.object(settings, "smtp_user", ""),
+        patch.object(settings, "smtp_validate_certs", False),
+        patch("brainycat.convert.aiosmtplib.send", new_callable=AsyncMock) as mock_send,
+    ):
+        await convert._smtp_send(msg)
+        mock_send.assert_awaited_once_with(msg, hostname="172.24.0.1", port=2525, use_tls=False, validate_certs=False)
 
 
 @pytest.mark.asyncio
@@ -60,10 +82,11 @@ async def test_smtp_send_uses_implicit_tls_on_465() -> None:
         patch.object(settings, "smtp_host", "mail.ecb.pm"),
         patch.object(settings, "smtp_port", 465),
         patch.object(settings, "smtp_user", ""),
+        patch.object(settings, "smtp_validate_certs", True),
         patch("brainycat.convert.aiosmtplib.send", new_callable=AsyncMock) as mock_send,
     ):
         await convert._smtp_send(msg)
-        mock_send.assert_awaited_once_with(msg, hostname="mail.ecb.pm", port=465, use_tls=True)
+        mock_send.assert_awaited_once_with(msg, hostname="mail.ecb.pm", port=465, use_tls=True, validate_certs=True)
 
 
 @pytest.mark.asyncio

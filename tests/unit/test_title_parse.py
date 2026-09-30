@@ -108,6 +108,78 @@ def test_folder_path_leak_with_duplicate_author() -> None:
     assert r.author == "Onfray,Michel"
 
 
+def test_bullet_isbn_block_simple() -> None:
+    r = parse_title("63603dd0 Your Brain The Missing Manual - Matthew MacDonald\n\n· ISBN 9781855397828")
+    assert r.title == "Your Brain The Missing Manual"
+    assert r.author == "Matthew MacDonald"
+    assert r.confidence == "high"
+
+
+def test_bullet_isbn_block_with_subtitle_dash() -> None:
+    r = parse_title("111b8921 Les Meurtres Zen - Tome 2 Des m - Karsten Dusse\n\n· ISBN 9782749172521")
+    assert r.title == "Les Meurtres Zen - Tome 2 Des m"
+    assert r.author == "Karsten Dusse"
+    assert r.confidence == "high"
+
+
+def test_bullet_isbn_with_separate_author_line_and_site_suffix() -> None:
+    r = parse_title(
+        "Personal finance for dummies \\(three ebook bundle\\): Personal finance for dummies, "
+        "Investing for dummies, Mutual funds for dummies - PDFDrive.com\n\n"
+        "Eric Tyson · ISBN 9781118224441"
+    )
+    assert r.title == (
+        "Personal finance for dummies (three ebook bundle): Personal finance for dummies, "
+        "Investing for dummies, Mutual funds for dummies"
+    )
+    assert r.author == "Eric Tyson"
+    assert r.confidence == "high"
+
+
+def test_bare_hex_prefix_title_dash_person_name_author() -> None:
+    r = parse_title("63603dd0 Your Brain The Missing Manual - Matthew MacDonald")
+    assert r.title == "Your Brain The Missing Manual"
+    assert r.author == "Matthew MacDonald"
+    assert r.confidence == "medium"
+
+
+def test_bare_hex_prefix_title_with_subtitle_dash_then_person_name() -> None:
+    r = parse_title("111b8921 Les Meurtres Zen - Tome 2 Des m - Karsten Dusse")
+    assert r.title == "Les Meurtres Zen - Tome 2 Des m"
+    assert r.author == "Karsten Dusse"
+    assert r.confidence == "medium"
+
+
+def test_bare_hex_prefix_subtitle_not_mistaken_for_author() -> None:
+    # Regression guard: "Tackling Complexity in the Heart of Software" must NOT be split off as an
+    # author just because it follows " - " — it's a subtitle (has stopwords, too many words).
+    r = parse_title("b5179139 Domain Driven Design - Tackling Complexity in the Heart of Software")
+    assert r.title == "Domain Driven Design - Tackling Complexity in the Heart of Software"
+    assert r.author is None
+
+
+def test_site_name_not_mistaken_for_author() -> None:
+    r = parse_title("2a39ad91 First Aid CPR AED Participants Manual - PDF Room")
+    assert r.title == "First Aid CPR AED Participants Manual - PDF Room"
+    assert r.author is None
+
+
+def test_libgen_suffix_with_collision_dedup_number() -> None:
+    r = parse_title(
+        "67b16061 [For Dummies Computer Tech] Judith Hurwitz, Robin Bloor, Carol Baroudi, Marcia Kaufman - "
+        "Service Oriented Architecture For Dummies (For Dummies (Computer Tech)) (2006, For Dummies) - libgen.li-1"
+    )
+    assert r.title == "Service Oriented Architecture For Dummies (For Dummies (Computer Tech))"
+    assert r.author == "Judith Hurwitz, Robin Bloor, Carol Baroudi, Marcia Kaufman"
+    assert r.year == "2006"
+    assert r.publisher == "For Dummies"
+
+
+def test_multiword_series_subtitle_not_mistaken_for_author() -> None:
+    r = parse_title("9fadee44 Reinforcement Learning, Second Edition - An Introduction - Adaptive Computation and Machine Learning")
+    assert r.author is None
+
+
 def test_truncated_title_left_as_is() -> None:
     r = parse_title("The Glycemic Index Diet for Dum")
     assert r.title == "The Glycemic Index Diet for Dum"

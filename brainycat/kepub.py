@@ -61,6 +61,7 @@ def _add_kobo_spans(html: str) -> str:
     counter = [0]
 
     def _wrap(match: re.Match) -> str:
+        """Wrap one matched <p> element's contents in a numbered Kobo span (regex replacement callback)."""
         content = match.group(1)
         counter[0] += 1
         span_id = f"kobo.{counter[0]}.1"

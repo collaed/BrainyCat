@@ -36,6 +36,10 @@ async def transcribe_audiobook(book_id: str, model: str = "small", user_id: str 
     job_id = await create_job("stt", book_id=book_id, user_id=user_id, params={"model": model})
 
     async def _run() -> None:
+        """Transcribe each audio file (Intello, falling back to local faster-whisper) and store chapters.
+
+        Run in the background by run_in_background(), started by transcribe_audiobook().
+        """
         files = await fetch_all(
             "SELECT * FROM book_files WHERE book_id = $1 AND format IN ('mp3','m4b','m4a','flac','ogg','opus') ORDER BY file_name",
             UUID(book_id),

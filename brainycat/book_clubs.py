@@ -42,6 +42,8 @@ async def create_club(
 
 
 async def join_club(club_id: str, user_id: str) -> dict[str, Any]:
+    """Add a user as a member of a book club. Called by `POST /api/v1/clubs/{club_id}/join` in
+    routes/social.py; no frontend caller found."""
     await execute(
         "INSERT INTO club_members (id, club_id, user_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
         uuid4(),

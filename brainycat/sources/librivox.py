@@ -10,6 +10,7 @@ API_URL = "https://librivox.org/api/feed/audiobooks"
 
 
 async def search(title: str | None = None, author: str | None = None, limit: int = 20) -> dict[str, Any]:
+    """Search LibriVox for audiobooks by title or author. Called from `brainycat.routes.catalog` for catalog search/import."""
     params: dict[str, Any] = {"format": "json", "limit": limit}
     # LibriVox title search is prefix-only — try title, then author, then both
     if title:
@@ -35,6 +36,7 @@ async def search(title: str | None = None, author: str | None = None, limit: int
 
 
 async def get_book(librivox_id: str) -> dict[str, Any] | None:
+    """Fetch a single LibriVox book's metadata by its LibriVox id. Called from `brainycat.routes.catalog` when importing a LibriVox result."""
     try:
         client = get_client()
         resp = await client.get(API_URL, params={"id": librivox_id, "format": "json"})
@@ -74,6 +76,7 @@ async def get_chapters(rss_url: str) -> list[dict[str, Any]]:
 
 
 def _parse(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a raw LibriVox API book record into brainycat's source-result shape. Internal helper used by `search` and `get_book`."""
     authors = []
     for a in data.get("authors", []):
         name = f"{a.get('first_name', '')} {a.get('last_name', '')}".strip()

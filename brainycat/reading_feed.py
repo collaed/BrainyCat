@@ -33,6 +33,7 @@ async def add_feed(user_id: str, url: str, name: str = "") -> dict[str, Any]:
 
 
 async def list_feeds(user_id: str) -> list[dict[str, Any]]:
+    """List a user's subscribed reading feeds. Called by `GET /api/v1/feeds` in routes/social.py."""
     rows = await fetch_all(
         "SELECT id, url, name, last_fetched FROM reading_feeds WHERE user_id = $1 ORDER BY name",
         UUID(user_id),
@@ -41,6 +42,8 @@ async def list_feeds(user_id: str) -> list[dict[str, Any]]:
 
 
 async def remove_feed(feed_id: str, user_id: str) -> dict[str, bool]:
+    """Unsubscribe a user from a reading feed. Called by the `DELETE /api/v1/feeds/{feed_id}`
+    endpoint in routes/social.py."""
     await execute("DELETE FROM reading_feeds WHERE id = $1 AND user_id = $2", UUID(feed_id), UUID(user_id))
     return {"ok": True}
 

@@ -13,6 +13,7 @@ import time
 
 class RateLimiter:
     def __init__(self) -> None:
+        """Initialize per-domain rate/backoff state with the default base rates."""
         self._last_request: dict[str, float] = {}
         self._base_rates: dict[str, float] = {
             "google": 2.0,
@@ -28,6 +29,7 @@ class RateLimiter:
         self._backoff_until: dict[str, float] = {}
 
     def _key(self, domain: str) -> str:
+        """Map a source domain/name to its rate-limit bucket key, falling back to 'default'. Internal helper used by the other methods."""
         for k in self._base_rates:
             if k in domain:
                 return k

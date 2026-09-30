@@ -30,10 +30,22 @@ _LANG_MAP = {
 
 
 def _norm_lang(code: str | None) -> str | None:
+    """Normalize a language tag (e.g. 'en-US') to an ISO 639-2/3 code via `_LANG_MAP`. Internal helper used by `_extract_epub`."""
     if not code or code.lower() in ("und", "unknown"):
         return None
     short = code.lower().split("-")[0].strip()[:3]
     return _LANG_MAP.get(short[:2], short if len(short) == 3 else None)
+
+
+def _blank_to_none(s: str | None) -> str | None:
+    """Some PDF/EPUB/audio metadata fields are a whitespace-only artifact (e.g. a single space)
+    rather than genuinely absent — that's truthy in Python, so an `or None`/`or fallback` check
+    against the raw value doesn't catch it and a blank title gets saved instead of falling back
+    to the filename-derived one (see docs/known-issues.md)."""
+    if s is None:
+        return None
+    s = s.strip()
+    return s or None
 
 
 def extract_metadata(file_path: str) -> dict[str, Any]:
@@ -112,6 +124,7 @@ def _extract_mobi(path: str) -> dict[str, Any]:
 
 
 def _extract_epub(path: str) -> dict[str, Any]:
+    """Extract metadata and cover from an EPUB file. Called by `extract_metadata` for .epub files."""
     try:
         import ebooklib
         from ebooklib import epub
@@ -144,10 +157,10 @@ def _extract_epub(path: str) -> dict[str, Any]:
 
         return {
             "format": "epub",
-            "title": title[0][0] if title else None,
-            "author": author[0][0] if author else None,
+            "title": _blank_to_none(title[0][0]) if title else None,
+            "author": _blank_to_none(author[0][0]) if author else None,
             "language": _norm_lang(lang[0][0]) if lang else None,
-            "description": desc[0][0] if desc else None,
+            "description": _blank_to_none(desc[0][0]) if desc else None,
             "isbn": isbn,
             "cover_data": cover_data,
         }
@@ -156,6 +169,7 @@ def _extract_epub(path: str) -> dict[str, Any]:
 
 
 def _extract_pdf(path: str) -> dict[str, Any]:
+    """Extract metadata and a first-page cover image from a PDF file. Called by `extract_metadata` for .pdf files."""
     try:
         import fitz
 
@@ -175,9 +189,9 @@ def _extract_pdf(path: str) -> dict[str, Any]:
         doc.close()
         return {
             "format": "pdf",
-            "title": meta.get("title") or None,
-            "author": meta.get("author") or None,
-            "description": meta.get("subject") or None,
+            "title": _blank_to_none(meta.get("title")),
+            "author": _blank_to_none(meta.get("author")),
+            "description": _blank_to_none(meta.get("subject")),
             "cover_data": cover_data,
         }
     except Exception:
@@ -185,6 +199,7 @@ def _extract_pdf(path: str) -> dict[str, Any]:
 
 
 def _extract_audio(path: str) -> dict[str, Any]:
+    """Extract tags, duration, and chapters from an audio file (mp3/m4b/m4a/flac/ogg/opus). Called by `extract_metadata` for audio files."""
     try:
         from mutagen import File as MutagenFile
 
@@ -194,9 +209,9 @@ def _extract_audio(path: str) -> dict[str, Any]:
 
         info = audio.info
         tags = dict(audio.tags) if audio.tags else {}
-        title = tags.get("title", [None])[0]
-        artist = tags.get("artist", [None])[0]
-        album = tags.get("album", [None])[0]
+        title = _blank_to_none(tags.get("title", [None])[0])
+        artist = _blank_to_none(tags.get("artist", [None])[0])
+        album = _blank_to_none(tags.get("album", [None])[0])
 
         # Chapter detection for M4B
         chapters: list[dict[str, Any]] = []

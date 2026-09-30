@@ -43,11 +43,13 @@ async def search(title: str | None = None, isbn: str | None = None) -> dict[str,
 
     # Parse MODS XML (simple regex — avoids lxml dependency)
     def extract(tag: str) -> str | None:
+        """Get the text of the first (namespaced or not) MODS tag match. Internal helper used only within `search`."""
         # Handle namespaced and non-namespaced
         m = re.search(rf"<(?:mods:)?{tag}[^>]*>([^<]+)</(?:mods:)?{tag}>", xml)
         return m.group(1).strip() if m else None
 
     def extract_all(tag: str) -> list[str]:
+        """Get the text of all (namespaced or not) MODS tag matches. Internal helper used only within `search`."""
         return [m.strip() for m in re.findall(rf"<(?:mods:)?{tag}[^>]*>([^<]+)</(?:mods:)?{tag}>", xml)]
 
     title_found = extract("title")

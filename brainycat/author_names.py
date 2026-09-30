@@ -43,6 +43,7 @@ _NON_NAME_TOKENS = {
 
 
 def _strip_trailing_year(s: str) -> str:
+    """Remove a trailing publication-year fragment from a name string. Internal helper used by `_split_comma_segment`."""
     return _TRAILING_YEAR_RE.sub("", s).strip()
 
 

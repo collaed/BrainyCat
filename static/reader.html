@@ -451,8 +451,12 @@ async function init() {
     setupMargins(genre);
     document.getElementById('book-title').title = 'Genre: ' + genre;
 
-    // PDF viewer
+    // PDF viewer — ?quick=1 uses the lightweight server-rendered-page-image browser (one small
+    // PNG per page, via GET /books/{id}/pdf-page/{n}) instead of the full pdf.js reader, which
+    // fetches and parses the entire file client-side up front. Meant for browsing/confirming a
+    // heavy PDF quickly (e.g. from the Quality Issues "Open" button) rather than reading it.
     if (pdfFile) {
+        if (params.get('quick') === '1') return initPdfQuickViewer(bookId);
         return initPdfViewer(bookId, pdfFile);
     }
 
@@ -1071,7 +1075,58 @@ document.addEventListener('touchmove', e => {
     }
 }, {passive: true});
 
-// ── PDF Viewer ───────────────────────────────────────────────────────────
+// ── PDF Quick Viewer (one server-rendered page image at a time) ───────────
+async function initPdfQuickViewer(bookId) {
+    log('Loading page 1...');
+    const viewer = document.getElementById('viewer');
+    viewer.style.overflow = 'auto';
+    viewer.style.textAlign = 'center';
+    viewer.style.padding = '1rem 0';
+
+    const info = await BC.get('/books/' + bookId + '/pdf-info');
+    if (info.error) { log('Failed: ' + info.error); return; }
+    const totalPages = info.pages;
+
+    let page = 0; // 0-indexed, matches GET /pdf-page/{n}
+    try {
+        const progress = await BC.get('/progress/' + bookId);
+        if (progress && progress.position) page = Math.max(0, Math.min(totalPages - 1, parseInt(progress.position) || 0));
+    } catch (e) {}
+
+    const bar = document.createElement('div');
+    bar.style.cssText = 'position:sticky;top:0;display:flex;gap:.5rem;align-items:center;justify-content:center;padding:.5rem;background:inherit;z-index:5';
+    bar.innerHTML = `<button id="qp-prev">← Prev</button><span id="qp-status"></span><button id="qp-next">Next →</button>
+        <a href="reader.html?id=${bookId}" style="margin-left:1rem;font-size:.8rem">📖 Full reader</a>`;
+    viewer.appendChild(bar);
+
+    const img = document.createElement('img');
+    img.style.cssText = 'max-width:min(900px,100%);width:100%;height:auto;display:block;margin:0 auto;box-shadow:0 2px 12px rgba(0,0,0,.3)';
+    viewer.appendChild(img);
+
+    function saveProgress() {
+        const pct = totalPages > 1 ? Math.round((page / (totalPages - 1)) * 100) : 100;
+        BC.put('/progress/' + bookId, { position: String(page), percentage: pct }).catch(() => {});
+    }
+
+    function render() {
+        img.src = '/api/v1/books/' + bookId + '/pdf-page/' + page;
+        document.getElementById('qp-status').textContent = `Page ${page + 1} / ${totalPages}`;
+        document.getElementById('qp-prev').disabled = page <= 0;
+        document.getElementById('qp-next').disabled = page >= totalPages - 1;
+        log(`Page ${page + 1} / ${totalPages}`);
+        saveProgress();
+    }
+
+    document.getElementById('qp-prev').onclick = () => { if (page > 0) { page--; render(); } };
+    document.getElementById('qp-next').onclick = () => { if (page < totalPages - 1) { page++; render(); } };
+    document.addEventListener('keydown', e => {
+        if (e.key === 'ArrowLeft' && page > 0) { page--; render(); }
+        if (e.key === 'ArrowRight' && page < totalPages - 1) { page++; render(); }
+    });
+
+    render();
+}
+
 async function initPdfViewer(bookId, pdfFile) {
     log('Loading PDF...');
     const viewer = document.getElementById('viewer');

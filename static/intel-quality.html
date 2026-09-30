@@ -1,14 +1,69 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BrainyCat — Quality</title>
-<style>:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6}*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:var(--bg);color:var(--text)}header{background:var(--surface);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border)}header a{color:var(--muted);text-decoration:none}header h2{flex:1}.container{max-width:900px;margin:0 auto;padding:1.5rem}.card{background:var(--surface);border-radius:8px;padding:.6rem 1rem;margin-bottom:.4rem}.card .title{font-weight:600;font-size:.85rem}.card .detail{font-size:.8rem;color:var(--muted)}.tag{display:inline-block;font-size:.65rem;padding:.1rem .3rem;border-radius:3px;background:#854d0e;color:#fbbf24;margin-right:.2rem}.empty{color:var(--muted);font-style:italic;padding:2rem;text-align:center}</style></head><body>
+<style>:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6}*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:var(--bg);color:var(--text)}header{background:var(--surface);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border)}header a{color:var(--muted);text-decoration:none}header h2{flex:1}.container{max-width:900px;margin:0 auto;padding:1.5rem}.card{background:var(--surface);border-radius:8px;padding:.6rem 1rem;margin-bottom:.4rem;display:flex;align-items:center;gap:.8rem;flex-wrap:wrap}.card .info{flex:1;min-width:180px}.card .title{font-weight:600;font-size:.85rem}.card .detail{font-size:.8rem;color:var(--muted)}.tag{display:inline-block;font-size:.65rem;padding:.1rem .3rem;border-radius:3px;background:#854d0e;color:#fbbf24;margin-right:.2rem}.empty{color:var(--muted);font-style:italic;padding:2rem;text-align:center}.actions{display:flex;gap:.4rem;flex-wrap:wrap}.actions button{font-size:.75rem;padding:.3rem .6rem;border-radius:6px;border:1px solid var(--border);background:#0f172a;color:var(--text);cursor:pointer}.actions button:hover{background:var(--border)}.actions button.danger{color:#fca5a5;border-color:#7f1d1d}.actions button.danger:hover{background:#7f1d1d}</style></head><body>
 <header><a href="fix-library.html">← Fix Library</a><h2>🔍 Quality Issues</h2><div id="bc-nav"></div></header>
 <script src="nav.js"></script>
 <div class="container" id="list">Loading...</div>
 <script src="api.js"></script>
 <script>
+function esc(s){return (s??'').toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
 async function load(){
     const items=await BC.get('/intelligence/quality');
     if(!items.length){document.getElementById('list').innerHTML='<div class="empty">All books pass quality checks ✓</div>';return;}
-    document.getElementById('list').innerHTML=items.map(q=>`<div class="card"><div class="title">${q.title}</div><div class="detail">${q.issues.map(i=>`<span class="tag">${i}</span>`).join('')} · ${q.format}</div></div>`).join('');
+    document.getElementById('list').innerHTML=items.map(q=>`
+      <div class="card">
+        <div class="info">
+          <div class="title">${esc(q.title)}</div>
+          <div class="detail">${q.issues.map(i=>`<span class="tag">${esc(i)}</span>`).join('')} · ${esc(q.format)}</div>
+        </div>
+        <div class="actions">
+          <button onclick="openBook('${q.id}')">📖 Open</button>
+          <button onclick="editMetadata('${q.id}','${esc(q.title).replace(/'/g,"\\'")}','${esc(q.format)}')">✏️ Edit</button>
+          <button class="danger" onclick="deleteBook('${q.id}')">🗑 Delete</button>
+        </div>
+      </div>`).join('');
 }
+
+function openBook(id){
+    // quick=1: server-rendered page images, one at a time — for browsing/confirming a book here,
+    // not the full pdf.js reader (which fetches the whole file client-side up front). No-op for
+    // non-PDF formats (reader.html ignores ?quick for epub/mobi).
+    window.open('/static/reader.html?id='+id+'&quick=1', '_blank');
+}
+
+function showPdfPagePreview(id){
+    // A few server-rendered page images (GET /books/{id}/pdf-page/{n}) so there's something to
+    // look at while fixing a bad title — browsing a few pages is usually enough to identify a
+    // book. Stays visible behind prompt() since prompt() only blocks JS, not painted content.
+    const box=document.createElement('div');
+    box.id='pdf-page-preview';
+    box.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;gap:.6rem;padding:1rem;overflow:auto';
+    box.innerHTML=[0,1,2].map(n=>`<img src="/api/v1/books/${id}/pdf-page/${n}" style="max-height:85vh;max-width:30vw;border:2px solid #fff;background:#fff" onerror="this.style.display='none'">`).join('');
+    document.body.appendChild(box);
+    return box;
+}
+function removePdfPagePreview(box){ if(box) box.remove(); }
+
+async function editMetadata(id,currentTitle,format){
+    const previewBox=format==='pdf'?showPdfPagePreview(id):null;
+    const title=prompt('Title:',currentTitle||'');
+    if(title===null){removePdfPagePreview(previewBox);return;}
+    const author=prompt('Author (leave blank to skip):','');
+    if(author===null){removePdfPagePreview(previewBox);return;}
+    const isbn=prompt('ISBN (leave blank to skip):','');
+    removePdfPagePreview(previewBox);
+    if(isbn===null)return;
+    const r=await BC.post('/books/'+id+'/override',{title:title||null,author:author||null,isbn:isbn||null});
+    if(r.error){alert('Failed: '+r.error);return;}
+    load();
+}
+
+async function deleteBook(id){
+    if(!confirm('Delete this book permanently? This cannot be undone.'))return;
+    const r=await BC.del('/books/'+id);
+    if(r&&r.error){alert('Failed: '+r.error);return;}
+    load();
+}
+
 load();
 </script></body></html>

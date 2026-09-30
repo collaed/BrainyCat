@@ -29,6 +29,7 @@ class Candidate:
 
 
 def _verify_isbn13(isbn: str) -> bool:
+    """Check an ISBN-13's check digit. Internal helper used only by `to_isbn13` in this file."""
     try:
         total = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(isbn[:12]))
         return (10 - total % 10) % 10 == int(isbn[12])
@@ -37,6 +38,7 @@ def _verify_isbn13(isbn: str) -> bool:
 
 
 def _verify_isbn10(isbn: str) -> bool:
+    """Check an ISBN-10's check digit. Internal helper used only by `to_isbn13` in this file."""
     # Duplicated from isbn.py rather than imported: isbn.py imports this module for `decide()`,
     # and these five-line checksum functions aren't worth a shared-module split to avoid the cycle.
     try:
@@ -95,6 +97,8 @@ def norm_title(s: str) -> str:
 
 
 def same_title(a: str, b: str) -> bool:
+    """Fuzzy title equality: normalized containment, or a similarity ratio for longer strings.
+    Used by `reject_shared` in this file and by `verify` below."""
     a, b = norm_title(a), norm_title(b)
     if not a or not b:
         return False
@@ -145,6 +149,8 @@ class Record:
 
 
 def _surnames(names: list[str]) -> set[str]:
+    """Extract normalized surnames from a list of author names. Internal helper used only by
+    `authors_overlap` in this file."""
     out: set[str] = set()
     for n in names:
         toks = [t for t in norm_title(n.split(",")[0] if "," in n else n).split() if len(t) > 2]

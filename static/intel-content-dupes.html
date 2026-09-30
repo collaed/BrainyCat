@@ -14,10 +14,16 @@ header button{padding:.4rem .8rem;border-radius:6px;border:none;cursor:pointer;f
 .card .meta{font-size:.8rem;color:var(--muted)}
 .card .bar{height:4px;background:var(--border);border-radius:2px;margin:.4rem 0;overflow:hidden}
 .card .bar .fill{height:100%;border-radius:2px;transition:width .3s}
-.card .actions{display:flex;gap:.4rem;margin-top:.5rem}
+.card .actions{display:flex;gap:.4rem;margin-top:.5rem;flex-wrap:wrap}
 .card .actions button{padding:.3rem .6rem;border-radius:5px;border:none;cursor:pointer;font-size:.78rem;color:#fff}
-.ba{background:var(--success)}.bd{background:var(--border);color:var(--muted)}.bl{background:var(--accent)}
+.ba{background:var(--success)}.bd{background:var(--border);color:var(--muted)}.bl{background:var(--accent)}.bx{background:var(--danger)}
 .empty{color:var(--muted);font-style:italic;padding:2rem;text-align:center}
+.sidebadges{font-size:.7rem;color:var(--muted);margin-top:.15rem}
+.badge{display:inline-block;padding:.05rem .35rem;border-radius:3px;background:var(--border);margin-right:.2rem}
+.badge.lossy{background:#7f1d1d;color:#fca5a5}
+.reco{font-size:.78rem;margin-top:.4rem;padding:.35rem .5rem;border-radius:5px;background:rgba(59,130,246,.12);color:#93c5fd}
+.controls{display:flex;gap:.5rem;align-items:center;margin-bottom:1rem}
+.controls select{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.3rem .5rem;font-size:.8rem}
 </style></head><body>
 <header>
 <a href="fix-library.html">← Fix Library</a><h2>📝 Content Duplicates</h2>
@@ -28,34 +34,66 @@ header button{padding:.4rem .8rem;border-radius:6px;border:none;cursor:pointer;f
 <script src="nav.js"></script>
 <div class="container">
 <div class="status" id="status">Loading...</div>
+<div class="controls">
+  <label style="font-size:.8rem;color:var(--muted)">Sort by</label>
+  <select id="sort" onchange="render()">
+    <option value="confidence-desc">Most likely duplicate first</option>
+    <option value="confidence-asc">Least likely first (needs review)</option>
+    <option value="space-desc">Most disk space to reclaim first</option>
+  </select>
+</div>
 <div id="matches"></div>
 </div>
 <script src="api.js"></script>
 <script>
+function esc(s){return (s??'').toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function fmtSize(n){if(!n)return '0 B';const u=['B','KB','MB','GB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return n.toFixed(1)+' '+u[i]}
+
+let allMatches = [];
+
 async function load(){
     const [status, matches] = await Promise.all([BC.get('/fingerprints/status'), BC.get('/fingerprints/matches')]);
     document.getElementById('status').innerHTML = `
         <strong>${status.fingerprinted}</strong> books fingerprinted ·
         <strong>${status.pending_fingerprint}</strong> pending ·
         <strong>${status.pending_matches}</strong> content matches found
-        <br><span style="font-size:.75rem">Background process computes fingerprints and compares every 30s</span>
+        <br><span style="font-size:.75rem">Background process computes fingerprints and compares every 20s</span>
     `;
+    allMatches = matches;
+    render();
+}
+
+function render(){
+    const sort = document.getElementById('sort').value;
+    const matches = [...allMatches];
+    if (sort === 'confidence-asc') matches.sort((a,b)=>a.overlap_pct-b.overlap_pct);
+    else if (sort === 'space-desc') matches.sort((a,b)=>b.space_saved_bytes-a.space_saved_bytes);
+    else matches.sort((a,b)=>b.overlap_pct-a.overlap_pct);
+
     const el = document.getElementById('matches');
     if (!matches.length) { el.innerHTML = '<div class="empty">No content duplicates found yet. Click "Compute Fingerprints" then "Find Duplicates".</div>'; return; }
     el.innerHTML = matches.map(m => {
         const color = m.overlap_pct >= 70 ? 'var(--danger)' : m.overlap_pct >= 50 ? 'var(--warn)' : 'var(--accent)';
+        const dropId = m.recommended_keep === 'a' ? m.book_b : m.book_a;
+        const dropLabel = m.recommended_keep === 'a' ? 'B' : 'A';
         return `<div class="card">
             <div class="titles">
-                <span class="t">${m.title_a}</span>
+                <span class="t">${esc(m.title_a)}</span>
                 <span class="vs">↔</span>
-                <span class="t">${m.title_b}</span>
+                <span class="t">${esc(m.title_b)}</span>
             </div>
             <div class="bar"><div class="fill" style="width:${m.overlap_pct}%;background:${color}"></div></div>
             <div class="meta">
                 ${m.overlap_pct}% content overlap · ${m.matching_samples}/${m.total_samples} samples match ·
-                ${(m.authors_a||[]).join(', ')} / ${(m.authors_b||[]).join(', ')}
+                ${esc((m.authors_a||[]).join(', '))} / ${esc((m.authors_b||[]).join(', '))}
             </div>
+            <div class="sidebadges">
+                A: ${(m.formats_a||[]).map(f=>`<span class="badge">${esc(f)}</span>`).join('')}${m.is_lossy_a?'<span class="badge lossy">no text layer</span>':''} · ${fmtSize(m.size_a)}
+                &nbsp;&nbsp; B: ${(m.formats_b||[]).map(f=>`<span class="badge">${esc(f)}</span>`).join('')}${m.is_lossy_b?'<span class="badge lossy">no text layer</span>':''} · ${fmtSize(m.size_b)}
+            </div>
+            <div class="reco">💡 ${esc(m.recommendation)} — reclaims ${fmtSize(m.space_saved_bytes)}</div>
             <div class="actions">
+                <button class="bx" onclick="dropLoser('${m.id}','${dropId}','${dropLabel}',this)">🗑 Apply: Delete ${dropLabel}</button>
                 <button class="ba" onclick="resolve('${m.id}','confirmed',this)">✓ Confirm Duplicate</button>
                 <button class="bl" onclick="resolve('${m.id}','linked',this)">🔗 Link as Editions</button>
                 <button class="bd" onclick="resolve('${m.id}','dismissed',this)">✕ Not a Duplicate</button>
@@ -63,11 +101,22 @@ async function load(){
         </div>`;
     }).join('');
 }
+
 async function resolve(id, action, btn) {
     btn.disabled = true; btn.textContent = '⏳';
     await BC.post('/fingerprints/matches/' + id + '/' + action);
     btn.closest('.card').remove();
 }
+
+async function dropLoser(matchId, bookId, label, btn) {
+    if (!confirm(`Delete copy ${label} permanently? This cannot be undone.`)) return;
+    btn.disabled = true; btn.textContent = '⏳';
+    const r = await BC.del('/books/' + bookId);
+    if (r && r.error) { alert('Failed: ' + r.error); btn.disabled = false; btn.textContent = '🗑 Apply: Delete ' + label; return; }
+    await BC.post('/fingerprints/matches/' + matchId + '/confirmed');
+    btn.closest('.card').remove();
+}
+
 async function compute(btn) { btn.disabled=true;btn.textContent='⏳';const r=await BC.post('/fingerprints/compute');btn.textContent='✅ '+r.computed+' done';setTimeout(()=>{btn.textContent='🔍 Compute';btn.disabled=false;load();},2000); }
 async function findDupes(btn) { btn.disabled=true;btn.textContent='⏳';const r=await BC.post('/fingerprints/find-duplicates');btn.textContent='✅ '+r.new_matches+' found';setTimeout(()=>{btn.textContent='🔎 Find';btn.disabled=false;load();},2000); }
 load();

@@ -27,9 +27,11 @@
   const style = document.createElement("style");
   style.textContent = `
     #bc-nav{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap}
-    #bc-nav a{font-size:.85rem;text-decoration:none;padding:.35rem .7rem;border-radius:6px;color:inherit;opacity:.75}
+    #bc-nav a{font-size:.85rem;text-decoration:none;padding:.35rem .7rem;border-radius:6px;color:inherit;opacity:.75;white-space:nowrap}
     #bc-nav a:hover{opacity:1;background:rgba(128,128,128,.15)}
     #bc-nav a.active{opacity:1;font-weight:600;background:rgba(128,128,128,.2)}
+    /* Reserve room for the "N incoming" variant so the async count update doesn't reflow the bar */
+    #incoming-link{display:inline-block;min-width:9.5rem;text-align:center}
   `;
   document.head.appendChild(style);
 })();

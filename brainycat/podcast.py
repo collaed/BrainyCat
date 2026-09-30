@@ -12,6 +12,10 @@ from brainycat.db import execute, fetch_all, fetch_one
 
 
 async def create_feed(book_id: str, user_id: str, schedule: str = "daily", release_time: str = "08:00") -> dict[str, Any]:
+    """Create a drip-release podcast feed for an audiobook's chapters.
+
+    Called by POST /api/v1/books/{book_id}/podcast-feed (brainycat/routes/books.py).
+    """
     fid = uuid4()
     await execute(
         "INSERT INTO podcast_feeds (id, book_id, user_id, schedule, release_time) VALUES ($1,$2,$3,$4,$5)",
@@ -25,6 +29,10 @@ async def create_feed(book_id: str, user_id: str, schedule: str = "daily", relea
 
 
 async def get_rss(feed_id: str) -> Response:
+    """Render the RSS XML for a podcast feed, releasing chapters on schedule up to today.
+
+    Called by GET /api/v1/feeds/{feed_id}/rss (brainycat/routes/social.py), fetched by podcast clients.
+    """
     feed = await fetch_one("SELECT * FROM podcast_feeds WHERE id = $1", UUID(feed_id))
     if not feed:
         return Response(content="Feed not found", status_code=404)

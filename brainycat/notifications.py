@@ -22,8 +22,10 @@ async def send_notification(message: str, recipient: str = "") -> dict[str, Any]
 
 
 async def notify_book_added(title: str) -> None:
+    """Send a Signal notification that a new book was added. No callers currently in the repo."""
     await send_notification(f"📚 New book added to BrainyCat: {title}")
 
 
 async def notify_job_complete(job_type: str, title: str) -> None:
+    """Send a Signal notification that a background job finished. No callers currently in the repo."""
     await send_notification(f"✅ {job_type} complete: {title}")

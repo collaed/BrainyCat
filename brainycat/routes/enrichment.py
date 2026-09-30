@@ -16,31 +16,37 @@ router = APIRouter(prefix="/api/v1", tags=["enrichment"])
 
 @router.get("/intelligence/quality")
 async def intel_quality(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List books with low metadata quality scores. GET, used by intel-quality.html and fix-library.html."""
     return await intelligence.quality_report()
 
 
 @router.get("/intelligence/series-gaps")
 async def intel_gaps(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List series with missing volume numbers. GET, used by intel-series.html and fix-library.html."""
     return await intelligence.series_suggestions()
 
 
 @router.get("/intelligence/duplicates")
 async def intel_dupes(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List candidate duplicate books by metadata similarity. GET, used by intel-dupes.html and fix-library.html."""
     return await intelligence.find_duplicates()
 
 
 @router.get("/intelligence/author-suggestions")
 async def intel_authors(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List suggested author-name merges/fixes. GET, used by intel-authors.html and fix-library.html."""
     return await intelligence.author_suggestions()
 
 
 @router.post("/intelligence/apply-series")
 async def intel_apply_series(body: CreateSeriesBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Create a series and attach the given books to it. POST, used by intel-series.html."""
     return await intelligence.apply_create_series(body.series_name, body.book_ids)
 
 
 @router.post("/intelligence/merge-authors")
 async def intel_merge(body: MergeAuthorsBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Merge one author record into another, reassigning their books. POST, used by intel-authors.html."""
     return await intelligence.apply_merge_authors(body.keep_id, body.merge_id)
 
 
@@ -54,6 +60,7 @@ async def intel_compound_authors(_u: Any = Depends(get_current_user)) -> list[di
 
 @router.post("/intelligence/compound-authors/{author_id}/split")
 async def intel_split_author(author_id: str, body: dict[str, Any], _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Split a compound author record into the given separate authors. POST; no frontend caller found in static/*.html."""
     from brainycat.author_names import apply_compound_cleanup
 
     return await apply_compound_cleanup(author_id, body["split_into"])
@@ -61,11 +68,13 @@ async def intel_split_author(author_id: str, body: dict[str, Any], _u: Any = Dep
 
 @router.post("/intelligence/link-duplicate")
 async def intel_link_dup(body: LinkDuplicateBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Record a relationship (e.g. duplicate/edition-of) between two books. POST, used by intel-dupes.html."""
     return await intelligence.apply_link_duplicate(body.book_a_id, body.book_b_id, body.link_type)
 
 
 @router.post("/intelligence/batch")
 async def intel_batch(body: BatchActionsBody, _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Apply a list of intelligence actions (merges, links, etc.) in one call. POST; no frontend caller found in static/*.html."""
     return await intelligence.apply_batch(body.actions)
 
 
@@ -87,6 +96,7 @@ async def content_dupes(_u: Any = Depends(get_current_user)) -> list[dict[str, A
 
 @router.post("/fingerprints/compute")
 async def compute_fps(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Compute content fingerprints for a batch of unfingerprinted books. POST (admin), used by efficiency.html and intel-content-dupes.html."""
     from brainycat.fingerprints import compute_all_fingerprints
 
     return await compute_all_fingerprints(batch_size=50)
@@ -94,6 +104,7 @@ async def compute_fps(_a: Any = Depends(require_admin)) -> dict[str, Any]:
 
 @router.post("/fingerprints/find-duplicates")
 async def find_fp_dupes(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Scan fingerprints for a batch of books to find content-level duplicates. POST (admin), used by intel-content-dupes.html."""
     from brainycat.fingerprints import find_duplicates_by_content
 
     return await find_duplicates_by_content(batch_size=100)
@@ -101,6 +112,7 @@ async def find_fp_dupes(_a: Any = Depends(require_admin)) -> dict[str, Any]:
 
 @router.get("/fingerprints/matches")
 async def get_fp_matches(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List pending content-fingerprint duplicate matches. GET, used by intel-content-dupes.html."""
     from brainycat.fingerprints import get_duplicate_matches
 
     return await get_duplicate_matches()
@@ -108,6 +120,7 @@ async def get_fp_matches(_u: Any = Depends(get_current_user)) -> list[dict[str, 
 
 @router.post("/fingerprints/matches/{match_id}/{action}")
 async def resolve_fp_match(match_id: str, action: str, _u: Any = Depends(get_current_user)) -> dict[str, bool]:
+    """Confirm or dismiss a pending fingerprint duplicate match. POST, used by intel-content-dupes.html."""
     from brainycat.fingerprints import resolve_match
 
     return await resolve_match(match_id, action)
@@ -115,6 +128,7 @@ async def resolve_fp_match(match_id: str, action: str, _u: Any = Depends(get_cur
 
 @router.get("/fingerprints/status")
 async def fp_status(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Report fingerprinting and duplicate-match progress counts. GET, used by intel-content-dupes.html."""
     total = await db.fetch_one("SELECT count(*) as n FROM book_fingerprints")
     pending_fp = await db.fetch_one("""
         SELECT count(*) as n FROM books b JOIN book_files bf ON bf.book_id = b.id
@@ -137,6 +151,7 @@ async def fp_status(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
 
 @router.post("/isbn/extract")
 async def extract_isbns(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Extract ISBNs from a batch of books lacking one. POST (admin), used by efficiency.html."""
     from brainycat.isbn import batch_extract_isbns
 
     return await batch_extract_isbns(limit=100)
@@ -266,6 +281,7 @@ async def efficiency_dashboard(_u: Any = Depends(get_current_user)) -> dict[str,
 
 @router.post("/embeddings/generate")
 async def gen_embeddings(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Generate vector embeddings for a batch of books lacking them. POST (admin); no frontend caller found in static/*.html."""
     from brainycat.embeddings import embed_all_books
 
     return await embed_all_books(limit=100)
@@ -273,6 +289,7 @@ async def gen_embeddings(_a: Any = Depends(require_admin)) -> dict[str, Any]:
 
 @router.post("/embeddings/reindex")
 async def reindex_embeddings(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Rebuild the embeddings vector index from scratch. POST (admin); no frontend caller found in static/*.html."""
     from brainycat.embeddings import reindex_all
 
     return await reindex_all()
@@ -283,6 +300,7 @@ async def reindex_embeddings(_a: Any = Depends(require_admin)) -> dict[str, Any]
 
 @router.get("/sources/coverage")
 async def source_coverage(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Report how many books each enrichment source has contributed data to. GET; no frontend caller found in static/*.html."""
     from brainycat.aggregator import library_source_coverage
 
     return await library_source_coverage()
@@ -293,6 +311,7 @@ async def source_coverage(_u: Any = Depends(get_current_user)) -> dict[str, Any]
 
 @router.get("/enrichment/open-library-enhanced")
 async def ol_enhanced(title: str = Query(""), isbn: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Look up a book via Open Library's Works+Ratings API by title or ISBN. GET; no frontend caller found in static/*.html."""
     from brainycat.sources.open_library_enhanced import search_enhanced
 
     return await search_enhanced(title=title or None, isbn=isbn or None) or {}
@@ -300,6 +319,7 @@ async def ol_enhanced(title: str = Query(""), isbn: str = Query(""), _u: Any = D
 
 @router.get("/enrichment/viaf")
 async def viaf_search(name: str = Query(""), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Search VIAF for author authority records by name. GET; no frontend caller found in static/*.html."""
     from brainycat.sources.authority import search_viaf
 
     return await search_viaf(name)
@@ -307,6 +327,7 @@ async def viaf_search(name: str = Query(""), _u: Any = Depends(get_current_user)
 
 @router.get("/enrichment/inventaire")
 async def inventaire_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Search Inventaire (Wikidata-backed) for book metadata. GET; no frontend caller found in static/*.html."""
     from brainycat.sources.authority import search_inventaire
 
     return await search_inventaire(q)
@@ -314,6 +335,7 @@ async def inventaire_search(q: str = Query(""), _u: Any = Depends(get_current_us
 
 @router.get("/enrichment/bookbrainz")
 async def bookbrainz_search(q: str = Query(""), _u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Search BookBrainz for book metadata and identifiers. GET; no frontend caller found in static/*.html."""
     from brainycat.sources.authority import search_bookbrainz
 
     return await search_bookbrainz(q)
@@ -385,6 +407,7 @@ async def library_health(_u: Any = Depends(get_current_user)) -> dict[str, Any]:
 
 @router.get("/intelligence/exact-duplicates")
 async def exact_duplicates(_u: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """List books that are exact content duplicates. GET; no frontend caller found in static/*.html."""
     from brainycat.fingerprints import find_exact_duplicates
 
     return await find_exact_duplicates()
@@ -395,6 +418,7 @@ async def exact_duplicates(_u: Any = Depends(get_current_user)) -> list[dict[str
 
 @router.get("/enrichment/storygraph")
 async def storygraph_search(title: str = Query(""), author: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search The StoryGraph for a book's reader stats by title/author. GET; no frontend caller found in static/*.html."""
     from brainycat.sources.social_reads import search_storygraph
 
     return await search_storygraph(title, author) or {}
@@ -402,6 +426,7 @@ async def storygraph_search(title: str = Query(""), author: str = Query(""), _u:
 
 @router.get("/enrichment/hardcover")
 async def hardcover_search(title: str = Query(""), author: str = Query(""), _u: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Search Hardcover for a book's reader stats by title/author. GET; no frontend caller found in static/*.html."""
     from brainycat.sources.social_reads import search_hardcover
 
     return await search_hardcover(title, author) or {}
@@ -409,6 +434,7 @@ async def hardcover_search(title: str = Query(""), author: str = Query(""), _u: 
 
 @router.post("/intelligence/fix-titles")
 async def fix_titles(_a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Run a cleanup pass normalizing malformed book titles. POST (admin); no frontend caller found in static/*.html."""
     from brainycat.title_cleanup import run_title_cleanup_cycle
 
     return await run_title_cleanup_cycle()

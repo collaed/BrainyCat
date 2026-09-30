@@ -232,6 +232,7 @@ def _convert_table(match: re.Match) -> str:
 
 
 def available_converters() -> dict[str, bool]:
+    """Report which PDF conversion backends are installed. Called by `brainycat.routes.media.pdf_converters` (GET /api/v1/pdf-converters)."""
     result = {"ebook-convert": shutil.which("ebook-convert") is not None}
     try:
         import pdf_craft  # noqa: F401

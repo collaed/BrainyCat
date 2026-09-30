@@ -7,24 +7,33 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from brainycat.db import execute, fetch_all, fetch_one
+from brainycat.title_confidence import is_unresolved_title
 
 # In-memory cache for suggestions not yet acted upon
 _cache: dict[str, Any] = {}
 
 
 def _get_cached(key: str) -> Any:
+    """Return a cached suggestion list, or None if not cached. Internal helper used by this module."""
     return _cache.get(key)
 
 
 def _set_cached(key: str, value: Any) -> None:
+    """Store a suggestion list in the in-memory cache. Internal helper used by this module."""
     _cache[key] = value
 
 
 def _clear_cached(key: str) -> None:
+    """Invalidate a cached suggestion list, e.g. after an action changes the underlying data."""
     _cache.pop(key, None)
 
 
 async def quality_report() -> list[dict[str, Any]]:
+    """Flag books with unresolved titles, low bitrate, or missing chapters.
+
+    Called by GET /api/v1/intelligence/quality (routes/enrichment.py), used by
+    intel-quality.html and fix-library.html.
+    """
     rows = await fetch_all("""
         SELECT b.id, b.title, bf.format, bf.bitrate, bf.has_chapters, bf.file_size
         FROM books b JOIN book_files bf ON bf.book_id = b.id ORDER BY b.title
@@ -32,12 +41,15 @@ async def quality_report() -> list[dict[str, Any]]:
     issues = []
     for r in rows:
         bi = []
+        if is_unresolved_title(r["title"]):
+            bi.append("unresolved_title")
         if r["format"] in ("mp3", "m4b", "m4a") and r["bitrate"] and r["bitrate"] < 64000:
             bi.append("low_bitrate")
         if r["format"] in ("mp3", "m4b") and not r["has_chapters"]:
             bi.append("no_chapters")
         if bi:
             issues.append({"id": str(r["id"]), "title": r["title"], "format": r["format"], "issues": bi})
+    issues.sort(key=lambda i: 0 if "unresolved_title" in i["issues"] else 1)
     return issues
 
 
@@ -62,6 +74,12 @@ async def find_duplicates() -> list[dict[str, Any]]:
     """)
 
     books = [dict(r) for r in rows]
+    # Precompute once per book, not per pair — this loop is O(n^2) and _normalize() does several
+    # regex substitutions, so recomputing it ~2x per pair (instead of once per book) turns a few
+    # thousand books into tens of millions of redundant regex calls.
+    for bk in books:
+        bk["_norm_title"] = _normalize(bk["title"])
+        bk["_norm_authors"] = {_normalize(x) for x in (bk["authors"] or [])}
     dupes = []
     seen = set()
 
@@ -75,8 +93,8 @@ async def find_duplicates() -> list[dict[str, Any]]:
             score = 0
 
             # 1) Title similarity (pg_trgm already computed, but we do it in Python for speed)
-            title_a = _normalize(a["title"])
-            title_b = _normalize(b["title"])
+            title_a = a["_norm_title"]
+            title_b = b["_norm_title"]
             if title_a == title_b:
                 score += 50
                 signals.append("exact_title")
@@ -90,9 +108,7 @@ async def find_duplicates() -> list[dict[str, Any]]:
                 continue  # Skip if titles aren't even close
 
             # 2) Same author
-            authors_a = {_normalize(x) for x in (a["authors"] or [])}
-            authors_b = {_normalize(x) for x in (b["authors"] or [])}
-            if authors_a & authors_b:
+            if a["_norm_authors"] & b["_norm_authors"]:
                 score += 25
                 signals.append("same_author")
 
@@ -197,6 +213,19 @@ async def series_suggestions() -> list[dict[str, Any]]:
     """)
     for ab in author_books:
         books = [_json.loads(b) if isinstance(b, str) else b for b in ab["books"]]
+
+        # Collapse near-duplicate titles within this author's group first — the same book
+        # re-uploaded/re-sourced under slightly different filenames is not a second volume of a
+        # series (this is find_duplicates()'s anti-series filter in reverse: an anti-duplicate
+        # filter here, since otherwise a pile of dupes reads as "N books that share words").
+        distinct: list[dict[str, Any]] = []
+        for b in books:
+            nb = _normalize(b["title"])
+            if any(nb == _normalize(d["title"]) or _jaccard(nb.split(), _normalize(d["title"]).split()) > 0.7 for d in distinct):
+                continue
+            distinct.append(b)
+        books = distinct
+
         if len(books) < 2:
             continue
         author_name = ab["author"]
@@ -314,6 +343,11 @@ async def author_suggestions() -> list[dict[str, Any]]:
 
 
 async def apply_create_series(series_name: str, book_ids: list[str]) -> dict[str, Any]:
+    """Create (or reuse) a series and attach the given books to it in order.
+
+    Called by POST /api/v1/intelligence/apply-series (routes/enrichment.py, used by
+    intel-series.html) and internally by apply_batch().
+    """
     sid = uuid4()
     await execute("INSERT INTO series (id, name) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING", sid, series_name)
     row = await fetch_one("SELECT id FROM series WHERE name = $1", series_name)
@@ -326,6 +360,11 @@ async def apply_create_series(series_name: str, book_ids: list[str]) -> dict[str
 
 
 async def apply_merge_authors(keep_id: str, merge_id: str) -> dict[str, Any]:
+    """Reassign one author's books to another and delete the merged author record.
+
+    Called by POST /api/v1/intelligence/merge-authors (routes/enrichment.py, used by
+    intel-authors.html) and internally by apply_batch().
+    """
     await execute(
         """
         UPDATE books_authors SET author_id = $1
@@ -375,10 +414,24 @@ async def apply_batch(actions: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _normalize(s: str) -> str:
-    """Normalize a string for comparison: lowercase, collapse whitespace, handle Last/First."""
+    """Normalize a string for comparison: lowercase, collapse whitespace, handle Last/First.
+
+    Also strips a few trailing noise patterns that are common on raw scraped titles but never
+    carry book identity — a scrape-site suffix, a "(YYYY[, Publisher])" tag, or a "(Nth Edition)"/
+    "(Language Edition)" imprint note — so that two copies of the same book sourced differently
+    (one with the tag, one without, or with a different tag) still normalize to the same string.
+    Deliberately does NOT touch bracket/paren content in general, since series/volume markers like
+    "(Book 2)"/"[Vol. 3]" often live there and must keep distinguishing different books.
+    """
     import re
 
     s = s.lower().strip()
+    s = re.sub(r"[\-\u2013\u2014]\s*libgen\.\w+(\(\d+\))?\s*$", "", s)
+    s = re.sub(r"[\-\u2013\u2014]{0,2}\s*anna.?s archive\s*$", "", s)
+    s = re.sub(r"\[?z-?library\]?\s*$", "", s)
+    s = re.sub(r"\((?:19|20)\d{2}(?:,[^)]*)?\)\s*$", "", s)
+    s = re.sub(r"\((?:\w+\s+)?edition\)\s*$", "", s, flags=re.IGNORECASE)
+    s = s.strip()
     # Handle "Last, First" → "first last" BEFORE stripping punctuation
     if "," in s:
         parts = [p.strip() for p in s.split(",") if p.strip()]

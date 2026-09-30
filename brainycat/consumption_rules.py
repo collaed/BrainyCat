@@ -68,11 +68,13 @@ async def apply_rules(book_id: str, filename: str, title: str = "", author: str 
 
 
 async def list_rules() -> list[dict[str, Any]]:
+    """List all consumption rules. Called by GET /api/v1/rules (routes/admin.py's get_rules)."""
     rows = await fetch_all("SELECT * FROM consumption_rules ORDER BY priority DESC")
     return [dict(r) for r in rows]
 
 
 async def create_rule(name: str, pattern: str, match_field: str, action: str, action_value: str, priority: int = 0) -> dict[str, Any]:
+    """Create a new consumption rule. Called by POST /api/v1/rules (routes/admin.py's create_rule_endpoint)."""
     row = await fetch_one(
         "INSERT INTO consumption_rules (name, pattern, match_field, action, action_value, priority) "
         "VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
@@ -82,5 +84,6 @@ async def create_rule(name: str, pattern: str, match_field: str, action: str, ac
 
 
 async def delete_rule(rule_id: str) -> dict[str, bool]:
+    """Delete a consumption rule. Called by DELETE /api/v1/rules/{rule_id} (routes/admin.py's delete_rule_endpoint)."""
     await execute("DELETE FROM consumption_rules WHERE id = $1", UUID(rule_id))
     return {"ok": True}

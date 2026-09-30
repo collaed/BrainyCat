@@ -17,6 +17,7 @@ from brainycat.isbn import ISBN10_RE, ISBN13_RE, _clean_isbn
 
 
 def _ocr_image(image_path: str, lang: str = "eng+fra") -> str:
+    """Run Tesseract OCR on an image file and return the extracted text; used internally by ocr_cover()."""
     import pytesseract
     from PIL import Image
 
@@ -24,6 +25,7 @@ def _ocr_image(image_path: str, lang: str = "eng+fra") -> str:
 
 
 def _find_isbn(text: str) -> str | None:
+    """Scan OCR'd text for the first checksum-valid ISBN; used internally by ocr_cover()."""
     for pattern in (ISBN13_RE, ISBN10_RE):
         for m in pattern.finditer(text):
             isbn = _clean_isbn(m.group())

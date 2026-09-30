@@ -7,6 +7,7 @@ from brainycat.http_client import get_client
 
 class GoogleTranslateBackend:
     async def translate(self, text: str, source_lang: str, target_lang: str) -> str:
+        """Translate text via Google Translate's public API. Implements TranslationBackend, used by translation.py."""
         client = get_client()
         resp = await client.get(
             "https://translate.googleapis.com/translate_a/single",
@@ -18,4 +19,5 @@ class GoogleTranslateBackend:
         return text
 
     def supported_languages(self) -> list[str]:
+        """List language codes this backend supports. Implements TranslationBackend, used by translation.py."""
         return ["en", "fr", "de", "es", "it", "pt", "nl", "ru", "zh", "ja", "ko", "ar", "hi", "tr"]

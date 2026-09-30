@@ -22,12 +22,15 @@ class BrainyCatPlugin:
     description: str = ""
 
     def on_upload(self, book_id: str, metadata: dict) -> None:
+        """Hook fired after a book is uploaded; override in a plugin subclass."""
         pass
 
     def on_enrich(self, book_id: str, source: str, data: dict) -> None:
+        """Hook fired after a metadata source enriches a book; override in a plugin subclass."""
         pass
 
     def on_delete(self, book_id: str) -> None:
+        """Hook fired after a book is deleted; override in a plugin subclass."""
         pass
 
     def on_schedule(self) -> None:
@@ -86,4 +89,5 @@ def fire_hook(hook: str, **kwargs: Any) -> None:
 
 
 def get_plugins() -> list[dict[str, str]]:
+    """List currently loaded plugins. Called by the GET /api/v1/admin/plugins route handler."""
     return [{"name": p.name, "version": p.version, "description": p.description} for p in _plugins]

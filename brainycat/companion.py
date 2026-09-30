@@ -13,6 +13,10 @@ from brainycat.http_client import get_client
 async def _llm(
     prompt: str, system: str = "You are a helpful book companion. Never reveal spoilers beyond the reader's current position."
 ) -> str:
+    """Call the Intello LLM endpoint and return its reply, or a fallback string on failure.
+
+    Internal helper used by recap(), ask(), and auto_tag() in this module.
+    """
     try:
         client = get_client()
         resp = await client.post(

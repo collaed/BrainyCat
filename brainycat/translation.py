@@ -11,8 +11,13 @@ from brainycat.jobs import create_job, run_in_background, update_job
 
 
 class TranslationBackend(Protocol):
-    async def translate(self, text: str, source_lang: str, target_lang: str) -> str: ...
-    def supported_languages(self) -> list[str]: ...
+    async def translate(self, text: str, source_lang: str, target_lang: str) -> str:
+        """Translate a single piece of text between languages. Implemented by each backend under `brainycat/translators/`."""
+        ...
+
+    def supported_languages(self) -> list[str]:
+        """List the language codes this backend can translate. Implemented by each backend under `brainycat/translators/`."""
+        ...
 
 
 async def translate_book(book_id: str, target_lang: str, backend_name: str = "argos", user_id: str | None = None) -> str:
@@ -20,6 +25,7 @@ async def translate_book(book_id: str, target_lang: str, backend_name: str = "ar
     job_id = await create_job("translate", book_id=book_id, user_id=user_id, params={"target_lang": target_lang, "backend": backend_name})
 
     async def _run() -> None:
+        """Do the actual translation work in the background job started by `translate_book`."""
         file_row = await fetch_one("SELECT * FROM book_files WHERE book_id = $1 AND format = 'epub' LIMIT 1", UUID(book_id))
         if not file_row:
             await update_job(job_id, status="failed", error="No EPUB file")
@@ -146,6 +152,7 @@ def _get_backend(name: str) -> Any:
 
 
 async def list_backends() -> list[dict[str, Any]]:
+    """List the translation backends available to choose from. Called by `brainycat.routes.media.translation_backends` (GET /api/v1/translation/backends)."""
     return [
         {"name": "argos", "label": "Argos Translate (local)", "type": "local"},
         {"name": "deepl", "label": "DeepL API", "type": "cloud"},

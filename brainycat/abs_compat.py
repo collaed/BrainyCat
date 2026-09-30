@@ -171,6 +171,10 @@ async def abs_me(user: Any = Depends(get_current_user)) -> dict:
 
 @router.get("/api/libraries")
 async def abs_libraries(_u: Any = Depends(get_current_user)) -> dict:
+    """List the single "main" library in ABS's shape, so ABS clients see one library.
+
+    GET /compat/abs/api/libraries — called by the ABS mobile app on login.
+    """
     total = await fetch_one("SELECT count(*) as n FROM books")
     return {
         "libraries": [
@@ -197,6 +201,10 @@ async def abs_library_items(
     desc: int = Query(1),
     _u: Any = Depends(get_current_user),
 ) -> dict:
+    """Paginate/sort library items in ABS LibraryItem shape.
+
+    GET /compat/abs/api/libraries/{library_id}/items — called by the ABS mobile app's library browser.
+    """
     offset = page * limit
     order = "DESC" if desc else "ASC"
     sort_col = {"addedAt": "b.created_at", "media.metadata.title": "b.title", "updatedAt": "b.updated_at"}.get(sort, "b.created_at")
@@ -231,6 +239,10 @@ async def abs_library_items(
 
 @router.get("/api/items/{item_id}")
 async def abs_item(item_id: str, _u: Any = Depends(get_current_user)) -> dict:
+    """Fetch a single book with its files in ABS LibraryItem shape.
+
+    GET /compat/abs/api/items/{item_id} — called by the ABS mobile app when opening a book.
+    """
     book = await fetch_one(
         """
         SELECT b.*, array_agg(DISTINCT a.name) FILTER (WHERE a.name IS NOT NULL) as authors,
@@ -254,6 +266,11 @@ async def abs_item(item_id: str, _u: Any = Depends(get_current_user)) -> dict:
 
 @router.get("/api/items/{item_id}/cover")
 async def abs_cover(item_id: str) -> Any:
+    """Serve a book's cover image file, or a 404 JSON error if there is none.
+
+    GET /compat/abs/api/items/{item_id}/cover — requested by the ABS mobile app for cover art;
+    also reused by abs_item_cover() for an alternate path some app versions use.
+    """
     from fastapi.responses import FileResponse
 
     book = await fetch_one("SELECT cover_path FROM books WHERE id = $1", UUID(item_id))
@@ -267,6 +284,10 @@ async def abs_cover(item_id: str) -> Any:
 
 @router.patch("/api/me/progress/{item_id}")
 async def abs_update_progress(item_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict:
+    """Upsert reading/listening progress for a book from an ABS client.
+
+    PATCH /compat/abs/api/me/progress/{item_id} — sent by the ABS mobile app as playback advances.
+    """
     from brainycat.db import execute
 
     body = await request.json()
@@ -290,6 +311,10 @@ async def abs_update_progress(item_id: str, request: Request, user: Any = Depend
 
 @router.get("/api/me/items-in-progress")
 async def abs_in_progress(user: Any = Depends(get_current_user)) -> dict:
+    """List books the user has started but not finished, in ABS LibraryItem shape.
+
+    GET /compat/abs/api/me/items-in-progress — powers the "Continue" shelf in the ABS mobile app.
+    """
     rows = await fetch_all(
         """
         SELECT b.id, b.title, b.description, b.isbn, b.cover_path, COALESCE(b.language, '') as language,
@@ -365,6 +390,11 @@ async def abs_play(item_id: str, request: Request, user: Any = Depends(get_curre
 
 @router.post("/api/session/{session_id}/sync")
 async def abs_sync_session(session_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict:
+    """Sync playback progress from an active ABS session into reading_progress.
+
+    POST /compat/abs/api/session/{session_id}/sync — sent periodically by the ABS mobile app
+    during playback, following up on abs_play().
+    """
     body = await request.json()
     # Update progress
     item_id = body.get("libraryItemId")
@@ -390,6 +420,10 @@ async def abs_sync_session(session_id: str, request: Request, user: Any = Depend
 
 @router.post("/api/session/{session_id}/close")
 async def abs_close_session(session_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict:
+    """Acknowledge closing a playback session; no state change beyond draining the request body.
+
+    POST /compat/abs/api/session/{session_id}/close — sent by the ABS mobile app when playback stops.
+    """
     _ = await request.body()  # drain
     return {"success": True}
 
@@ -399,6 +433,10 @@ async def abs_close_session(session_id: str, request: Request, user: Any = Depen
 
 @router.post("/api/sleep/report")
 async def abs_sleep_report(request: Request, user: Any = Depends(get_current_user)) -> dict:
+    """Record where playback stopped, for the sleep-timer rewind feature.
+
+    POST /compat/abs/api/sleep/report — called by the StayAwake fork of the ABS mobile app.
+    """
     from brainycat.sleep_fade import report_playback_stop
 
     body = await request.json()
@@ -407,6 +445,10 @@ async def abs_sleep_report(request: Request, user: Any = Depends(get_current_use
 
 @router.get("/api/sleep/rewind/{book_id}")
 async def abs_sleep_rewind(book_id: str, user: Any = Depends(get_current_user)) -> dict:
+    """Suggest a rewind position after a sleep-timer stop, e.g. to recover missed audio.
+
+    GET /compat/abs/api/sleep/rewind/{book_id} — called by the StayAwake fork of the ABS mobile app.
+    """
     from brainycat.sleep_fade import get_rewind_suggestion
 
     return await get_rewind_suggestion(str(user["id"]), book_id)
