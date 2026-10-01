@@ -260,9 +260,9 @@ async def run_calibre_import(path: str = Query(...), _a: Any = Depends(require_a
 async def import_goodreads(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Import a Goodreads CSV export (raw CSV as the request body). POST /api/v1/import/goodreads/csv.
 
-    K4 fix: previously mapped to POST /import/goodreads, which collided with (and was shadowed by /
-    shadowed) the multipart `import_gr` handler above. Moved to a distinct path. Called by the
-    Goodreads-import flow that posts CSV text directly (vs the file-upload variant above).
+    K4 fix: previously mapped to POST /import/goodreads, colliding with the multipart `import_gr`
+    handler above. Starlette matches first-registered, so `import_gr` was live and this was dead;
+    renamed to a distinct path. (No UI calls this yet.)
     """
     from brainycat.goodreads import import_goodreads_csv
 
@@ -1035,8 +1035,9 @@ async def pdf_embed(book_id: str) -> dict[str, Any]:
 async def import_calibre_run_body(body: dict[str, Any] | None = None, _a: Any = Depends(require_admin)) -> dict[str, Any]:
     """Import books from a Calibre library folder. POST /api/v1/import/calibre/import (admin-only).
 
-    K4 fix: previously also mapped to POST /import/calibre, which SHADOWED the detect/stats handler
-    above (FastAPI uses the last-registered route for a duplicate path). Moved to a distinct path and
+    K4 fix: previously also mapped to POST /import/calibre. Starlette matches routes in REGISTRATION
+    ORDER (first wins), so the earlier detect/stats handler was the live one and THIS import handler
+    was dead/unreachable. Moved to a distinct path and
     added the missing admin guard. Called by the admin Calibre-import UI ("Import" button, after the
     detect/stats step). Body: {path, limit}.
     """
@@ -1198,9 +1199,15 @@ async def merge_books_endpoint(body: dict[str, Any] | None = None) -> dict[str, 
 
 
 # ── Goodreads/StoryGraph Import ───────────────────────────────────────────
-@router.post("/import/goodreads")
-async def import_goodreads(body: dict[str, Any] | None = None, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Import from Goodreads/StoryGraph CSV export. Body: {csv: '...'}."""
+@router.post("/import/goodreads/json")
+async def import_goodreads_json(body: dict[str, Any] | None = None, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Import from Goodreads/StoryGraph CSV export. Body: {csv: '...'}. POST /api/v1/import/goodreads/json.
+
+    K4: this and the `/import/goodreads/csv` handler both previously used the bare `/import/goodreads`
+    path. Starlette matches routes in REGISTRATION ORDER (first wins), so the earlier `import_gr`
+    (multipart, line ~45) was the live handler and these two were dead/unreachable. Renamed to
+    distinct paths so all three are reachable. (No UI calls these yet.)
+    """
     body = body or {}
     csv_text = body.get("csv", "")
     if not csv_text:
@@ -1422,8 +1429,12 @@ async def revert_filename(history_id: str, _a: Any = Depends(require_admin)) -> 
 
 
 @router.post("/import/calibre-library")
-async def import_calibre(limit: int = Query(0), _a: Any = Depends(require_admin)) -> dict[str, Any]:
-    """Run a full Calibre library import (up to `limit` books, 0 = no limit). POST /api/v1/import/calibre-library (admin-only)."""
+async def import_calibre_library_full(limit: int = Query(0), _a: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Run a full Calibre library import (up to `limit` books, 0 = no limit). POST /api/v1/import/calibre-library (admin-only).
+
+    K4: renamed from `import_calibre` (a third function of that name → ruff F811). Distinct path, so
+    no routing conflict — only the Python name was clashing with the handlers at lines ~126 and ~1038.
+    """
     from brainycat.calibre_library_import import import_calibre_library
     return await import_calibre_library(limit=limit)
 

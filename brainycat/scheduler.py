@@ -32,17 +32,20 @@ async def start_scheduler() -> None:
         # Disk/mixed
         ("fingerprint", _fingerprint_loop, 20),
         ("format_stack", _format_stack_loop, 300),
-        ("incipit_match", _incipit_match_loop, 600),
+        # NOTE: incipit_match removed from the schedule — brainycat/incipit_match.py is a 5-line stub
+        # (it returned zero counts, i.e. silent false "success" every 600s). The real extraction
+        # helpers in brainycat/incipit.py are kept; re-add the loop once incipit_match is implemented.
         # Housekeeping
         ("log_retention", _log_retention_loop, 86400),
-        # Re-enabled: the modules these call now exist (brainycat.ocr_copyright / cover_phash /
-        # metadata_validator / confidence were previously stubbed-only and removed from this list;
-        # verified each exposes the function its loop calls — process_batch / validate_batch /
-        # compute_batch). See docs/known-issues.md "Four scheduler loops...".
-        ("cover_phash", _cover_phash_loop, 30),
+        # Re-enabled: these two call REAL modules (metadata_validator.validate_batch — 173 lines;
+        # confidence.compute_batch — 324 lines), verified to do actual work.
         ("validation", _validation_loop, 30),
         ("confidence", _confidence_loop, 60),
-        ("ocr_copyright", _ocr_copyright_loop, 15),
+        # NOT scheduled: cover_phash and ocr_copyright are still 5-line stubs that return zero counts.
+        # Scheduling them would make a job report success for work it didn't do (against the CLAUDE.md
+        # convention) and show green on the M10 heartbeat. Their stub functions now raise
+        # NotImplementedError so any accidental call is surfaced, not silently "successful". Re-add
+        # them here once cover_phash.py / ocr_copyright.py are implemented. See docs/known-issues.md.
     ]
     for name, fn, interval in loops:
         task = asyncio.create_task(_supervised(name, fn, interval))

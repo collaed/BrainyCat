@@ -10,7 +10,6 @@ import time
 import psycopg2
 import psycopg2.extras
 
-
 DB_URL = "postgresql://brainycat:brainycat@brainycat-db:5432/brainycat"
 MIN_EPUB_SIZE = 1000  # minimum valid EPUB size in bytes
 
@@ -104,8 +103,8 @@ def run():
 
         # Quick EPUB validity check — must be a zip with mimetype and well-formed XML
         try:
-            import zipfile
             import xml.etree.ElementTree as ET
+            import zipfile
             with zipfile.ZipFile(dst) as zf:
                 names = zf.namelist()
                 if "mimetype" not in names and "META-INF/container.xml" not in names:

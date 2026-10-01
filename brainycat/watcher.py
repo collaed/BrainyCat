@@ -3,11 +3,27 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import re
 
 from brainycat.config import settings
 from brainycat.logging import log
+
+
+async def _fetch_existing_by_hash(original_sha256: str) -> dict | None:
+    """Return the first book_file whose original bytes match this hash, or None.
+
+    Used by both ingest paths (watcher + upload) to skip importing a byte-identical copy of a file
+    already in the library. Keyed on `book_files.original_sha256` (migration 014), the hash of the
+    file as received — before `fix_epub`/writeback modify it — so re-imports and re-downloads of the
+    same original match reliably.
+    """
+    from brainycat.db import fetch_one
+
+    return await fetch_one(
+        "SELECT book_id FROM book_files WHERE original_sha256 = $1 LIMIT 1", original_sha256
+    )
 
 ALLOWED_EXT = {
     ".epub",
@@ -88,6 +104,23 @@ async def _import_file(file_path: str) -> None:
     filename = os.path.basename(file_path)
     ext = os.path.splitext(filename)[1].lower()
 
+    # K6 + duplicate-import guard: hash the ORIGINAL bytes BEFORE anything moves or rewrites the file,
+    # and recover any Anna's Archive MD5 from the filename (before the standardizing rename drops it).
+    # If we already hold a byte-identical copy, skip the import entirely — no book row, no moved file,
+    # no orphan. (Previously the UNIQUE index + a plain INSERT made this fail halfway; 190/399
+    # same-size pairs on fides are byte-identical, so this path is common.)
+    from brainycat.file_hashes import capture_original_hashes, sha256_file
+
+    hashes = capture_original_hashes(file_path, filename)
+    if hashes["original_sha256"]:
+        existing = await _fetch_existing_by_hash(hashes["original_sha256"])
+        if existing:
+            await log.ainfo("watcher_skip_duplicate", file=filename[:60], existing_book=str(existing["book_id"]))
+            # Leave the incoming file in place? No — remove it so it isn't re-detected every cycle.
+            with contextlib.suppress(OSError):
+                os.remove(file_path)
+            return
+
     book_id = uuid4()
     bdir = book_dir(str(book_id))
     os.makedirs(bdir, exist_ok=True)
@@ -96,18 +129,9 @@ async def _import_file(file_path: str) -> None:
     shutil.move(file_path, dst)
     size = os.path.getsize(dst)
 
-    # K6: hash the ORIGINAL bytes BEFORE fix_epub rewrites the file, and recover any Anna's Archive
-    # MD5 from the filename before the standardizing rename drops it. These are the keys LibGen/AA
-    # lookup and cross-user dedup rely on; a post-fix hash would not match.
-    from brainycat.file_hashes import capture_original_hashes
-
-    hashes = capture_original_hashes(dst, filename)
-
     # Fix EPUB
     if ext == ".epub":
         fix_epub(dst)
-
-    from brainycat.file_hashes import sha256_file
 
     current_sha256 = sha256_file(dst)  # of the stored (possibly fixed) file, for integrity checks
 

@@ -114,6 +114,20 @@ async def _ingest_one_file(book_id: str, file_path: str, original_filename: str,
 
     _orig_hashes = capture_original_hashes(file_path, original_filename)
 
+    # Duplicate-import guard: if a byte-identical copy is already in the library, skip cleanly instead
+    # of letting the insert collide (migration 014's index is non-unique, but we still don't want a
+    # second redundant book + file). Remove the just-written upload so it isn't left stranded.
+    if _orig_hashes["original_sha256"]:
+        from brainycat.watcher import _fetch_existing_by_hash
+
+        existing = await _fetch_existing_by_hash(_orig_hashes["original_sha256"])
+        if existing:
+            import contextlib
+
+            with contextlib.suppress(OSError):
+                os.unlink(file_path)
+            return {"warning": "already_in_library", "existing_book": str(existing["book_id"])}
+
     # Auto-fix EPUB issues
     if ext == ".epub":
         try:

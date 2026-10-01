@@ -46,15 +46,20 @@ def upgrade() -> None:
         ADD COLUMN IF NOT EXISTS original_sha256 TEXT,   -- SHA-256 of the bytes as received (immutable)
         ADD COLUMN IF NOT EXISTS current_sha256  TEXT,   -- of the stored file (integrity checks)
         ADD COLUMN IF NOT EXISTS anna_md5        TEXT;   -- MD5 parsed from an Anna's Archive filename
-    -- Cross-user dedup needs a UNIQUE key on the original hash (prevents the concurrent-upload race):
-    CREATE UNIQUE INDEX IF NOT EXISTS book_files_original_sha256_uidx
+    -- Non-UNIQUE index on the original-bytes hash: fast "do we already have this file?" lookups at
+    -- ingest and exact-duplicate grouping. It is deliberately NOT unique yet — a UNIQUE index with
+    -- the current plain INSERTs makes an ordinary duplicate import fail halfway (orphan book row +
+    -- stranded file; 190/399 same-size pairs on fides are byte-identical). Uniqueness is deferred to
+    -- the multi-user milestone, where it arrives together with the ingest_dedup membership path and
+    -- an ON CONFLICT branch. For now, ingest looks the hash up first and skips exact duplicates.
+    CREATE INDEX IF NOT EXISTS book_files_original_sha256_idx
         ON book_files(original_sha256) WHERE original_sha256 IS NOT NULL;
     """)
 
 
 def downgrade() -> None:
     op.execute("""
-    DROP INDEX IF EXISTS book_files_original_sha256_uidx;
+    DROP INDEX IF EXISTS book_files_original_sha256_idx;
     ALTER TABLE book_files
         DROP COLUMN IF EXISTS original_md5,
         DROP COLUMN IF EXISTS original_sha256,

@@ -5,7 +5,6 @@ import json
 import os
 import re
 import subprocess
-import time
 
 import psycopg2
 import psycopg2.extras

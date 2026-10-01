@@ -117,7 +117,7 @@ def run():
             if total_new:
                 print(f"  Grabbed {total_new} new items")
             else:
-                print(f"  Check done, nothing new")
+                print("  Check done, nothing new")
         except Exception as e:
             print(f"Error: {e}")
         time.sleep(CHECK_INTERVAL)

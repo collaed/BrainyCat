@@ -17,7 +17,6 @@ import os
 from typing import Any
 from uuid import UUID
 
-from brainycat import db
 from brainycat.db import execute, fetch_all, fetch_one
 
 # Checkpoint: track last processed book to enable resumption
