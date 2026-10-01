@@ -258,7 +258,9 @@ and `series_suggestions`, `incipit_match`, `organize.organize_after_enrichment` 
 `experimental/file_rename.rename_book_file` (would move/rename summary files), and the two that act
 outside the system: **`writeback.writeback_metadata`** (writes metadata into the summary file) and
 **`contribute.contribute_back`** (submits metadata to **Open Library** — a misidentified summary
-would pollute a public database). A hand-maintained list will drift. Better: one
+would pollute a public database). *Correction (round 4): today `contribute_back` is a dry run — it
+only reads Open Library and records `can_contribute_to_ol`; nothing is submitted. The gate matters
+once the planned writeback (R2.11.18) is built.* A hand-maintained list will drift. Better: one
 `eligible_books(pipeline)` view or helper that every candidate query uses, plus a unit test that
 fails when a pipeline module selects `FROM books` without it. Fold the existing
 `books.is_workbook` flag (migration 002) into `content_type` (`'workbook'`), since it is the same
