@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 from uuid import UUID
@@ -12,6 +13,11 @@ from brainycat.auth import get_current_user
 from brainycat.db import execute, fetch_all, fetch_one
 
 router = APIRouter(prefix="/api/v1/triage", tags=["triage"])
+
+_MARK_VERIFIED_SQL = (
+    "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'::jsonb), "
+    "'{human_verified}', 'true'::jsonb) WHERE id = $1"
+)
 
 
 @router.get("/next")
@@ -106,7 +112,7 @@ async def decide(body: dict[str, Any], user: Any = Depends(get_current_user)) ->
 
     if action == "confirm":
         await execute(
-            "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'::jsonb), '{human_verified}', 'true'::jsonb) WHERE id = $1",
+            _MARK_VERIFIED_SQL,
             book_id,
         )
         return {"ok": True, "action": "confirmed"}
@@ -124,7 +130,7 @@ async def decide(body: dict[str, Any], user: Any = Depends(get_current_user)) ->
         if new_isbn:
             await execute("UPDATE books SET isbn = $1, updated_at = now() WHERE id = $2", new_isbn, book_id)
             await execute(
-                "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'::jsonb), '{human_verified}', 'true'::jsonb) WHERE id = $1",
+                _MARK_VERIFIED_SQL,
                 book_id,
             )
         return {"ok": True, "action": "isbn_fixed"}
@@ -143,7 +149,7 @@ async def decide(body: dict[str, Any], user: Any = Depends(get_current_user)) ->
         book_ids = body.get("book_ids", [])
         for bid in book_ids:
             await execute(
-                "UPDATE books SET extra_metadata = jsonb_set(COALESCE(extra_metadata, '{}'::jsonb), '{human_verified}', 'true'::jsonb) WHERE id = $1",
+                _MARK_VERIFIED_SQL,
                 UUID(bid),
             )
         return {"ok": True, "action": "bulk_confirmed", "count": len(book_ids)}
@@ -186,7 +192,8 @@ async def _get_ol_info(isbn: str) -> dict[str, Any] | None:
         return None
     try:
         from brainycat.ol_local import lookup_isbn
-        r = lookup_isbn(isbn.strip().replace("-", ""))
+        # lookup_isbn is a blocking SQLite query: keep it off the event loop.
+        r = await asyncio.to_thread(lookup_isbn, isbn.strip().replace("-", ""))
         if r:
             return {"title": r.get("title"), "authors": r.get("authors"), "year": r.get("year"), "publisher": r.get("publisher")}
     except Exception:
@@ -201,13 +208,13 @@ def _suggest_title(title: str, filename: str | None) -> str:
     if filename:
         name = filename.rsplit(".", 1)[0]  # remove extension
         # Remove common patterns
-        name = re.sub(r"^Microsoft Word - ", "", name)
-        name = re.sub(r"\s*-\s*(libgen\.li|z-lib|epubBooks).*$", "", name)
-        name = re.sub(r"_", " ", name)
+        name = name.removeprefix("Microsoft Word - ")
+        name = re.split(r"-\s*(?:libgen\.li|z-lib|epubBooks)", name, maxsplit=1)[0].rstrip()
+        name = name.replace("_", " ")
         if len(name) > 5:
             return name.strip()
     # Clean the title itself
-    clean = re.sub(r"^Microsoft Word - ", "", title)
+    clean = title.removeprefix("Microsoft Word - ")
     clean = re.sub(r"\.p65$|\.qxp.*$", "", clean)
-    clean = re.sub(r"\s*-\s*(libgen\.li|freemagazines).*$", "", clean)
+    clean = re.split(r"-\s*(?:libgen\.li|freemagazines)", clean, maxsplit=1)[0].rstrip()
     return clean.strip()

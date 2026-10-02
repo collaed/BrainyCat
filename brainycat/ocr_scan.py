@@ -15,7 +15,7 @@ from brainycat.config import settings
 DB_URL = settings.database_url
 
 ISBN13_RE = re.compile(r"97[89][\d\s\-]{10,17}")
-ISBN10_RE = re.compile(r"(?:ISBN[-:\s]*)?\d[-\s]?\d{2}[-\s]?\d{4,6}[-\s]?\d[-\s]?[\dXx]")
+ISBN10_RE = re.compile(r"(?:ISBN[-:\s]{0,3})?\d[-\s]?\d{2}[-\s]?\d{4,6}[-\s]?\d[-\s]?[\dX]", re.IGNORECASE)
 ISSN_RE = re.compile(r"ISSN\s*:?\s*(\d{4}[-\s]?\d{3}[\dXx])", re.IGNORECASE)
 
 

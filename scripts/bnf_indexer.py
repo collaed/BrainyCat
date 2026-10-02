@@ -111,7 +111,7 @@ def main():
         # Be polite to the endpoint
         time.sleep(1)
 
-    print(f"\nCreating index...")
+    print("\nCreating index...")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_bnf_title ON bnf_isbn(title)")
     conn.commit()
 

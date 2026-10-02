@@ -63,7 +63,7 @@ def extract_characteristics(text: str) -> dict[str, Any]:
         result["longest_sentence"] = longest[:1000]
 
     # 3. Longest words (likely technical/specific terms)
-    words = re.findall(r"[a-zA-ZÀ-ÿ\u00C0-\u024F]{2,}", analysis_text)
+    words = re.findall(r"[a-zA-ZÀ-ɏ]{2,}", analysis_text)
     words_lower = [w.lower() for w in words]
     unique_words = set(words_lower) - STOPWORDS
     longest_words = sorted(unique_words, key=len, reverse=True)[:10]

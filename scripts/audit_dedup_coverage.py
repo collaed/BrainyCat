@@ -26,8 +26,10 @@ async def run_audit():
         sys.exit(1)
 
     report_lines = []
-    report_lines.append("# BrainyCat Coverage Audit — Dedup & Identification Gaps")
-    report_lines.append(f"\n**Generated:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n")
+    report_lines.extend([
+        "# BrainyCat Coverage Audit — Dedup & Identification Gaps",
+        f"\n**Generated:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n",
+    ])
 
     # Total counts
     total = await conn.fetchval("SELECT count(*) FROM books")
@@ -40,11 +42,13 @@ async def run_audit():
             count(*) FILTER (WHERE isbn IS NULL OR isbn = '') as no_isbn
         FROM books
     """)
-    report_lines.append("## 1. ISBN Coverage\n")
-    report_lines.append(f"| Status | Count | % |")
-    report_lines.append(f"|--------|-------|---|")
-    report_lines.append(f"| Has ISBN | {isbn_stats['has_isbn']:,} | {100*isbn_stats['has_isbn']/total:.1f}% |")
-    report_lines.append(f"| Missing ISBN | {isbn_stats['no_isbn']:,} | {100*isbn_stats['no_isbn']/total:.1f}% |")
+    report_lines.extend([
+        "## 1. ISBN Coverage\n",
+        "| Status | Count | % |",
+        "|--------|-------|---|",
+        f"| Has ISBN | {isbn_stats['has_isbn']:,} | {100*isbn_stats['has_isbn']/total:.1f}% |",
+        f"| Missing ISBN | {isbn_stats['no_isbn']:,} | {100*isbn_stats['no_isbn']/total:.1f}% |",
+    ])
 
     # ISBN gaps by storage volume
     isbn_by_storage = await conn.fetch("""
@@ -57,9 +61,11 @@ async def run_audit():
         JOIN book_files bf ON bf.book_id = b.id
         GROUP BY 1 ORDER BY 2 DESC
     """)
-    report_lines.append("\n### ISBN gaps by storage volume\n")
-    report_lines.append("| Volume | Missing ISBN | Total | Gap % |")
-    report_lines.append("|--------|-------------|-------|-------|")
+    report_lines.extend([
+        "\n### ISBN gaps by storage volume\n",
+        "| Volume | Missing ISBN | Total | Gap % |",
+        "|--------|-------------|-------|-------|",
+    ])
     for row in isbn_by_storage:
         pct = 100 * row['no_isbn'] / row['total'] if row['total'] > 0 else 0
         report_lines.append(f"| `{row['storage']}` | {row['no_isbn']:,} | {row['total']:,} | {pct:.1f}% |")
@@ -73,9 +79,11 @@ async def run_audit():
         JOIN book_files bf ON bf.book_id = b.id
         GROUP BY 1 ORDER BY 2 DESC
     """)
-    report_lines.append("\n### ISBN gaps by format\n")
-    report_lines.append("| Format | Missing ISBN | Total | Gap % |")
-    report_lines.append("|--------|-------------|-------|-------|")
+    report_lines.extend([
+        "\n### ISBN gaps by format\n",
+        "| Format | Missing ISBN | Total | Gap % |",
+        "|--------|-------------|-------|-------|",
+    ])
     for row in isbn_by_format:
         pct = 100 * row['no_isbn'] / row['total'] if row['total'] > 0 else 0
         report_lines.append(f"| {row['format']} | {row['no_isbn']:,} | {row['total']:,} | {pct:.1f}% |")
@@ -87,11 +95,13 @@ async def run_audit():
             (SELECT count(*) FROM books) - (SELECT count(*) FROM book_fingerprints) as no_fingerprint
         FROM (SELECT 1) x
     """)
-    report_lines.append("\n## 2. Content Fingerprint (MinHash/LSH) Coverage\n")
-    report_lines.append(f"| Status | Count | % |")
-    report_lines.append(f"|--------|-------|---|")
-    report_lines.append(f"| Has fingerprint | {fp_stats['has_fingerprint']:,} | {100*fp_stats['has_fingerprint']/total:.1f}% |")
-    report_lines.append(f"| Missing fingerprint | {fp_stats['no_fingerprint']:,} | {100*fp_stats['no_fingerprint']/total:.1f}% |")
+    report_lines.extend([
+        "\n## 2. Content Fingerprint (MinHash/LSH) Coverage\n",
+        "| Status | Count | % |",
+        "|--------|-------|---|",
+        f"| Has fingerprint | {fp_stats['has_fingerprint']:,} | {100*fp_stats['has_fingerprint']/total:.1f}% |",
+        f"| Missing fingerprint | {fp_stats['no_fingerprint']:,} | {100*fp_stats['no_fingerprint']/total:.1f}% |",
+    ])
 
     # Fingerprint gaps by storage
     fp_by_storage = await conn.fetch("""
@@ -105,9 +115,11 @@ async def run_audit():
         LEFT JOIN book_fingerprints bfp ON bfp.book_id = b.id
         GROUP BY 1 ORDER BY 2 DESC
     """)
-    report_lines.append("\n### Fingerprint gaps by storage volume\n")
-    report_lines.append("| Volume | Missing FP | Total | Gap % |")
-    report_lines.append("|--------|-----------|-------|-------|")
+    report_lines.extend([
+        "\n### Fingerprint gaps by storage volume\n",
+        "| Volume | Missing FP | Total | Gap % |",
+        "|--------|-----------|-------|-------|",
+    ])
     for row in fp_by_storage:
         pct = 100 * row['no_fp'] / row['total'] if row['total'] > 0 else 0
         report_lines.append(f"| `{row['storage']}` | {row['no_fp']:,} | {row['total']:,} | {pct:.1f}% |")
@@ -119,11 +131,13 @@ async def run_audit():
             count(*) FILTER (WHERE embedding IS NULL) as no_embedding
         FROM books
     """)
-    report_lines.append("\n## 3. Text Profile (Embedding) Coverage\n")
-    report_lines.append(f"| Status | Count | % |")
-    report_lines.append(f"|--------|-------|---|")
-    report_lines.append(f"| Has embedding | {emb_stats['has_embedding']:,} | {100*emb_stats['has_embedding']/total:.1f}% |")
-    report_lines.append(f"| Missing embedding | {emb_stats['no_embedding']:,} | {100*emb_stats['no_embedding']/total:.1f}% |")
+    report_lines.extend([
+        "\n## 3. Text Profile (Embedding) Coverage\n",
+        "| Status | Count | % |",
+        "|--------|-------|---|",
+        f"| Has embedding | {emb_stats['has_embedding']:,} | {100*emb_stats['has_embedding']/total:.1f}% |",
+        f"| Missing embedding | {emb_stats['no_embedding']:,} | {100*emb_stats['no_embedding']/total:.1f}% |",
+    ])
 
     # Embeddable but not yet embedded
     embeddable = await conn.fetchval("""
@@ -148,9 +162,11 @@ async def run_audit():
         FROM books
     """)
     row = extra_stats[0]
-    report_lines.append("\n## 4. Extended Identifiers & Text Profiles\n")
-    report_lines.append("| Identifier | Books with data | % |")
-    report_lines.append("|-----------|----------------|---|")
+    report_lines.extend([
+        "\n## 4. Extended Identifiers & Text Profiles\n",
+        "| Identifier | Books with data | % |",
+        "|-----------|----------------|---|",
+    ])
     for key in ('has_extra', 'has_incipit', 'has_lccn', 'has_doi', 'has_asin', 'has_depot_legal', 'has_longest_words', 'has_specific_words'):
         label = key.replace('has_', '').replace('_', ' ').title()
         report_lines.append(f"| {label} | {row[key]:,} | {100*row[key]/total:.1f}% |")
@@ -162,11 +178,13 @@ async def run_audit():
             count(*) FILTER (WHERE description IS NOT NULL AND description != '') as has_description
         FROM books
     """)
-    report_lines.append("\n## 5. Content Completeness\n")
-    report_lines.append("| Field | Has data | % |")
-    report_lines.append("|-------|----------|---|")
-    report_lines.append(f"| Cover | {content_stats['has_cover']:,} | {100*content_stats['has_cover']/total:.1f}% |")
-    report_lines.append(f"| Description | {content_stats['has_description']:,} | {100*content_stats['has_description']/total:.1f}% |")
+    report_lines.extend([
+        "\n## 5. Content Completeness\n",
+        "| Field | Has data | % |",
+        "|-------|----------|---|",
+        f"| Cover | {content_stats['has_cover']:,} | {100*content_stats['has_cover']/total:.1f}% |",
+        f"| Description | {content_stats['has_description']:,} | {100*content_stats['has_description']/total:.1f}% |",
+    ])
 
     # --- Priority Queue ---
     report_lines.append("\n## 6. Priority Gaps (books needing most work)\n")
@@ -176,16 +194,22 @@ async def run_audit():
           AND b.embedding IS NULL
           AND NOT EXISTS (SELECT 1 FROM book_fingerprints bfp WHERE bfp.book_id = b.id)
     """)
-    report_lines.append(f"**Books missing ALL three (ISBN + fingerprint + embedding):** {priority:,}\n")
-    report_lines.append("These should be prioritized in the ingestion pipeline.\n")
+    report_lines.extend([
+        f"**Books missing ALL three (ISBN + fingerprint + embedding):** {priority:,}\n",
+        "These should be prioritized in the ingestion pipeline.\n",
+    ])
 
     await conn.close()
 
     # Write report
-    os.makedirs("reports", exist_ok=True)
     report_path = "reports/coverage_audit_gap.md"
-    with open(report_path, "w") as f:
-        f.write("\n".join(report_lines) + "\n")
+
+    def _write_report() -> None:
+        os.makedirs("reports", exist_ok=True)
+        with open(report_path, "w") as out:
+            out.write("\n".join(report_lines) + "\n")
+
+    await asyncio.to_thread(_write_report)  # blocking file I/O stays off the event loop
     print(f"Report written to {report_path}")
 
 

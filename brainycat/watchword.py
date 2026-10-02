@@ -46,7 +46,7 @@ def save_seen(seen):
         json.dump(list(seen), f)
 
 
-def grab_torrent(download_url, title):
+def grab_torrent(download_url):
     login_data = f"username={QBIT_USER}&password={QBIT_PASS}".encode()
     req = urllib.request.Request(f"{QBIT_URL}/api/v2/auth/login", data=login_data)
     with urllib.request.urlopen(req, timeout=10) as r:
@@ -108,7 +108,7 @@ def run():
                     if dl:
                         print(f"  [{term}] {title[:80]}")
                         try:
-                            grab_torrent(dl, title)
+                            grab_torrent(dl)
                             total_new += 1
                         except Exception as e:
                             print(f"    grab failed: {e}")

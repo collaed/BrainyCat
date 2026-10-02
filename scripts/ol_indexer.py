@@ -160,7 +160,7 @@ def main():
         conn.executemany("INSERT INTO title_lookup VALUES (?,?,?)", batch_title)
         conn.commit()
 
-    print(f"Creating indexes...")
+    print("Creating indexes...")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_title_norm ON title_lookup(norm_title)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_isbn_lang ON isbn_lookup(language)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_isbn_year ON isbn_lookup(year)")

@@ -119,9 +119,8 @@ async def validate_book(book_id: str) -> dict[str, Any]:
                 flags["language_mismatch"] = {"detected": detected, "assigned": assigned_langs}
 
     # 3. Author in text
-    if row["authors"]:
-        if not _author_in_text(row["authors"], text_sample):
-            flags["author_not_in_text"] = True
+    if row["authors"] and not _author_in_text(row["authors"], text_sample):
+        flags["author_not_in_text"] = True
 
     # 4. Description vs content similarity (simple word overlap)
     if row["description"] and len(row["description"]) > 50:
@@ -135,7 +134,12 @@ async def validate_book(book_id: str) -> dict[str, Any]:
             flags["description_mismatch"] = {"overlap": round(overlap, 3)}
 
     # Store flags
-    confidence = "high" if not flags else "low" if len(flags) >= 2 else "medium"
+    if not flags:
+        confidence = "high"
+    elif len(flags) >= 2:
+        confidence = "low"
+    else:
+        confidence = "medium"
     validation = {"confidence": confidence, "flags": flags, "checks_run": 4}
 
     import json
