@@ -607,9 +607,10 @@ def _isbn_worker(worker_id: int) -> None:
     import psycopg2
     import psycopg2.extras
 
+    from brainycat.config import settings
     from brainycat.isbn import extract_from_filename, extract_from_opf, extract_from_pdf_metadata, extract_from_text
 
-    conn = psycopg2.connect("postgresql://brainycat:brainycat@brainycat-db:5432/brainycat")
+    conn = psycopg2.connect(settings.database_url)
     conn.autocommit = True
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 

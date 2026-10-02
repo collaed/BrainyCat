@@ -10,7 +10,9 @@ import time
 import psycopg2
 import psycopg2.extras
 
-DB_URL = "postgresql://brainycat:brainycat@brainycat-db:5432/brainycat"
+from brainycat.config import settings
+
+DB_URL = settings.database_url
 MIN_EPUB_SIZE = 1000  # minimum valid EPUB size in bytes
 
 

@@ -77,7 +77,8 @@ Code is volume-mounted, so `docker restart brainycat` picks up code changes with
 
 Current `.env` on sake:
 ```
-BRAINYCAT_DATABASE_URL=postgresql://brainycat:brainycat@postgres:5432/brainycat
+BRAINYCAT_DATABASE_URL=postgresql://brainycat:<POSTGRES_PASSWORD>@postgres:5432/brainycat
+POSTGRES_PASSWORD=<generate with: openssl rand -hex 24>
 BRAINYCAT_SECRET_KEY=change-me-in-production
 BRAINYCAT_DATA_DIR=/data/books
 BRAINYCAT_INCOMING_DIR=/data/incoming

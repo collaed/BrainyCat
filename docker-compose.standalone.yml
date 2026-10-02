@@ -11,7 +11,7 @@ services:
     env_file:
       - .env
     environment:
-      - BRAINYCAT_DATABASE_URL=postgresql://brainycat:brainycat@postgres:5432/brainycat
+      - BRAINYCAT_DATABASE_URL=postgresql://brainycat:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/brainycat
     volumes:
       - brainycat-data:/data
     depends_on:
@@ -27,7 +27,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: brainycat
-      POSTGRES_PASSWORD: brainycat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: brainycat
     volumes:
       - brainycat-pgdata:/var/lib/postgresql/data

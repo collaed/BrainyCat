@@ -5,11 +5,14 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 
 import psycopg2
 import psycopg2.extras
 
-DB_URL = "postgresql://brainycat:brainycat@brainycat-db:5432/brainycat"
+from brainycat.config import settings
+
+DB_URL = settings.database_url
 
 ISBN13_RE = re.compile(r"97[89][\d\s\-]{10,17}")
 ISBN10_RE = re.compile(r"(?:ISBN[-:\s]*)?\d[-\s]?\d{2}[-\s]?\d{4,6}[-\s]?\d[-\s]?[\dXx]")
@@ -88,15 +91,16 @@ def run():
 
                     # OCR the page
                     try:
-                        # Write temp PNG, run tesseract
-                        tmp = f"/tmp/ocr_{book_id}_{page_idx}.png"
-                        with open(tmp, "wb") as f:
-                            f.write(img_bytes)
-                        result = subprocess.run(
-                            ["tesseract", tmp, "-", "--psm", "6", "-l", "eng+fra"],
-                            capture_output=True, text=True, timeout=30,
-                        )
-                        os.unlink(tmp)
+                        # Write temp PNG in a private (0700) directory, run tesseract; the directory
+                        # is removed on exit, even if tesseract fails or times out.
+                        with tempfile.TemporaryDirectory(prefix="ocr_") as tmpdir:
+                            tmp = os.path.join(tmpdir, f"{page_idx}.png")
+                            with open(tmp, "wb") as f:
+                                f.write(img_bytes)
+                            result = subprocess.run(
+                                ["tesseract", tmp, "-", "--psm", "6", "-l", "eng+fra"],
+                                capture_output=True, text=True, timeout=30,
+                            )
                         if result.returncode == 0:
                             text = result.stdout
                             # Look for ISBN

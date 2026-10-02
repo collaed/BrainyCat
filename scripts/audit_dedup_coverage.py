@@ -11,10 +11,11 @@ from datetime import datetime, timezone
 
 import asyncpg
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://brainycat:brainycat@localhost:5432/brainycat",
-)
+# No default: a credential must never live in the source. Use the same URL the app uses, e.g.
+#   export DATABASE_URL="postgresql://brainycat:$POSTGRES_PASSWORD@localhost:5432/brainycat"
+DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("BRAINYCAT_DATABASE_URL")
+if not DATABASE_URL:
+    sys.exit("ERROR: set DATABASE_URL (or BRAINYCAT_DATABASE_URL) to the database connection string.")
 
 
 async def run_audit():

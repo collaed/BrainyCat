@@ -7,7 +7,9 @@ class Settings(BaseSettings):
     """BrainyCat configuration loaded from environment."""
 
     # Database
-    database_url: str = "postgresql://brainycat:brainycat@postgres:5432/brainycat"
+    # No password in the default: compose injects the real URL from POSTGRES_PASSWORD (.env), so a
+    # deployment that forgets to set it fails to authenticate instead of running with a known password.
+    database_url: str = "postgresql://brainycat@postgres:5432/brainycat"
 
     # Paths
     data_dir: str = "/data/books"
