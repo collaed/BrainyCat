@@ -17,6 +17,9 @@ DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("BRAINYCAT_DATAB
 if not DATABASE_URL:
     sys.exit("ERROR: set DATABASE_URL (or BRAINYCAT_DATABASE_URL) to the database connection string.")
 
+TABLE_HEADER = "| Status | Count | % |"
+TABLE_RULE = "|--------|-------|---|"
+
 
 async def run_audit():
     try:
@@ -44,8 +47,8 @@ async def run_audit():
     """)
     report_lines.extend([
         "## 1. ISBN Coverage\n",
-        "| Status | Count | % |",
-        "|--------|-------|---|",
+        TABLE_HEADER,
+        TABLE_RULE,
         f"| Has ISBN | {isbn_stats['has_isbn']:,} | {100*isbn_stats['has_isbn']/total:.1f}% |",
         f"| Missing ISBN | {isbn_stats['no_isbn']:,} | {100*isbn_stats['no_isbn']/total:.1f}% |",
     ])
@@ -97,8 +100,8 @@ async def run_audit():
     """)
     report_lines.extend([
         "\n## 2. Content Fingerprint (MinHash/LSH) Coverage\n",
-        "| Status | Count | % |",
-        "|--------|-------|---|",
+        TABLE_HEADER,
+        TABLE_RULE,
         f"| Has fingerprint | {fp_stats['has_fingerprint']:,} | {100*fp_stats['has_fingerprint']/total:.1f}% |",
         f"| Missing fingerprint | {fp_stats['no_fingerprint']:,} | {100*fp_stats['no_fingerprint']/total:.1f}% |",
     ])
@@ -133,8 +136,8 @@ async def run_audit():
     """)
     report_lines.extend([
         "\n## 3. Text Profile (Embedding) Coverage\n",
-        "| Status | Count | % |",
-        "|--------|-------|---|",
+        TABLE_HEADER,
+        TABLE_RULE,
         f"| Has embedding | {emb_stats['has_embedding']:,} | {100*emb_stats['has_embedding']/total:.1f}% |",
         f"| Missing embedding | {emb_stats['no_embedding']:,} | {100*emb_stats['no_embedding']/total:.1f}% |",
     ])

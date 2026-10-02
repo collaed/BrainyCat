@@ -19,7 +19,7 @@ def client() -> TestClient:
 def test_config_defaults() -> None:
     """Settings loads with sensible defaults."""
     s = Settings()
-    assert s.database_url.startswith("postgresql://")
+    assert s.database_url == ""
     assert s.data_dir == "/data/books"
     assert s.embedding_dim == 384
     assert s.session_max_age == 86400 * 7
