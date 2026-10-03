@@ -23,7 +23,14 @@ SERIES_PATTERNS = [
 
 
 async def detect_series(limit: int = 100) -> dict[str, Any]:
-    """Scan books without series and try to detect series from titles."""
+    """Scan books without a series and detect one from the title (e.g. "... Book 3", "... Tome 2").
+
+    Called by: the scheduler's series-detection background pass, and the Intelligence → Series page
+    (`static/intel-series.html` / `static/series.html`) when the user triggers a rescan. Runs
+    whenever new books are ingested and periodically thereafter. Writes the detected series link into
+    `books_series(book_id, series_id)` and the volume number into `books.series_index` (that column
+    lives on `books`, not on the link table — see K2).
+    """
     rows = await fetch_all(
         """
         SELECT b.id, b.title FROM books b
@@ -53,11 +60,19 @@ async def detect_series(limit: int = 100) -> dict[str, Any]:
                         series_name,
                     )
                 if series:
+                    # K2 fix: books_series has only (book_id, series_id) — the volume number
+                    # (series_index) is a column on `books`. Writing series_index into books_series
+                    # threw `column "series_index" of relation "books_series" does not exist`
+                    # (seen as format_stack_error on fides). Link in books_series, set index on books.
                     await execute(
-                        "INSERT INTO books_series (book_id, series_id, series_index) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                        "INSERT INTO books_series (book_id, series_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
                         r["id"],
                         series["id"],
-                        series_idx,
+                    )
+                    await execute(
+                        "UPDATE books SET series_index = $1 WHERE id = $2",
+                        float(series_idx),
+                        r["id"],
                     )
                     detected += 1
                 break

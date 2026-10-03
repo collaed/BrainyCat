@@ -46,3 +46,26 @@ Includes PostgreSQL with pgvector. No external dependencies required. Optional I
 **Current state:** Running on my server with 1,528 books. 82% ISBN coverage, 99.9% covers, 63% descriptions — all filled automatically. AGPL-3.0 licensed.
 
 [screenshot: library grid] [screenshot: book detail with enrichment] [screenshot: reader with annotations]
+
+---
+
+## Coming soon — "Read the summary first" (owned summaries)
+
+*Draft addition for the next post / changelog.*
+
+Most of us have book summaries we already own as files — commercial ones we paid for, or our own
+notes. They
+usually live in a folder, disconnected from the actual books. BrainyCat will:
+
+- **Auto-detect** summary files (dropped in the incoming folder or uploaded) by recognizing the
+  provider's boilerplate, and store them as first-class items — even though they have no ISBN.
+- **Auto-link** each summary to its full book in your library.
+- Offer **"Read the summary first"** on any book that has one — skim the abstract, and only spend
+  hours on the full book if the summary makes it worth it.
+
+Your owned summaries, provider-attributed, personal use only — no scraping, nothing leaves your
+server. Optional: with Intello configured, generate your own "goldmine" chapter summaries of books
+you own.
+
+*(Positioning: this is the feature no Calibre/Kavita/Audiobookshelf stack has — it treats summaries
+as a first-class, ISBN-less content type wired into a "should I read the full thing?" decision.)*

@@ -1,5 +1,10 @@
 # BrainyCat — User Journeys
 
+> **⚠️ Note (2026-09-30):** UJ-34 (summary auto-detection) must also cover the **audio** path — a
+> Blinkist MP3 has no text pages, so detection uses ID3/M4B tags + incoming-folder rules (STT only
+> as a last resort), and linking requires **author-surname agreement**, not title alone. See
+> [`roadmap/decisions-and-code.md`](./roadmap/decisions-and-code.md) and the PR #2 review response.
+
 ## UJ-01: First Visit & Authentication
 1. User navigates to `your-server:8000`
 2. Caddy forward_auth redirects to ECB login page
@@ -231,3 +236,42 @@
 3. `brainycat send-to-kindle <id>` → sends to Kindle
 4. `brainycat stats` → shows reading statistics
 5. `brainycat health` → checks server status
+
+---
+
+## Planned journeys — Owned summaries (see `roadmap/library-vision.md` Phase B)
+
+## UJ-34: Auto-detected summary from the incoming folder
+1. User drops a getAbstract PDF (or a Blinkist MP3) into `/data/incoming/`
+2. The watcher imports it; `summary_detect` samples the text and matches the provider's boilerplate
+   signature ("getAbstract" / "Take-Aways", or "Blinkist" / "Final summary")
+3. The item is stored with `content_type='summary'`, a `book_summaries` row (provider, kind), and
+   **no ISBN task is queued** for it
+4. Auto-association matches the summary's title/author to a full book already in the library and
+   writes `book_links(link_type='summary')`
+5. On that full book's detail page, a "Summary available (getAbstract)" badge appears
+
+## UJ-35: Upload a summary manually (no detectable boilerplate)
+1. User uploads a summary file and ticks "This is a summary" → selects a provider (or "self-generated")
+2. `content_type='summary'` is set from the form; the `book_summaries` row records the provider
+3. If the full book is present, the user links it via `POST /api/v1/books/{summary_id}/link-original`
+
+## UJ-36: Read the summary first
+1. User opens a full book that has a linked summary
+2. The detail page shows **"Read the summary first"** (provider-attributed) above "Open full book";
+   for an audio summary, a **"Listen (X min)"** action
+3. User skims the summary in the existing reader/player, then decides whether to open the full book
+4. Optional setting "Prefer summary when available" surfaces the summary first everywhere
+
+## UJ-37: Generate my own goldmine summary (Intello)
+1. On a full book the user owns, they click "Generate my own summary"
+2. The book is chunked (`content_chunks`); Intello produces a per-chapter goldmine summary
+3. The result is stored as a linked `content_type='summary'`, `is_self_generated=true`,
+   `provider='self'` edition — the same object as the intelligence page's goldmine tier
+   (`roadmap/master-improvement-plan.md` Task M3)
+4. The user reads the goldmine summary first (UJ-36)
+
+## UJ-38: Ask the assistant about summaries (MCP)
+1. User asks their AI assistant "do I have a summary of &lt;book&gt;?"
+2. The `list_summaries_of` MCP tool returns the linked provider summary
+3. `search_books` / `search_content` exclude summaries by default but can include them on request

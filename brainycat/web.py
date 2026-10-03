@@ -98,6 +98,8 @@ from brainycat.routes.kosync import router as kosync_router  # noqa: E402
 from brainycat.routes.media import router as media_router  # noqa: E402
 from brainycat.routes.reader import router as reader_router  # noqa: E402
 from brainycat.routes.social import router as social_router  # noqa: E402
+from brainycat.routes.triage import router as triage_router  # noqa: E402
+from brainycat.routes.verify import router as verify_router  # noqa: E402
 from brainycat.routes.webdav import router as webdav_router  # noqa: E402
 from brainycat.routes.wanted import router as wanted_router  # noqa: E402
 from brainycat.routes.ws import router as ws_router  # noqa: E402
@@ -119,6 +121,10 @@ app.include_router(oauth_router)
 app.include_router(health_router)
 app.include_router(webdav_router)
 app.include_router(wanted_router)
+# Mount the triage + verify review pages' APIs (Blocker 2: their routers existed but were never
+# included, so static/triage.html and static/verify.html 404'd on every call).
+app.include_router(triage_router)
+app.include_router(verify_router)
 
 
 @app.get("/catalog")

@@ -320,7 +320,18 @@ async def compute_all_fingerprints(batch_size: int = 20) -> dict[str, Any]:
 
 
 async def find_duplicates_by_content(batch_size: int = 50) -> dict[str, Any]:
-    """Compare fingerprints using MinHash Jaccard similarity."""
+    """Compare content fingerprints (MinHash Jaccard) to populate the Content Duplicates review page.
+
+    Called by: the scheduler's `_fingerprint_loop` (every 20s) and, on demand, the Intelligence →
+    Content Duplicates page (`static/intel-content-dupes.html`). Writes candidate pairs into
+    `duplicate_matches` for the human review queue.
+
+    D1 fix: previously this had NO cursor — it re-sorted by title and processed only the first
+    `batch_size` outer books every run, so any pair where both books sort after that position was
+    never compared, and `_fingerprint_loop` re-scanned the same 20 books forever. It also computed a
+    size ratio and threw it away. Now it advances a persisted cursor across runs and uses the size
+    ratio to suppress obvious different-length false matches.
+    """
     import json
 
     rows = await fetch_all("""
@@ -342,12 +353,21 @@ async def find_duplicates_by_content(batch_size: int = 50) -> dict[str, Any]:
             continue
         books.append({"id": r["book_id"], "title": r["title"], "skeleton": skeleton, "minhash": minhash, "chars": r["total_chars"]})
 
+    # D1: persisted cursor so successive runs sweep the whole list instead of re-scanning the head.
+    cur_row = await fetch_one("SELECT value FROM app_settings WHERE key = 'dedup_cursor'")
+    start = 0
+    if cur_row:
+        try:
+            start = int(cur_row["value"]) % max(len(books), 1)
+        except (ValueError, TypeError):
+            start = 0
+
     new_matches = 0
     checked = 0
+    i = start
 
-    for i, a in enumerate(books):
-        if checked >= batch_size:
-            break
+    while checked < batch_size and checked < len(books):
+        a = books[i]
         for b in books[i + 1 :]:
             # Quick filter: skeleton hash match = very likely same work
             same_skeleton = a["skeleton"] == b["skeleton"] and a["skeleton"]
@@ -355,11 +375,11 @@ async def find_duplicates_by_content(batch_size: int = 50) -> dict[str, Any]:
             # MinHash Jaccard similarity
             sim = _jaccard_minhash(a["minhash"], b["minhash"])
 
-            # Size similarity (within 10%)
-            min(a["chars"], b["chars"]) / max(a["chars"], b["chars"]) if a["chars"] and b["chars"] else 0
+            # Size similarity — now USED (D1): very different lengths are not the same content.
+            size_ratio = (min(a["chars"], b["chars"]) / max(a["chars"], b["chars"])) if a["chars"] and b["chars"] else 0
 
             # Decision
-            if same_skeleton or sim > 0.3:
+            if (same_skeleton or sim > 0.3) and (same_skeleton or size_ratio >= 0.5):
                 overlap = sim * 100
                 if same_skeleton:
                     overlap = max(overlap, 80)
@@ -383,6 +403,14 @@ async def find_duplicates_by_content(batch_size: int = 50) -> dict[str, Any]:
                 )
                 new_matches += 1
         checked += 1
+        i = (i + 1) % len(books)
+
+    # D1: persist where to resume next run (app_settings.value is JSONB).
+    await execute(
+        "INSERT INTO app_settings (key, value) VALUES ('dedup_cursor', to_jsonb($1::int)) "
+        "ON CONFLICT (key) DO UPDATE SET value = to_jsonb($1::int)",
+        i,
+    )
 
     total_matches = await fetch_one("SELECT count(*) as n FROM duplicate_matches WHERE status='pending'")
     return {"new_matches": new_matches, "total_pending": total_matches["n"] if total_matches else 0}

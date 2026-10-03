@@ -108,6 +108,26 @@ async def _ingest_one_file(book_id: str, file_path: str, original_filename: str,
     except Exception:
         pass
 
+    # K6: capture ORIGINAL-byte hashes + any Anna's Archive filename MD5 BEFORE fix_epub rewrites
+    # the file. These immutable hashes are what LibGen/AA lookup and cross-user dedup key on.
+    from brainycat.file_hashes import capture_original_hashes, sha256_file
+
+    _orig_hashes = capture_original_hashes(file_path, original_filename)
+
+    # Duplicate-import guard: if a byte-identical copy is already in the library, skip cleanly instead
+    # of letting the insert collide (migration 014's index is non-unique, but we still don't want a
+    # second redundant book + file). Remove the just-written upload so it isn't left stranded.
+    if _orig_hashes["original_sha256"]:
+        from brainycat.watcher import _fetch_existing_by_hash
+
+        existing = await _fetch_existing_by_hash(_orig_hashes["original_sha256"])
+        if existing:
+            import contextlib
+
+            with contextlib.suppress(OSError):
+                os.unlink(file_path)
+            return {"warning": "already_in_library", "existing_book": str(existing["book_id"])}
+
     # Auto-fix EPUB issues
     if ext == ".epub":
         try:
@@ -116,6 +136,8 @@ async def _ingest_one_file(book_id: str, file_path: str, original_filename: str,
             fix_epub(file_path)
         except Exception:
             pass
+
+    _current_sha256 = sha256_file(file_path)
 
     try:
         meta = extract_metadata(file_path)
@@ -176,8 +198,9 @@ async def _ingest_one_file(book_id: str, file_path: str, original_filename: str,
         # Insert book file
         mime = mimetypes.guess_type(original_filename)[0]
         await execute(
-            """INSERT INTO book_files (id, book_id, format, file_path, file_name, file_size, mime_type, bitrate, duration_seconds, has_chapters)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
+            """INSERT INTO book_files (id, book_id, format, file_path, file_name, file_size, mime_type, bitrate, duration_seconds, has_chapters,
+                                       original_md5, original_sha256, current_sha256, anna_md5)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)""",
             uuid4(),
             UUID(book_id),
             meta.get("format", ext.lstrip(".")),
@@ -188,6 +211,10 @@ async def _ingest_one_file(book_id: str, file_path: str, original_filename: str,
             meta.get("bitrate"),
             meta.get("duration_seconds"),
             meta.get("has_chapters", False),
+            _orig_hashes["original_md5"],
+            _orig_hashes["original_sha256"],
+            _current_sha256,
+            _orig_hashes["anna_md5"],
         )
 
         # Clean author name — filter garbage

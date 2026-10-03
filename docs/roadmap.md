@@ -260,3 +260,47 @@ make test-int      # Integration tests (needs PostgreSQL)
 make test-e2e      # E2E tests (needs running instance)
 make test-all      # Everything
 ```
+
+---
+
+## Detailed Roadmaps (2026-09-30)
+
+The high-level tables above are supplemented by three detailed, reviewable roadmap documents under
+[`docs/roadmap/`](./roadmap/):
+
+- **[`master-improvement-plan.md`](./roadmap/master-improvement-plan.md)** — the umbrella plan. It
+  recovers ideas that were scoped in earlier docs but had slipped off the active table (see below),
+  consolidates them with the two plans below, and gives concrete technical steps and sequencing
+  (Tasks M1–M12).
+- **[`library-vision.md`](./roadmap/library-vision.md)** — multi-format / multi-language /
+  multi-edition modeling, maximal enrichment, opt-in offline reference DBs (dump-only; Google Books
+  excluded, Wikidata optional/off), and **owned summaries/abstracts** (getAbstract, Blinkist,
+  self-authored) auto-detected from provider boilerplate, auto-associated with full works, and
+  surfaced as the proposed **first read**. Phased A → B → C.
+- **[`dedup-overhaul.md`](./roadmap/dedup-overhaul.md)** — diagnoses the concrete failures in the
+  current content-duplicate detection and prescribes a fused, LSH-banded, edition-aware,
+  review-driven replacement (Tasks D1–D8).
+
+### Recovered ideas (previously scoped, now re-surfaced)
+
+These were specified in `roadmap.md` / `v2-requirements.md` / the Ideas Parking Lot and are formally
+tracked again in `master-improvement-plan.md`:
+
+- `processing_status` / scan-failed flag (never retry a failed book forever) — Task M1.
+- Book status enum + daily reading logs + streaks + reading-time estimates + "Continue reading"
+  shelf — Task M2.
+- 3-tier intelligence pages with a **goldmine** summary level (unified with the self-generated
+  summary edition in the library vision) — Task M3.
+- Enrichment explanation per book + removal/fix of the dead LoC source (0% hit rate) — Task M4.
+- WordDumb-style Word Wise + X-Ray; cross-book knowledge graph (stretch) — Task M5.
+- Page-level FTS snippets + "you already own this" catalog cross-reference + Readwise (stretch) —
+  Task M6.
+- Bulk metadata editor + cover aspect-ratio normalization + cover resize on ingest — Task M7.
+- Multi-user isolation + cross-user file dedup (`canonical_id`) — Task M8 (needs product decision).
+- Book DNA & wrap-up cards — Task M9.
+- Intello circuit breaker + health endpoint + structured error responses — Task M10.
+- Pre-built GHCR images + Prometheus metrics — Task M11.
+- Test-coverage audit + fix of the two pre-existing `calibre_import` test-collection errors found
+  during PR #1 review — Task M12.
+- Suffix-array/substring dedup and incipit/cover-pHash lineage — folded into `dedup-overhaul.md`.
+- KOReader kosync queue RFE (`docs/koreader-rfe-kosync-queue.md`) — tracked in the backlog.

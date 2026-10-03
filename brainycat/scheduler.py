@@ -32,15 +32,20 @@ async def start_scheduler() -> None:
         # Disk/mixed
         ("fingerprint", _fingerprint_loop, 20),
         ("format_stack", _format_stack_loop, 300),
-        ("incipit_match", _incipit_match_loop, 600),
+        # NOTE: incipit_match removed from the schedule — brainycat/incipit_match.py is a 5-line stub
+        # (it returned zero counts, i.e. silent false "success" every 600s). The real extraction
+        # helpers in brainycat/incipit.py are kept; re-add the loop once incipit_match is implemented.
         # Housekeeping
         ("log_retention", _log_retention_loop, 86400),
-        # NOTE: ocr_copyright, cover_phash, validation (metadata_validator), and confidence loops
-        # are intentionally NOT scheduled — the modules they call (brainycat.ocr_copyright /
-        # cover_phash / metadata_validator / confidence) were never implemented, only stubbed as
-        # scheduler hooks. Re-add them here once those modules exist. See docs/known-issues.md.
-        # (text_profiler was in this category too, but turned out to be misdiagnosed — see
-        # _fingerprint_loop above, which is what it should have called all along.)
+        # Re-enabled: these two call REAL modules (metadata_validator.validate_batch — 173 lines;
+        # confidence.compute_batch — 324 lines), verified to do actual work.
+        ("validation", _validation_loop, 30),
+        ("confidence", _confidence_loop, 60),
+        # NOT scheduled: cover_phash and ocr_copyright are still 5-line stubs that return zero counts.
+        # Scheduling them would make a job report success for work it didn't do (against the CLAUDE.md
+        # convention) and show green on the M10 heartbeat. Their stub functions now raise
+        # NotImplementedError so any accidental call is surfaced, not silently "successful". Re-add
+        # them here once cover_phash.py / ocr_copyright.py are implemented. See docs/known-issues.md.
     ]
     for name, fn, interval in loops:
         task = asyncio.create_task(_supervised(name, fn, interval))
@@ -602,9 +607,10 @@ def _isbn_worker(worker_id: int) -> None:
     import psycopg2
     import psycopg2.extras
 
+    from brainycat.config import settings
     from brainycat.isbn import extract_from_filename, extract_from_opf, extract_from_pdf_metadata, extract_from_text
 
-    conn = psycopg2.connect("postgresql://brainycat:brainycat@brainycat-db:5432/brainycat")
+    conn = psycopg2.connect(settings.database_url)
     conn.autocommit = True
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 

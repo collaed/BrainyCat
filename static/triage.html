@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BrainyCat — Triage</title>
+<style>
+:root{--bg:#0f0f14;--surface:#1a1a22;--border:#2a2a35;--text:#ececf1;--muted:#8e8ea0;--green:#10b981;--red:#ef4444;--yellow:#f59e0b;--blue:#3b82f6;--accent:#7c6cf0}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center}
+.header{width:100%;max-width:800px;padding:1.5rem 1rem;display:flex;justify-content:space-between;align-items:center}
+.header h1{font-size:1.3rem;font-weight:600}
+.stats{display:flex;gap:0.8rem;font-size:0.8rem;color:var(--muted)}
+.stats span{background:var(--surface);padding:0.3rem 0.6rem;border-radius:6px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:800px;padding:2rem;margin:0 1rem}
+.card-type{font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--accent);margin-bottom:1rem;font-weight:600}
+.book-info{display:flex;gap:1.5rem;margin-bottom:1.5rem}
+.cover{width:100px;height:150px;border-radius:8px;object-fit:cover;background:var(--border);flex-shrink:0}
+.meta{flex:1;display:flex;flex-direction:column;gap:0.4rem}
+.meta .title{font-size:1.3rem;font-weight:600;line-height:1.3}
+.meta .filename{font-size:0.8rem;color:var(--muted);word-break:break-all}
+.meta .isbn{font-size:0.85rem;color:var(--blue);font-family:monospace}
+.match-box{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:1rem;margin-bottom:1.5rem}
+.match-box .label{font-size:0.7rem;color:var(--muted);text-transform:uppercase;margin-bottom:0.5rem}
+.match-box .row{display:flex;justify-content:space-between;align-items:center;padding:0.3rem 0;font-size:0.9rem}
+.match-box .row .k{color:var(--muted)}
+.match-box .row .v{font-weight:500}
+.match-box .row .v.good{color:var(--green)}
+.match-box .row .v.bad{color:var(--red)}
+.match-box .row .v.warn{color:var(--yellow)}
+.confidence-bar{height:6px;border-radius:3px;background:var(--border);margin-top:0.5rem;overflow:hidden}
+.confidence-bar .fill{height:100%;border-radius:3px;transition:width 0.3s}
+.actions{display:flex;gap:1rem;justify-content:center;margin-top:1.5rem}
+.btn{padding:0.8rem 2rem;border-radius:10px;border:none;font-size:1rem;font-weight:600;cursor:pointer;transition:transform 0.1s,opacity 0.1s}
+.btn:active{transform:scale(0.95)}
+.btn.yes{background:var(--green);color:#fff}
+.btn.no{background:var(--red);color:#fff}
+.btn.skip{background:var(--border);color:var(--muted)}
+.btn.alt{background:var(--blue);color:#fff;font-size:0.85rem;padding:0.5rem 1rem}
+.shortcuts{text-align:center;margin-top:1rem;font-size:0.75rem;color:var(--muted)}
+.alts{display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.8rem}
+.alt-isbn{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:0.4rem 0.8rem;font-size:0.8rem;cursor:pointer;font-family:monospace;transition:border-color 0.2s}
+.alt-isbn:hover{border-color:var(--blue)}
+.bulk-list{display:flex;flex-direction:column;gap:0.5rem;max-height:400px;overflow-y:auto}
+.bulk-item{display:flex;align-items:center;gap:0.8rem;padding:0.5rem;border-radius:8px;background:var(--bg)}
+.bulk-item .title{font-size:0.9rem;flex:1}
+.bulk-item .score{color:var(--green);font-weight:600;font-size:0.85rem}
+.empty{text-align:center;padding:3rem;color:var(--muted);font-size:1.2rem}
+.title-edit{width:100%;padding:0.5rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:1rem;margin-top:0.5rem}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>📚 Triage</h1>
+  <div class="stats" id="stats"></div>
+</div>
+<div class="card" id="card"><div class="empty">Loading...</div></div>
+<div class="shortcuts" id="shortcuts"></div>
+
+<script>
+const API = '/api/v1/triage';
+async function api(path, opts) {
+  const r = await fetch(API + path, {credentials:'include', ...opts});
+  if (r.status === 401 || r.status === 403) {
+    showLogin();
+    return null;
+  }
+  return r.ok ? r.json() : {};
+}
+async function post(path, body) {
+  return api(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+}
+
+let current = null;
+
+async function loadStats() {
+  const s = await api('/stats');
+  document.getElementById('stats').innerHTML =
+    `<span>Title: ${s.title_matches||0}</span><span>Multi: ${s.multi_isbn||0}</span><span>Dirty: ${s.dirty_titles||0}</span><span>Valid: ${s.validation||0}</span><span>Bulk: ${s.bulk_confirm||0}</span>`;
+}
+
+async function loadNext() {
+  try {
+    current = await api('/next');
+    if (current === null) return;
+    if (!current || Object.keys(current).length === 0) {
+      document.getElementById('card').innerHTML = '<div class="empty">⚠️ Could not load data.</div>';
+      return;
+    }
+    render(current);
+  } catch(e) {
+    document.getElementById('card').innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+  }
+}
+
+function showLogin() {
+  document.getElementById('card').innerHTML = `
+    <div class="card-type">🔒 Login required</div>
+    <div style="display:flex;flex-direction:column;gap:0.8rem;max-width:300px;margin:1rem auto">
+      <input id="user" placeholder="Username" class="title-edit" value="ecb">
+      <input id="pass" type="password" placeholder="Password" class="title-edit">
+      <button class="btn yes" onclick="doLogin()">Log in</button>
+    </div>`;
+}
+
+async function doLogin() {
+  const r = await fetch('/api/v1/login', {method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username:document.getElementById('user').value, password:document.getElementById('pass').value})});
+  if (r.ok) { loadStats(); loadNext(); }
+  else { document.getElementById('card').innerHTML = '<div class="empty">❌ Wrong credentials</div>'; }
+}
+
+function render(item) {
+  const card = document.getElementById('card');
+  const sc = document.getElementById('shortcuts');
+  if (!item || item.type === 'empty') {
+    card.innerHTML = '<div class="empty">✨ Nothing to review! All caught up.</div>';
+    sc.innerHTML = '';
+    return;
+  }
+  if (item.type === 'title_match') renderTitleMatch(card, item);
+  else if (item.type === 'multi_isbn') renderMultiIsbn(card, item);
+  else if (item.type === 'dirty_title') renderDirtyTitle(card, item);
+  else if (item.type === 'validation_mismatch') renderValidation(card, item);
+  else if (item.type === 'bulk_confirm') renderBulk(card, item);
+  sc.innerHTML = 'Keys: <b>Enter</b>=Yes &nbsp; <b>X</b>=No &nbsp; <b>→</b>=Skip';
+}
+
+function bookHtml(book) {
+  const cover = book.cover ? `<img class="cover" src="/api/v1/books/${book.id}/cover" onerror="this.style.display='none'">` : '<div class="cover"></div>';
+  return `<div class="book-info">${cover}<div class="meta">
+    <div class="title"><a href="/static/app.html#/book/${book.id}" target="_blank" style="color:inherit;text-decoration:none">${esc(book.title)}</a></div>
+    <div class="filename">${esc(book.filename||'')}</div>
+    <div class="isbn">${book.isbn||'no ISBN'} &nbsp; <a href="/static/app.html#/book/${book.id}" target="_blank" style="color:var(--accent);font-size:0.8rem">📖 Details</a></div>
+  </div></div>`;
+}
+
+function renderTitleMatch(card, item) {
+  const b = item.book, ol = item.ol || {}, mi = b.match_info || {};
+  const conf = mi.confidence || 0;
+  let color = 'var(--green)';
+  if (conf < 0.5) color = 'var(--red)';
+  else if (conf < 0.7) color = 'var(--yellow)';
+  card.innerHTML = `
+    <div class="card-type">⚠️ Low-confidence title match</div>
+    ${bookHtml(b)}
+    <div class="match-box">
+      <div class="label">Open Library says this ISBN is:</div>
+      <div class="row"><span class="k">Title</span><span class="v ${ol.title && ol.title.toLowerCase().includes(b.title.toLowerCase().slice(0,10)) ? 'good' : 'warn'}">${esc(ol.title||'?')}</span></div>
+      <div class="row"><span class="k">Author</span><span class="v">${esc(ol.authors||'?')}</span></div>
+      <div class="row"><span class="k">Year</span><span class="v">${ol.year||'?'}</span></div>
+      <div class="row"><span class="k">Method</span><span class="v">${mi.isbn_from||'?'} (${Math.round(conf*100)}%)</span></div>
+      <div class="confidence-bar"><div class="fill" style="width:${conf*100}%;background:${color}"></div></div>
+    </div>
+    <div class="actions">
+      <button class="btn yes" onclick="decide('confirm')">✓ Correct</button>
+      <button class="btn no" onclick="decide('reject')">✗ Wrong</button>
+      <button class="btn skip" onclick="loadNext()">⟳ Skip</button>
+    </div>`;
+}
+
+function renderMultiIsbn(card, item) {
+  const b = item.book, ol = item.ol || {};
+  let altsHtml = '';
+  for (const alt of (item.alternatives||[])) {
+    const aol = alt.ol || {};
+    altsHtml += `<div class="alt-isbn" onclick="fixIsbn('${alt.isbn}')">${alt.isbn} — ${esc(aol.title||'?')} (${alt.type})</div>`;
+  }
+  card.innerHTML = `
+    <div class="card-type">📑 Multiple ISBNs found — verify selection</div>
+    ${bookHtml(b)}
+    <div class="match-box">
+      <div class="label">Current pick → OL:</div>
+      <div class="row"><span class="k">Title</span><span class="v">${esc(ol.title||'?')}</span></div>
+      <div class="row"><span class="k">Author</span><span class="v">${esc(ol.authors||'?')}</span></div>
+      <div class="label" style="margin-top:0.8rem">Alternatives (click to switch):</div>
+      <div class="alts">${altsHtml}</div>
+    </div>
+    <div class="actions">
+      <button class="btn yes" onclick="decide('confirm')">✓ Current is correct</button>
+      <button class="btn skip" onclick="loadNext()">⟳ Skip</button>
+    </div>`;
+}
+
+function renderDirtyTitle(card, item) {
+  const b = item.book;
+  card.innerHTML = `
+    <div class="card-type">🧹 Dirty title</div>
+    ${bookHtml(b)}
+    <div class="match-box">
+      <div class="label">Suggested clean title:</div>
+      <input class="title-edit" id="newTitle" value="${esc(item.suggested_title)}">
+    </div>
+    <div class="actions">
+      <button class="btn yes" onclick="fixTitle()">✓ Apply</button>
+      <button class="btn skip" onclick="loadNext()">⟳ Skip</button>
+    </div>`;
+}
+
+function renderValidation(card, item) {
+  const b = item.book, ol = item.ol || {}, flags = item.flags || {};
+  let flagsHtml = '';
+  for (const [k,v] of Object.entries(flags.flags||{})) {
+    flagsHtml += `<div class="row"><span class="k">${k}</span><span class="v bad">${typeof v === 'object' ? JSON.stringify(v) : v}</span></div>`;
+  }
+  card.innerHTML = `
+    <div class="card-type">🔍 Validation mismatch</div>
+    ${bookHtml(b)}
+    <div class="match-box">
+      <div class="label">OL metadata:</div>
+      <div class="row"><span class="k">Title</span><span class="v">${esc(ol.title||'?')}</span></div>
+      <div class="row"><span class="k">Author</span><span class="v">${esc(ol.authors||'?')}</span></div>
+      <div class="label" style="margin-top:0.8rem">Flags:</div>
+      ${flagsHtml}
+    </div>
+    <div class="actions">
+      <button class="btn yes" onclick="decide('confirm')">✓ It's fine</button>
+      <button class="btn no" onclick="decide('reject')">✗ Wrong book</button>
+      <button class="btn skip" onclick="loadNext()">⟳ Skip</button>
+    </div>`;
+}
+
+function renderBulk(card, item) {
+  let list = '';
+  for (const b of item.books) {
+    list += `<div class="bulk-item"><div class="title">${esc(b.title)}</div><div class="score">${b.confidence}</div></div>`;
+  }
+  card.innerHTML = `
+    <div class="card-type">✅ High-confidence — bulk confirm</div>
+    <div class="bulk-list">${list}</div>
+    <div class="actions">
+      <button class="btn yes" onclick="bulkConfirm()">✓ Confirm all ${item.books.length}</button>
+      <button class="btn skip" onclick="loadNext()">⟳ Skip</button>
+    </div>`;
+}
+
+async function decide(action) {
+  if (!current || !current.book) return;
+  await post('/decide', {book_id: current.book.id, action});
+  loadStats();
+  loadNext();
+}
+
+async function fixIsbn(isbn) {
+  if (!current || !current.book) return;
+  await post('/decide', {book_id: current.book.id, action: 'fix_isbn', isbn});
+  loadStats();
+  loadNext();
+}
+
+async function fixTitle() {
+  if (!current || !current.book) return;
+  const title = document.getElementById('newTitle').value;
+  await post('/decide', {book_id: current.book.id, action: 'fix_title', title});
+  loadStats();
+  loadNext();
+}
+
+async function bulkConfirm() {
+  if (!current || !current.books) return;
+  await post('/decide', {action: 'bulk_confirm', book_id: current.books[0].id, book_ids: current.books.map(b=>b.id)});
+  loadStats();
+  loadNext();
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'Enter') decide('confirm');
+  else if (e.key === 'x' || e.key === 'X') decide('reject');
+  else if (e.key === 'ArrowRight') loadNext();
+});
+
+loadStats();
+loadNext();
+</script>
+</body>
+</html>

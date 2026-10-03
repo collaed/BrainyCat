@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     """BrainyCat configuration loaded from environment."""
 
     # Database
-    database_url: str = "postgresql://brainycat:brainycat@postgres:5432/brainycat"
+    # No default: compose injects BRAINYCAT_DATABASE_URL built from POSTGRES_PASSWORD (.env).
+    database_url: str = ""
 
     # Paths
     data_dir: str = "/data/books"

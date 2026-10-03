@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import os
+import tempfile
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -146,7 +147,8 @@ async def preview(file_id: str, profile: str) -> str | None:
         return None
     filters = PROFILES.get(profile, "")
     src = row["file_path"]
-    preview_path = f"/tmp/preview_{file_id}_{profile}.mp3"
+    # Private (0700) directory with an unpredictable name rather than a guessable path in shared /tmp.
+    preview_path = os.path.join(tempfile.mkdtemp(prefix="preview_"), f"{file_id}_{profile}.mp3")
     proc = await asyncio.create_subprocess_exec(
         "ffmpeg",
         "-y",
