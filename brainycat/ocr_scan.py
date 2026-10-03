@@ -16,7 +16,7 @@ DB_URL = settings.database_url
 
 ISBN13_RE = re.compile(r"97[89][\d\s-]{10,17}")
 ISBN10_RE = re.compile(r"\d[\d\s-]{8,14}[\dX]", re.IGNORECASE)
-ISSN_RE = re.compile(r"ISSN\s*:?\s*(\d{4}[-\s]?\d{3}[\dX])", re.IGNORECASE)
+ISSN_RE = re.compile(r"ISSN[\s:]{0,8}(\d{4}[-\s]?\d{3}[\dX])", re.IGNORECASE)
 
 
 def _clean_isbn(raw):

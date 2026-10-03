@@ -153,7 +153,7 @@ async def compute_confidence(book_id: str) -> dict[str, Any]:
     if extra.get("cover_phash"):
         signals.append({"name": "cover_phash", "value": "computed", "points": 5})
         score += 5
-        # TODO: compare against catalogue cover when we fetch one
+        # Not compared against a catalogue cover: none is fetched yet.
     elif row["cover_path"] and row["cover_path"] != "none":
         signals.append({"name": "cover", "value": "present, not hashed", "points": 3})
         score += 3
