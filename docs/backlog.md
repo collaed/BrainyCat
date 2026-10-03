@@ -88,6 +88,9 @@
 | K14 | Measure `sentence_match` (Google Books) hit rate on the saved 400 known / 100 unknown pools; try the stricter sentence picker | review §8 | Principle 4: evaluate before committing. |
 | K15 | Lint/type debt to zero, then enforce in CI: 78 ruff findings and 25 unformatted files on `main`, plus mypy-strict pre-existing errors | ruff baseline; CLAUDE.md | K4 first. |
 | C5 | Complete the 7 recommendation categories | library-vision | |
+| K22 | OPDS: convert at download. `?format=kepub` (Kobo, via `kepub.py`) or `?format=mobi`/`azw3` (Kindle), or choose from the User-Agent; default set by the "OPDS download format" setting | opds-proxy comparison | Today OPDS offers only stored formats and KEPUB is a manual action. Check Amazon's current format support before picking MOBI over AZW3 or EPUB. |
+| K23 | Plain-HTML browse page for e-reader browsers (the roadmap's "Kindle-friendly browser UI"), with credentials handled server-side so devices without basic-auth support still work | opds-proxy comparison; Calibre-Web #2723 | No JS, large tap targets, search and download only. |
+| K24 | OPDS: authentication handling, genre and recently-added feeds, and a caller for `/opds/search` | LazyLibrarian comparison | Magazines are out of scope (book library). Test with Aldiko, Moon+, FBReader, KOReader. |
 
 ## P3 — Parked
 
